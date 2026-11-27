@@ -117,7 +117,13 @@ export async function runEval({
   const redactorMod = loadTsModule('src/lib/command-ai/redactor.ts', {
     './schema': schemaMod
   });
-  const cases = JSON.parse(readFileSync(path.join(__dirname, questions ? 'questions.json' : 'cases.json'), 'utf8'));
+  // Diagnosis only: restricts a live run to the named synthetic cases.
+  const only = (process.env.COMMAND_AI_EVAL_ONLY ?? '').split(',').filter(Boolean);
+  const cases = JSON.parse(
+    readFileSync(path.join(__dirname, questions ? 'questions.json' : 'cases.json'), 'utf8')
+  ).filter(item => only.length === 0 || only.includes(item.id));
+  const providerErrors = [];
+  let currentCase = null;
   let redactionFailures = 0;
   let provenanceFailures = 0;
   let obligationFailures = 0;
@@ -149,6 +155,21 @@ export async function runEval({
             } catch {}
             const promptTokens = data?.usage?.prompt_tokens ?? 0;
             maxPromptTokens = Math.max(maxPromptTokens, promptTokens);
+            if (response.status === 400) {
+              // The artifact of a public repository is downloadable: bounded, with account ids and keys masked.
+              const clean = value =>
+                typeof value === 'string'
+                  ? value.replace(/\b(org|project|user|req)_[A-Za-z0-9]+|gsk_[A-Za-z0-9]+/g, '<masked>').slice(0, 1500)
+                  : null;
+              const detail = {
+                case: currentCase,
+                ...Object.fromEntries(
+                  ['type', 'code', 'param', 'message', 'failed_generation'].map(key => [key, clean(data?.error?.[key])])
+                )
+              };
+              providerErrors.push(detail);
+              console.error(`[PROVIDER 400] ${JSON.stringify(detail)}`);
+            }
             const limits = [...response.headers].filter(([name]) => name.startsWith('x-ratelimit-'));
             if (limits.length > 0) rateLimitHeaders = Object.fromEntries(limits);
             const finishReason = data?.choices?.[0]?.finish_reason;
@@ -173,6 +194,7 @@ export async function runEval({
   const retryCompile = compile => retryTransient(compile, worker ? retryBudget : undefined);
 
   for (const testCase of cases) {
+    currentCase = testCase.id;
     const redaction = redactorMod.redactPrompt(testCase.prompt, DEFAULT_CONTEXT);
     if (redaction.redactedText !== testCase.expectedRedacted) {
       redactionFailures += 1;
@@ -324,6 +346,7 @@ export async function runEval({
   return {
     mode: offlineOnly ? 'offline' : `live:${model}`,
     totalCases: cases.length,
+    providerErrors,
     results,
     redactionFailures,
     provenanceFailures,
@@ -353,7 +376,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   // stdout also carries the Worker's log lines, so the artifact is written separately.
   if (summaryPath) writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
   for (const err of summary.errors) console.error(err);
-  console.log(JSON.stringify({ ...summary, errors: undefined, results: undefined }, null, 2));
+  console.log(
+    JSON.stringify({ ...summary, errors: undefined, results: undefined, providerErrors: undefined }, null, 2)
+  );
   if (
     summary.redactionFailures > 0 ||
     summary.provenanceFailures > 0 ||

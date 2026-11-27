@@ -72,6 +72,7 @@ jobs:
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SUITE: ${{ inputs.suite }}
+          COMMAND_AI_EVAL_ONLY: patch_bridge_provider,patch_note_type,patch_amount_only,cmd_reset_draft_amount,fragment_public
           COMMAND_AI_EVAL_RETRY_BUDGET_MS: '600000'
           COMMAND_AI_EVAL_SUMMARY: ${{ github.workspace }}/command-ai-eval.json
         run: |
