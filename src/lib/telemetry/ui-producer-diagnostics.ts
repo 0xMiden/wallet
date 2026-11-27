@@ -165,6 +165,8 @@ export function classifyUiFailure(error: unknown): UiFailureKind {
 
 export const BACKUP_NETWORK_FAILURE_STAGES = ['declared_network', 'genesis_header'] as const;
 export type BackupNetworkFailureStage = (typeof BACKUP_NETWORK_FAILURE_STAGES)[number];
+export const BACKUP_EXPORT_FAILURE_STAGES = ['snapshot', 'file_preparation', 'browser_handoff'] as const;
+export type BackupExportFailureStage = (typeof BACKUP_EXPORT_FAILURE_STAGES)[number];
 export type FeatureUnavailableFeature = (typeof FEATURE_UNAVAILABLE_FEATURES)[number];
 export type FeatureUnavailableReason = (typeof FEATURE_UNAVAILABLE_REASONS)[number];
 export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[number];
@@ -213,7 +215,8 @@ export type UiEvidenceInput =
       mainnetAccessCodeRejectionOrigin: MainnetAccessCodeRejectionOrigin;
     }
   | { kind: 'note_claim'; noteClaimFailureOrigin: NoteClaimFailureOrigin; uiFailureKind: UiFailureKind }
-  | { kind: 'backup_network_failure'; backupNetworkFailureStage: BackupNetworkFailureStage };
+  | { kind: 'backup_network_failure'; backupNetworkFailureStage: BackupNetworkFailureStage }
+  | { kind: 'backup_export_failure'; backupExportFailureStage: BackupExportFailureStage };
 export type UiProducerDiagnostics = {
   guardianOutageReason?: GuardianOutageReason;
   earnPositionsLoadStage?: EarnPositionsLoadStage;
@@ -235,6 +238,7 @@ export type UiProducerDiagnostics = {
   noteClaimFailureOrigin?: NoteClaimFailureOrigin;
   uiFailureKind?: UiFailureKind;
   backupNetworkFailureStage?: BackupNetworkFailureStage;
+  backupExportFailureStage?: BackupExportFailureStage;
 };
 export const UI_PRODUCER_KEYS = [
   'guardianOutageReason',
@@ -256,7 +260,8 @@ export const UI_PRODUCER_KEYS = [
   'mainnetAccessCodeRejectionOrigin',
   'noteClaimFailureOrigin',
   'uiFailureKind',
-  'backupNetworkFailureStage'
+  'backupNetworkFailureStage',
+  'backupExportFailureStage'
 ] as const;
 const groups = {
   guardian_outage: {
@@ -342,6 +347,11 @@ const groups = {
     id: 'encryptedWalletFileWrongNetwork',
     surface: 'field',
     fields: { backupNetworkFailureStage: BACKUP_NETWORK_FAILURE_STAGES }
+  },
+  backup_export_failure: {
+    id: 'encryptedWalletFileExportFailedDesc',
+    surface: 'inline',
+    fields: { backupExportFailureStage: BACKUP_EXPORT_FAILURE_STAGES }
   },
   recipient_validation: {
     id: 'invalidMidenAccountId',

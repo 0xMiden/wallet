@@ -200,10 +200,14 @@ function normalizeProvider(value: string | null | undefined): string | undefined
 
 function normalizeChain(value: string | null | undefined): string | undefined {
   if (!value) return undefined;
-  const lower = value.trim().toLowerCase();
-  if (lower === 'eth' || lower === 'mainnet') return 'ethereum';
-  if (lower === 'arb') return 'arbitrum';
-  if (lower === 'poly') return 'polygon';
+  // Route networks are slugs ("base-sepolia"), people write them with spaces.
+  const lower = value.trim().toLowerCase().replace(/\s+/g, '-');
+  // A stated "mainnet" stays on the name: matching must not let a testnet stand in for it.
+  const name = lower.replace(/-mainnet$/, '');
+  const suffix = lower.slice(name.length);
+  if (name === 'eth' || name === 'mainnet') return `ethereum${suffix}`;
+  if (name === 'arb') return `arbitrum${suffix}`;
+  if (name === 'poly') return `polygon${suffix}`;
   return lower;
 }
 
@@ -408,6 +412,12 @@ export function applyPatchToDraft(
   }
   if (patch.note_type !== null) next.noteType = patch.note_type;
   if (patch.earn_op !== null) next.earnOp = patch.earn_op;
+  const bridgeTerms = ['assetQuery', 'toAssetQuery', 'fromChain', 'toChain'] as const;
+  if (next.action === 'bridge' && bridgeTerms.some(key => next[key]?.toLowerCase() !== base[key]?.toLowerCase())) {
+    // A chosen route (and a held token) answers the old request, not the changed one.
+    next.routeId = undefined;
+    if (patch.asset !== null) next.tokenId = resolveNicheTokenId(patch.asset, map);
+  }
   if (patch.recipient_ref !== null) {
     const resolved = resolveRecipientRef(patch.recipient_ref, map);
     if (resolved?.kind === 'contact') {
@@ -708,7 +718,7 @@ function resolveSendFlow(
   });
   const isCrossChain = addrChain !== 'miden';
   const crossChainNetwork = isCrossChain
-    ? (draft.toChain ??
+    ? (draft.toChain?.replace(/-mainnet$/, '') ??
       draft.recipientNetwork ??
       (addrChain === 'ethereum' ? (ctx.networkName === 'mainnet' ? 'ethereum' : 'sepolia') : addrChain))
     : undefined;
@@ -751,78 +761,111 @@ function isMidenChain(value: string | undefined): boolean {
   return lower === 'miden' || lower.startsWith('miden-');
 }
 
+function bridgeSymbolMatches(symbol: string, query: string): boolean {
+  const lower = symbol.toLowerCase();
+  const wanted = query.trim().toLowerCase();
+  return lower === wanted || (wanted === 'usdc' && lower === 'usdcx');
+}
+
+function bridgeRouteCarries(route: BridgeRouteSummary, asset: string): boolean {
+  return bridgeSymbolMatches(route.sourceSymbol, asset) || bridgeSymbolMatches(route.destinationSymbol, asset);
+}
+
+function bridgeRouteChips(routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
+  const labels = bridgeClarificationLabels(routes);
+  return routes.map((route, index) => ({
+    id: route.id,
+    label: labels[index]!,
+    subtitle: [route.estimateFee, route.etaLabel].filter(Boolean).join(' · ') || undefined,
+    patch: {
+      routeId: route.id,
+      provider: route.provider,
+      fromChain: route.sourceNetwork,
+      toChain: route.destinationNetwork,
+      assetQuery: route.sourceSymbol
+    }
+  }));
+}
+
+/** Offered after a request that no route serves: the user picks one, nothing is picked for them. */
+function otherBridgeRouteChips(draft: HydratedIntentDraft, routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
+  return bridgeRouteChips(routes).map((chip, index) => {
+    const keepsAsset = !draft.assetQuery || bridgeRouteCarries(routes[index]!, draft.assetQuery);
+    return {
+      ...chip,
+      patch: {
+        ...chip.patch,
+        toAssetQuery: undefined,
+        tokenId: undefined,
+        // An amount of one asset means nothing in another.
+        ...(keepsAsset
+          ? {}
+          : {
+              amount: undefined,
+              fiatUsdAmount: undefined,
+              amountFraction: undefined,
+              amountIsMax: undefined,
+              amountFromPrevious: undefined
+            })
+      }
+    };
+  });
+}
+
 function resolveBridgeFlow(
   draft: HydratedIntentDraft,
   map: RedactionMap,
   ctx: OrchestratorWalletContext
 ): OrchestratorResolution {
-  let candidates: readonly BridgeRouteSummary[];
-  if (draft.routeId) {
-    const exactRoute = ctx.bridgeRoutes.find(r => r.id === draft.routeId);
-    candidates = exactRoute ? [exactRoute] : [];
-  } else {
-    const fromChain = draft.fromChain;
-    const toChain = draft.toChain;
-    const direction: 'in' | 'out' | undefined =
-      isMidenChain(toChain) || (fromChain && !isMidenChain(fromChain))
-        ? 'in'
-        : isMidenChain(fromChain) || (toChain && !isMidenChain(toChain))
-          ? 'out'
-          : undefined;
-
-    candidates = ctx.bridgeRoutes;
-    if (direction) {
-      candidates = candidates.filter(r => r.mode === (direction === 'in' ? 'receive' : 'send'));
-    }
-    if (draft.assetQuery) {
-      const assetLower = draft.assetQuery.trim().toLowerCase();
-      const assetMatches = candidates.filter(
+  const { fromChain, toChain, assetQuery, toAssetQuery, provider } = draft;
+  const direction: 'in' | 'out' | undefined =
+    isMidenChain(toChain) || (fromChain && !isMidenChain(fromChain))
+      ? 'in'
+      : isMidenChain(fromChain) || (toChain && !isMidenChain(toChain))
+        ? 'out'
+        : undefined;
+  const inDirection = ctx.bridgeRoutes.filter(r => !direction || r.mode === (direction === 'in' ? 'receive' : 'send'));
+  // "base" also names "base-sepolia", but "sepolia" is another chain than "base-sepolia".
+  const onChain = (network: string, wanted: string | undefined) => {
+    if (!wanted) return true;
+    const slug = network.toLowerCase();
+    const mainnet = wanted.replace(/-mainnet$/, '');
+    if (mainnet !== wanted) return slug === wanted || slug === mainnet;
+    return `${slug}-`.startsWith(`${wanted}-`);
+  };
+  // Every stated term must hold: dropping one would swap in a route the user did not ask for.
+  const candidates = draft.routeId
+    ? ctx.bridgeRoutes.filter(r => r.id === draft.routeId)
+    : inDirection.filter(
         r =>
-          r.sourceSymbol.toLowerCase() === assetLower ||
-          r.destinationSymbol.toLowerCase() === assetLower ||
-          (assetLower === 'usdc' &&
-            (r.sourceSymbol.toLowerCase() === 'usdcx' || r.destinationSymbol.toLowerCase() === 'usdcx'))
+          (!assetQuery ||
+            (toAssetQuery ? bridgeSymbolMatches(r.sourceSymbol, assetQuery) : bridgeRouteCarries(r, assetQuery))) &&
+          (!toAssetQuery || bridgeSymbolMatches(r.destinationSymbol, toAssetQuery)) &&
+          onChain(r.sourceNetwork, fromChain) &&
+          onChain(r.destinationNetwork, toChain) &&
+          (!provider || r.provider.toLowerCase() === provider)
       );
-      if (assetMatches.length > 0) candidates = assetMatches;
-    }
-    if (fromChain && !isMidenChain(fromChain)) {
-      const chainMatches = candidates.filter(r => r.sourceNetwork.toLowerCase().includes(fromChain));
-      if (chainMatches.length > 0) candidates = chainMatches;
-    }
-    if (toChain && !isMidenChain(toChain)) {
-      const chainMatches = candidates.filter(r => r.destinationNetwork.toLowerCase().includes(toChain));
-      if (chainMatches.length > 0) candidates = chainMatches;
-    }
-    if (draft.provider) {
-      const byProvider = candidates.filter(r => r.provider.toLowerCase() === draft.provider);
-      if (byProvider.length > 0) candidates = byProvider;
-    }
-  }
 
   if (candidates.length === 0) {
+    if (ctx.bridgeRoutes.length === 0) {
+      return { kind: 'error', messageKey: 'commandAiBridgeUnavailable', fallbackAction: 'bridge' };
+    }
+    const others = inDirection.length > 0 ? inDirection : ctx.bridgeRoutes;
+    const chips = otherBridgeRouteChips(draft, others);
     return {
-      kind: 'error',
-      messageKey: 'commandAiBridgeUnavailable',
-      fallbackAction: 'bridge'
+      kind: 'clarifying',
+      slot: 'route',
+      questionKey: 'commandAiBridgeNoRoute',
+      chips,
+      draft: { ...draft, routeId: undefined },
+      map,
+      allowedOptionIds: chips.map(c => c.id)
     };
   }
 
   // Clarification needed when multiple bridge routes/providers remain eligible.
   if (candidates.length > 1) {
-    const shown = candidates.slice(0, 6);
-    const labels = bridgeClarificationLabels(shown);
-    const chips: ClarificationChip[] = shown.map((route, index) => ({
-      id: route.id,
-      label: labels[index]!,
-      subtitle: [route.estimateFee, route.etaLabel].filter(Boolean).join(' · ') || undefined,
-      patch: {
-        routeId: route.id,
-        provider: route.provider,
-        fromChain: route.sourceNetwork,
-        toChain: route.destinationNetwork,
-        assetQuery: route.sourceSymbol
-      }
-    }));
+    const chips = bridgeRouteChips(candidates.slice(0, 6));
     return {
       kind: 'clarifying',
       slot: 'provider',
@@ -1074,7 +1117,13 @@ export function resolveDraftToAction(
 ): OrchestratorResolution {
   const resolution = resolveDraftOnce(draft, map, ctx);
   // A recipient click confirms the user chose that address, including a saved match for a typed prefix.
-  if (resolution.kind !== 'clarifying' || resolution.slot === 'recipient' || resolution.chips.length !== 1) {
+  // The same holds for a route offered in place of one that does not exist.
+  if (
+    resolution.kind !== 'clarifying' ||
+    resolution.slot === 'recipient' ||
+    resolution.slot === 'route' ||
+    resolution.chips.length !== 1
+  ) {
     return resolution;
   }
   return resolveDraftOnce({ ...resolution.draft, ...resolution.chips[0]!.patch }, resolution.map, ctx);

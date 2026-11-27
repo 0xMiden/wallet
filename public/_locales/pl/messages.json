@@ -10503,6 +10503,10 @@
     "message": "W tej chwili nie jest dostępna żadna pasująca trasa pomostowa.",
     "englishSource": "No matching bridge route is available right now."
   },
+  "commandAiBridgeNoRoute": {
+    "message": "Nie ma takiej trasy. Wybierz jedną z pozostałych tras:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
   "commandAiSwapUnavailable": {
     "message": "Wymiana dla tej pary walut nie jest obecnie dostępna.",
     "englishSource": "Swap is unavailable for that pair right now."
