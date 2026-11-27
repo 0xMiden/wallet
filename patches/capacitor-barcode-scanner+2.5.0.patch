@@ -1,0 +1,77 @@
+diff --git a/node_modules/capacitor-barcode-scanner/android/src/main/java/cl/kgames/capacitorbarcodescanner/BarcodeScannerPlugin.java b/node_modules/capacitor-barcode-scanner/android/src/main/java/cl/kgames/capacitorbarcodescanner/BarcodeScannerPlugin.java
+index 5f695bf..7f4483a 100644
+--- a/node_modules/capacitor-barcode-scanner/android/src/main/java/cl/kgames/capacitorbarcodescanner/BarcodeScannerPlugin.java
++++ b/node_modules/capacitor-barcode-scanner/android/src/main/java/cl/kgames/capacitorbarcodescanner/BarcodeScannerPlugin.java
+@@ -28,6 +28,9 @@ public class BarcodeScannerPlugin extends Plugin {
+ 
+ 
+     static final String CAMERA = "camera";
++    static final String EXTRA_SCAN_OUTCOME = "scanOutcome";
++    static final String SCAN_CANCELLED = "cancelled";
++    static final String CAMERA_PERMISSION_DENIED = "cameraPermissionDenied";
+     private static final String PERMISSION_DENIED_ERROR_CAMERA = "User denied access to camera";
+ 
+     @PluginMethod
+@@ -65,6 +68,15 @@ public class BarcodeScannerPlugin extends Plugin {
+         System.out.println("[BSP] multi: "+multiScan.toString());
+         try{
+             if(!multiScan){
++                String outcome = result.getData().getStringExtra(EXTRA_SCAN_OUTCOME);
++                if (SCAN_CANCELLED.equals(outcome)) {
++                    call.reject("Scan cancelled");
++                    return;
++                }
++                if (CAMERA_PERMISSION_DENIED.equals(outcome)) {
++                    call.reject(PERMISSION_DENIED_ERROR_CAMERA);
++                    return;
++                }
+                 String code = result.getData().getStringExtra("code");
+                 if(code != null && code.length() > 0){
+                     json.put("result",true);
+diff --git a/node_modules/capacitor-barcode-scanner/android/src/main/java/cl/kgames/capacitorbarcodescanner/ScannerActivity.kt b/node_modules/capacitor-barcode-scanner/android/src/main/java/cl/kgames/capacitorbarcodescanner/ScannerActivity.kt
+index 05bb075..d3ccf83 100644
+--- a/node_modules/capacitor-barcode-scanner/android/src/main/java/cl/kgames/capacitorbarcodescanner/ScannerActivity.kt
++++ b/node_modules/capacitor-barcode-scanner/android/src/main/java/cl/kgames/capacitorbarcodescanner/ScannerActivity.kt
+@@ -47,7 +47,8 @@ class ScannerActivity : AppCompatActivity() {
+     private var previewUseCase: Preview? = null
+     private var analysisUseCase: ImageAnalysis? = null
+ 
+-    private var resultCode:String = ""
++    private var resultCode: String? = null
++    private var cameraPermissionDenied = false
+     private var resultCodes: Array<String> = arrayOf()
+     private var multiScan:Boolean = false;
+     private var codesCounter: TextView? = null
+@@ -90,8 +91,13 @@ class ScannerActivity : AppCompatActivity() {
+         val data = Intent()
+ 
+         if(!multiScan){
+-            data.putExtra("code", resultCode)
+-
++            when {
++                cameraPermissionDenied ->
++                    data.putExtra(BarcodeScannerPlugin.EXTRA_SCAN_OUTCOME, BarcodeScannerPlugin.CAMERA_PERMISSION_DENIED)
++                resultCode == null ->
++                    data.putExtra(BarcodeScannerPlugin.EXTRA_SCAN_OUTCOME, BarcodeScannerPlugin.SCAN_CANCELLED)
++                else -> data.putExtra("code", resultCode)
++            }
+         }else{
+             data.putExtra("codes",resultCodes);
+             data.putExtra("multi",true)
+@@ -116,7 +122,8 @@ class ScannerActivity : AppCompatActivity() {
+             if (isCameraPermissionGranted()) {
+                 bindCameraUseCases()
+             } else {
+-                closeActivity("")
++                cameraPermissionDenied = true
++                finish()
+             }
+         }
+         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+@@ -303,4 +310,4 @@ class ScannerActivity : AppCompatActivity() {
+         private const val RATIO_4_3_VALUE = 4.0 / 3.0
+         private const val RATIO_16_9_VALUE = 16.0 / 9.0
+     }
+-}
+\ No newline at end of file
++}

@@ -80,6 +80,20 @@ class BarcodeScannerOutcomeTest {
     }
 
     @Test
+    fun decodedEmptyValueStillResolvesAsAnUnreadBarcode() {
+        val scanner = scanner()
+        ReflectionHelpers.callInstanceMethod<Unit>(
+            scanner,
+            "closeActivity",
+            ClassParameter.from(String::class.java, "")
+        )
+
+        val call = deliver(resultOf(scanner))
+        assertTrue(call.rejections.isEmpty())
+        assertEquals(false, call.resolutions.single().getBoolean("result"))
+    }
+
+    @Test
     fun unclassifiedEmptyResultStillResolvesAsAnUnreadBarcode() {
         val call = deliver(ActivityResult(Activity.RESULT_OK, Intent()))
 
