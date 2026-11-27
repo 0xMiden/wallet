@@ -330,7 +330,7 @@ export const ReviewTransaction: React.FC = () => {
   // Re-derive the UIToken from balances with SendManager's builder; the URL
   // only carries the token id.
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
-  const { data: balanceData } = useAllBalances(publicKey, allTokensBaseMetadata);
+  const { data: balanceData, isLoading: balancesLoading } = useAllBalances(publicKey, allTokensBaseMetadata);
   const tokenPrices = useWalletStore(s => s.tokenPrices);
   // Loaded here too: a review held for want of the document resolves only once one arrives.
   const bridgeConfig = useBridgeConfigSnapshot();
@@ -349,6 +349,7 @@ export const ReviewTransaction: React.FC = () => {
   const nativeScaleKnown = hasKnownScale(nativeMetadata);
 
   const isUsdcxBurn = isBridge && route === 'usdcx';
+  const burnBalancesLoading = isUsdcxBurn && balancesLoading;
   const burnFee = useBurnFeeReserve(
     isUsdcxBurn && publicKey && bridgeNetworkObj
       ? {
@@ -1138,7 +1139,7 @@ export const ReviewTransaction: React.FC = () => {
       (command && sendAdmission?.status === 'pending')
     )
       return;
-    if (isSubmitting || !token || !publicKey || amountBaseUnits === undefined) return;
+    if (isSubmitting || burnBalancesLoading || !token || !publicKey || amountBaseUnits === undefined) return;
     if (!token.scaleIsKnown) {
       setSubmitError(t('unknownTokenScale'));
       setSubmitErrorId('unknownTokenScale');
@@ -1201,6 +1202,7 @@ export const ReviewTransaction: React.FC = () => {
     assessSpendingLimit,
     isBridge,
     isSubmitting,
+    burnBalancesLoading,
     openUnpricedChallenge,
     publicKey,
     runBridgeSend,
@@ -1294,7 +1296,9 @@ export const ReviewTransaction: React.FC = () => {
     })();
     const tokenInvalid =
       isRetiredTransferToken(bridgeConfig, tokenId, nativeFaucetId) ||
-      (!!balanceData && (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
+      (!burnBalancesLoading &&
+        !!balanceData &&
+        (!token || typedAmountExceedsBalance(amount, token.balance, token.decimals)));
     const precisionErrorId = amountExceedsPrecision ? 'amountExceedsTokenDecimals' : undefined;
     const reviewError = scaleIsUnknown
       ? t('unknownTokenScale')
@@ -1419,7 +1423,7 @@ export const ReviewTransaction: React.FC = () => {
       (command && sendAdmission?.status === 'pending') ||
       scaleIsUnknown ||
       amountExceedsPrecision ||
-      (isUsdcxBurn && (!token || !!burnValidationError || !burnFeeReady)) ||
+      (isUsdcxBurn && (burnBalancesLoading || !token || !!burnValidationError || !burnFeeReady)) ||
       (isNearIntents && nearIntentsQuote.status !== 'ready') ||
       recallInvalid;
     const ReviewLayout = command ? CommandSendReview : SendStepLayout;
