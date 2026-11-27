@@ -1454,6 +1454,7 @@ export const ReviewTransaction: React.FC = () => {
               {burnBalancesLoading && balanceReadFailed && (
                 <Notice
                   tone="negative"
+                  errorId="tokenDetailBalanceUnavailable"
                   role="alert"
                   trailing={
                     <Button
