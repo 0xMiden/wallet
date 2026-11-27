@@ -11,6 +11,7 @@ const fixture = resolve(import.meta.dirname, 'fixture.tsx');
 const historyFixture = resolve(import.meta.dirname, 'history.fixture.tsx');
 const claimsFixture = resolve(import.meta.dirname, 'claims.fixture.tsx');
 const historyLeaves = resolve(import.meta.dirname, 'history.leaves.ts');
+const sendAvailableLeaves = resolve(import.meta.dirname, 'send-available.leaves.ts');
 const nativeFaucetFixture = resolve(import.meta.dirname, 'native-faucet.fixture.ts');
 const compileSvgJsx: Plugin = {
   name: 'token-detail-svg-jsx-compile',
@@ -39,6 +40,7 @@ const fixtureModules: Record<string, string> = {
   'components/NetworkModeBanner': fixture,
   'lib/miden-chain/effective-endpoints': fixture,
   'lib/miden/front': fixture,
+  ...(process.env.SEND_AVAILABLE_CAPTURE ? { 'lib/miden/swap/tokens': sendAvailableLeaves } : {}),
   'lib/miden/metadata/overrides': fixture,
   'lib/mobile/external-browser': fixture,
   'lib/mobile/haptics': fixture,
@@ -52,7 +54,7 @@ const fixtureModules: Record<string, string> = {
   'lib/token-list/runtime': fixture,
   'lib/token-list/useTokenLogoUri': fixture,
   'lib/token-list/useTokenVerification': fixture,
-  'lib/woozie': fixture
+  'lib/woozie': process.env.SEND_AVAILABLE_CAPTURE ? resolve(root, 'src/lib/woozie/index.ts') : fixture
 };
 
 export default defineConfig({
@@ -67,6 +69,7 @@ export default defineConfig({
   resolve: {
     dedupe: ['react', 'react-dom'],
     alias: [
+      ...(process.env.SEND_AVAILABLE_CAPTURE ? [{ find: './bridge-networks', replacement: sendAvailableLeaves }] : []),
       {
         find: /^lib\/miden\/metadata$/,
         replacement: resolve(root, 'src/lib/miden/metadata/index.ts'),
