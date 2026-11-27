@@ -2401,5 +2401,17 @@
   "replaceWalletEraseWarning": "Убедитесь, что у вас сохранена текущая фраза восстановления или резервная копия, если они вам еще понадобятся. Это действие нельзя отменить.",
   "eraseAndRestoreWallet": "Удалить и восстановить кошелек",
   "eraseAndCreateWallet": "Удалить и создать кошелек",
-  "backToUnlock": "Вернуться ко входу"
+  "backToUnlock": "Вернуться ко входу",
+  "authReasonUnlock": "Разблокируйте свой кошелек",
+  "authReasonViewRecoveryPhrase": "Просмотрите свою фразу восстановления",
+  "authReasonRevealPrivateKey": "Раскрыть свой закрытый ключ",
+  "authReasonRevealEverydayKey": "Раскройте свой повседневный ключ",
+  "authReasonExportAccountFile": "Экспортируйте файл своего счёта",
+  "authReasonExportWalletFile": "Экспортируйте файл своего кошелька",
+  "authReasonChangeSpendingLimit": "Измените лимит расходов",
+  "authReasonOverLimitTransaction": "Утвердить транзакцию, превышающую ваш лимит",
+  "authReasonRemoveDevice": "Удалить устройство",
+  "authReasonSwitchGuardian": "Смените свой Guardian",
+  "authReasonSetUp": "Настройка безопасности кошелька",
+  "encryptedWalletFileDescriptionExportAuth": "При создании файла вам будет предложено пройти аутентификацию."
 }

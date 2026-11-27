@@ -683,10 +683,11 @@ export const useWalletStore = create<WalletStore>()(
       return res.protectors;
     },
 
-    verifyStrictActionAuthentication: async credential => {
+    verifyStrictActionAuthentication: async (credential, purpose) => {
       const res = await request({
         type: WalletMessageType.VerifyStrictActionAuthenticationRequest,
-        credential
+        credential,
+        purpose
       });
       assertResponse(res.type === WalletMessageType.VerifyStrictActionAuthenticationResponse);
     },

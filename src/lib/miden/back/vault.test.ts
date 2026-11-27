@@ -705,7 +705,7 @@ describe('Vault (static)', () => {
       const installedSink = (globalThis as any).__vaultTestRealmInsertKey;
       const storedBefore = { ...memoryStore };
 
-      await expect(Vault.verifyProtector('pw-correct')).resolves.toBeUndefined();
+      await expect(Vault.verifyProtector('pw-correct', 'remove-device')).resolves.toBeUndefined();
 
       expect(memoryStore).toEqual(storedBefore);
       expect((globalThis as any).__vaultTestRealmInsertKey).toBe(installedSink);
@@ -714,7 +714,7 @@ describe('Vault (static)', () => {
     it('rejects an invalid password', async () => {
       await seedVault('pw-correct');
 
-      await expect(Vault.verifyProtector('pw-wrong')).rejects.toThrow(PublicError);
+      await expect(Vault.verifyProtector('pw-wrong', 'remove-device')).rejects.toThrow(PublicError);
     });
   });
 
@@ -2073,7 +2073,7 @@ describe('Vault.revealHotKey', () => {
 
     const secret = await Vault.revealHotKey('guardian-acc-1', 'pw');
 
-    expect(mockRevealHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT');
+    expect(mockRevealHotKey).toHaveBeenCalledWith('OPAQUE_CIPHERTEXT', undefined);
     expect(secret).toBe(`${'ab'.repeat(32)}:${'cd'.repeat(32)}`);
     await removeMany([keys.mnemonic]);
     await expect(Vault.revealHotKey('guardian-acc-1', 'pw')).resolves.toBe(secret);
