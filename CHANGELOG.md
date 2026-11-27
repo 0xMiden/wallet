@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Distinguish Swap review checks from initiation failures in opt-in reports.
 - [FIX][extension] Keep the fullscreen button in the Home balance card.
 - [CHANGE][ios] On iOS, require device authentication when opening a biometric wallet, move an existing wallet to a new device key at its next unlock, and show one prompt per action, with text naming that action (revealing the everyday key and exporting the wallet file each asked twice).
 - [FIX][all] Distinguish Earn deposit checks from position-opening failures in opt-in reports.

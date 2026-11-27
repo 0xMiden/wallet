@@ -2606,7 +2606,13 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('assessment backend down');
       act(() => jest.advanceTimersByTime(1000));
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_swap_submit_failed', 'review']]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+        [
+          'raw_swap_submit_failed',
+          'review',
+          { kind: 'swap_submit_failure', swapSubmitFailureOrigin: 'review_submit_catch' }
+        ]
+      ]);
     });
 
     it('opens the unvalued challenge when the actual swap cannot be priced', async () => {
@@ -2914,7 +2920,9 @@ describe('SwapFlow / SwapManager', () => {
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('chain rejected');
       expect(mockNavigate).not.toHaveBeenCalled();
       act(() => jest.advanceTimersByTime(1000));
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_swap_submit_failed', 'review']]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+        ['raw_swap_submit_failed', 'review', { kind: 'swap_submit_failure', swapSubmitFailureOrigin: 'run_swap_catch' }]
+      ]);
     });
 
     it('stringifies a non-Error rejection', async () => {
@@ -2943,7 +2951,9 @@ describe('SwapFlow / SwapManager', () => {
 
       expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('plain failure');
       act(() => jest.advanceTimersByTime(1000));
-      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['raw_swap_submit_failed', 'review']]);
+      expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+        ['raw_swap_submit_failed', 'review', { kind: 'swap_submit_failure', swapSubmitFailureOrigin: 'run_swap_catch' }]
+      ]);
     });
   });
 
@@ -3775,6 +3785,34 @@ it('refuses a cached sufficient balance when the SDK vault cannot cover the pay 
   expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('amountMustBeLessThanBalance');
   expect(mockConfirmSensitive).not.toHaveBeenCalled();
   expect(mockInitiateSwap).not.toHaveBeenCalled();
+});
+
+it.each([
+  { origin: 'review_submit_catch', reject: mockVaultPreflight, initiationCalls: 0 },
+  { origin: 'run_swap_catch', reject: mockInitiateSwap, initiationCalls: 1 }
+])('reports the $origin swap warning only after it has been visible', async ({ origin, reject, initiationCalls }) => {
+  jest.useFakeTimers();
+  mockRealSwapDisplays = true;
+  const message = 'synthetic swap submit failure details';
+  reject.mockRejectedValueOnce(new Error(message));
+  renderFlow();
+  setOffer('10');
+  expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+  await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+
+  expect(screen.getByText(message, { selector: 'p' })).toBeVisible();
+  expect(screen.getByTestId('swap-submit')).toBeEnabled();
+  expect(mockVaultPreflight).toHaveBeenCalledTimes(1);
+  expect(mockConfirmSensitive).toHaveBeenCalledTimes(initiationCalls);
+  expect(mockInitiateSwap).toHaveBeenCalledTimes(initiationCalls);
+  expect(mockRequestSWProcessing).not.toHaveBeenCalled();
+
+  act(() => jest.advanceTimersByTime(999));
+  expect(reportUserVisibleError).not.toHaveBeenCalled();
+  act(() => jest.advanceTimersByTime(1));
+  expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+    ['raw_swap_submit_failed', 'review', { kind: 'swap_submit_failure', swapSubmitFailureOrigin: origin }]
+  ]);
 });
 
 it.each(['account', 'network'])('refuses a changed %s while authorization is open', async change => {
