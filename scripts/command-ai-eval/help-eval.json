@@ -12,8 +12,7 @@
     "split": "dev",
     "must": [
       "a Guardian is an online service, usually run by a company",
-      "it keeps a copy of account data and must approve payments",
-      "if it is down or refuses, payments stop"
+      "it keeps a copy of account data and must approve payments"
     ],
     "mustNot": [
       "a person, friend or trusted contact the user picks",
@@ -36,8 +35,7 @@
     "split": "dev",
     "must": [
       "a Guardian is an online service, usually run by a company",
-      "it keeps a copy of account data and must approve payments",
-      "if it is down or refuses, payments stop"
+      "it keeps a copy of account data and must approve payments"
     ],
     "mustNot": [
       "a person, friend or trusted contact the user picks",
@@ -60,8 +58,7 @@
     "split": "dev",
     "must": [
       "a Guardian is an online service, usually run by a company",
-      "it keeps a copy of account data and must approve payments",
-      "if it is down or refuses, payments stop"
+      "it keeps a copy of account data and must approve payments"
     ],
     "mustNot": [
       "a person, friend or trusted contact the user picks",
@@ -84,8 +81,7 @@
     "split": "dev",
     "must": [
       "a Guardian is an online service, usually run by a company",
-      "it keeps a copy of account data and must approve payments",
-      "if it is down or refuses, payments stop"
+      "it keeps a copy of account data and must approve payments"
     ],
     "mustNot": [
       "a person, friend or trusted contact the user picks",
@@ -108,8 +104,7 @@
     "split": "dev",
     "must": [
       "a Guardian is an online service, usually run by a company",
-      "it keeps a copy of account data and must approve payments",
-      "if it is down or refuses, payments stop"
+      "it keeps a copy of account data and must approve payments"
     ],
     "mustNot": [
       "a person, friend or trusted contact the user picks",
@@ -132,8 +127,7 @@
     "split": "dev",
     "must": [
       "a Guardian is an online service, usually run by a company",
-      "it keeps a copy of account data and must approve payments",
-      "if it is down or refuses, payments stop"
+      "it keeps a copy of account data and must approve payments"
     ],
     "mustNot": [
       "a person, friend or trusted contact the user picks",
@@ -156,8 +150,7 @@
     "split": "dev",
     "must": [
       "a Guardian is an online service, usually run by a company",
-      "it keeps a copy of account data and must approve payments",
-      "if it is down or refuses, payments stop"
+      "it keeps a copy of account data and must approve payments"
     ],
     "mustNot": [
       "a person, friend or trusted contact the user picks",
@@ -180,8 +173,7 @@
     "split": "dev",
     "must": [
       "a Guardian is an online service, usually run by a company",
-      "it keeps a copy of account data and must approve payments",
-      "if it is down or refuses, payments stop"
+      "it keeps a copy of account data and must approve payments"
     ],
     "mustNot": [
       "a person, friend or trusted contact the user picks",
@@ -204,8 +196,7 @@
     "split": "dev",
     "must": [
       "a Guardian is an online service, usually run by a company",
-      "it keeps a copy of account data and must approve payments",
-      "if it is down or refuses, payments stop"
+      "it keeps a copy of account data and must approve payments"
     ],
     "mustNot": [
       "a person, friend or trusted contact the user picks",
@@ -2978,7 +2969,7 @@
     "must": [
       "use an address on the other network",
       "delays happen and less can arrive",
-      "check Activity before sending again"
+      "check Activity; do not resend while unsure"
     ],
     "mustNot": [
       "promises arrival or an exact time",
@@ -3001,7 +2992,7 @@
     "must": [
       "use an address on the other network",
       "delays happen and less can arrive",
-      "check Activity before sending again"
+      "check Activity; do not resend while unsure"
     ],
     "mustNot": [
       "promises arrival or an exact time",
@@ -3024,7 +3015,7 @@
     "must": [
       "use an address on the other network",
       "delays happen and less can arrive",
-      "check Activity before sending again"
+      "check Activity; do not resend while unsure"
     ],
     "mustNot": [
       "promises arrival or an exact time",
@@ -3047,7 +3038,7 @@
     "must": [
       "use an address on the other network",
       "delays happen and less can arrive",
-      "check Activity before sending again"
+      "check Activity; do not resend while unsure"
     ],
     "mustNot": [
       "promises arrival or an exact time",
@@ -3096,7 +3087,7 @@
     "forbidCards": ["bridge_stuck", "accept_stuck", "bridge_deposit_locked"],
     "split": "dev",
     "must": [
-      "check Activity before trading again",
+      "check Activity; do not trade again while unsure",
       "the automatic return has conditions",
       "it can still fill until the money is back"
     ],
@@ -3114,7 +3105,7 @@
     "forbidCards": ["bridge_stuck", "accept_stuck", "bridge_deposit_locked"],
     "split": "dev",
     "must": [
-      "check Activity before trading again",
+      "check Activity; do not trade again while unsure",
       "the automatic return has conditions",
       "it can still fill until the money is back"
     ],
@@ -3132,7 +3123,7 @@
     "forbidCards": ["bridge_stuck", "accept_stuck", "bridge_deposit_locked"],
     "split": "dev",
     "must": [
-      "check Activity before trading again",
+      "check Activity; do not trade again while unsure",
       "the automatic return has conditions",
       "it can still fill until the money is back"
     ],
@@ -3150,7 +3141,7 @@
     "forbidCards": ["bridge_stuck", "accept_stuck", "bridge_deposit_locked"],
     "split": "dev",
     "must": [
-      "check Activity before trading again",
+      "check Activity; do not trade again while unsure",
       "the automatic return has conditions",
       "it can still fill until the money is back"
     ],
@@ -4749,7 +4740,7 @@
     "forbidCards": ["bridge_stuck", "accept_stuck", "bridge_deposit_locked"],
     "split": "dev",
     "must": [
-      "check Activity before trading again",
+      "check Activity; do not trade again while unsure",
       "the automatic return has conditions",
       "it can still fill until the money is back"
     ],

@@ -247,7 +247,14 @@ describe('owner decisions', () => {
   it('says on recovery cards that not everything may come back', () => {
     const honest =
       /(payments?|history)[^.]*\b(may not come back|may not bring back)\b|\bmay not bring back\b[^.]*\bhistory\b/;
-    const cards = ['lost_device', 'recovery_phrase', 'forgot_password', 'reset_reinstall', 'restore_missing'];
+    const cards = [
+      'lost_device',
+      'device_stolen',
+      'recovery_phrase',
+      'forgot_password',
+      'reset_reinstall',
+      'restore_missing'
+    ];
     expect(cards.filter(id => !honest.test(answer(id)))).toEqual([]);
   });
 });

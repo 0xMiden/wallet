@@ -269,7 +269,7 @@
       "src": ["wallet@6d0acae70:docs/tos/index.md"]
     },
     "g.copy": {
-      "text": "It keeps a copy of your account data and must approve your payments along with your own key.",
+      "text": "It keeps a copy of your account data, so while it is online, you can get your account back on a new device with your recovery phrase.",
       "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/lib/miden/guardian/account-recipe.ts"]
     },
     "g.keys": {
@@ -291,10 +291,6 @@
     "g.see": {
       "text": "Assume the company running it can see your account and payments.",
       "src": ["owner:wallet#2359"]
-    },
-    "g.down": {
-      "text": "If it is down or refuses, your payments stop, and you may not be able to switch right away.",
-      "src": ["wallet@6d0acae70:docs/tos/index.md"]
     },
     "g.switch": {
       "text": "Switching without the old Guardian's approval needs a device where your account still works, your 12-word recovery phrase, a new Guardian that is online, and usually USDCx for the fee.",
@@ -603,11 +599,11 @@
       "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
     },
     "r.ph.why": {
-      "text": "With your words and an online Guardian that has a current copy of your account, you can get back in on a new device.",
+      "text": "With them and an online Guardian with a current copy of your account, you can restore on a new device.",
       "src": ["wallet@6d0acae70:docs/tos/index.md"]
     },
     "r.ph.keep": {
-      "text": "Write the words down on paper, in order, and keep them private, away from your device.",
+      "text": "Keep them written on paper, in order, private and away from your device.",
       "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
     },
     "r.ph.notenough": {
@@ -960,11 +956,11 @@
       "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/tos/index.md"]
     },
     "sf.restore": {
-      "text": "If no other device has this wallet, restore it with your 12-word recovery phrase on a trusted device with no Bread wallet. This needs your Guardian online with a copy of your account data, and usually a USDCx fee.",
+      "text": "If no other device has this wallet, restore it with your 12-word recovery phrase on a trusted device with no Bread wallet. This needs your Guardian online with your account data, and usually a USDCx fee.",
       "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:public/_locales/en/en.json"]
     },
     "sf.main": {
-      "text": "If Bread asks how this device should join, choose \"Make this device the main one\" to remove all others. \"Add this device\" keeps the stolen one.",
+      "text": "If asked, choose \"Make this device the main one\" to remove all others; \"Add this device\" keeps the stolen one.",
       "src": [
         "wallet@6d0acae70:public/_locales/en/en.json",
         "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ChooseDeviceRole.tsx",
@@ -972,7 +968,7 @@
       ]
     },
     "sf.remove": {
-      "text": "If another device has this wallet, your app may let you remove the stolen one there.",
+      "text": "Another device with this wallet may let you remove the stolen one.",
       "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/app/templates/DeviceSettings.tsx"]
     },
     "sf.removelimit": {
@@ -980,11 +976,11 @@
       "src": ["wallet@6d0acae70:public/_locales/en/en.json", "https://support.miden.xyz/"]
     },
     "sf.thiefaccess": {
-      "text": "If the thief may open Bread or see your phrase, act now: ask what to do if someone has your recovery phrase.",
+      "text": "If the thief may open Bread or see your phrase, ask now what to do if someone has your recovery phrase.",
       "src": ["owner:wallet#2359", "https://support.miden.xyz/"]
     },
     "sf.nophrase": {
-      "text": "If you cannot get in, go to support.miden.xyz. Support cannot recover funds.",
+      "text": "If you cannot get in, go to support.miden.xyz. Support cannot recover funds on your behalf.",
       "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/support/index.md", "https://support.miden.xyz/"]
     },
     "sf.tok.safe": {
@@ -1602,8 +1598,8 @@
       ]
     },
     "x.br.norecover": {
-      "text": "Support can help trace a failed transfer but cannot promise to recover money held by a bridge or another network.",
-      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+      "text": "Support can help trace a failed transfer but cannot recover funds on your behalf, including money held by a bridge or another network.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "owner:wallet#2359"]
     },
     "x.br.check": {
       "text": "Check the network, address, fees and amount to receive before you approve.",
@@ -1784,7 +1780,7 @@
       "src": ["wallet@6d0acae70:src/lib/miden/sdk/miden-client-interface.ts"]
     },
     "x.nf.first": {
-      "text": "Check the swap in Activity before placing it again, or you could trade twice.",
+      "text": "Check Activity; do not place the swap again while unsure, or you could trade twice.",
       "src": ["wallet@6d0acae70:public/_locales/en/en.json", "owner:wallet#2359"]
     },
     "x.nf.expiry": {
@@ -1876,7 +1872,7 @@
     },
     "x.out.wait": {
       "src": ["wallet@6d0acae70:src/app/templates/history/BridgeClaimSection.tsx", "owner:wallet#2359"],
-      "text": "If it is slow, check Activity before sending again, or you could pay twice."
+      "text": "If slow, check Activity; do not resend while unsure, or you could pay twice."
     },
     "x.cw.off": {
       "src": [
@@ -2258,6 +2254,14 @@
     "app.g.see": {
       "text": "Assume the company running your Guardian can see your account and payments.",
       "src": ["owner:wallet#2359"]
+    },
+    "g.approves": {
+      "text": "It must approve your payments along with your own key.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/lib/miden/guardian/account-recipe.ts"]
+    },
+    "sf.partial": {
+      "text": "Some history or incoming payments may not come back.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:public/_locales/en/en.json"]
     }
   },
   "cards": [
@@ -2269,11 +2273,11 @@
       "mode": "write",
       "urgent": false,
       "lead": [],
-      "facts": ["g.service", "g.restore", "g1.notperson", "g.copy", "g.keys", "g.nomove"],
-      "limit": ["g.see", "g.down"],
-      "required": ["g.see", "g.down"],
+      "facts": ["g.service", "g.copy", "g1.notperson", "g.approves", "g.keys", "g.nomove"],
+      "limit": ["g.see"],
+      "required": ["g.see"],
       "forbid": [],
-      "answer": "In Bread, a Guardian is an online service, usually run by a company. While it is online, its copy and your recovery phrase can help you get your account back on a new device. It is not a friend, relative or contact of yours. It keeps a copy of your account data and must approve your payments along with your own key. It never receives your 12-word recovery phrase or private keys. It cannot move your money on its own. Assume the company running it can see your account and payments. If it is down or refuses, your payments stop, and you may not be able to switch right away."
+      "answer": "In Bread, a Guardian is an online service, usually run by a company. It keeps a copy of your account data, so while it is online, you can get your account back on a new device with your recovery phrase. It is not a friend, relative or contact of yours. It must approve your payments along with your own key. It never receives your 12-word recovery phrase or private keys. It cannot move your money on its own. Assume the company running it can see your account and payments."
     },
     {
       "id": "guardian_why",
@@ -2396,10 +2400,10 @@
       "urgent": false,
       "lead": [],
       "facts": ["r.ph.what", "r.ph.why", "r.ph.keep", "s.never"],
-      "limit": ["r.ph.others", "r.ph.notenough", "r.ph.noreplace"],
-      "required": ["r.ph.others", "r.ph.notenough", "r.ph.noreplace"],
+      "limit": ["r.ph.others", "r.ph.notenough", "r.ph.noreplace", "r.rm.partial"],
+      "required": ["r.ph.others", "r.ph.notenough", "r.ph.noreplace", "r.rm.partial"],
       "forbid": [],
-      "answer": "Your recovery phrase is 12 words that give access to your wallet. With your words and an online Guardian that has a current copy of your account, you can get back in on a new device. Write the words down on paper, in order, and keep them private, away from your device. Never share your recovery phrase, private keys, password, passcode or wallet file with anyone, including support. Anyone who gets your words may be able to take your money. The 12 words alone do not bring back a private account's data. A lost recovery phrase cannot currently be replaced."
+      "answer": "Your recovery phrase is 12 words that give access to your wallet. With them and an online Guardian with a current copy of your account, you can restore on a new device. Keep them written on paper, in order, private and away from your device. Never share your recovery phrase, private keys, password, passcode or wallet file with anyone, including support. Anyone who gets your words may be able to take your money. The 12 words alone do not bring back a private account's data. A lost recovery phrase cannot currently be replaced. A restore may not bring back every incoming payment or history entry."
     },
     {
       "id": "keys_explained",
@@ -2647,11 +2651,11 @@
       "mode": "fixed",
       "urgent": true,
       "lead": ["sf.keepothers"],
-      "facts": ["sf.restore", "sf.main", "sf.remove", "sf.removelimit", "sf.thiefaccess", "sf.nophrase"],
+      "facts": ["sf.restore", "sf.partial", "sf.main", "sf.remove", "sf.removelimit", "sf.thiefaccess", "sf.nophrase"],
       "limit": [],
-      "required": ["sf.keepothers", "sf.restore", "sf.main", "sf.removelimit", "sf.thiefaccess"],
+      "required": ["sf.keepothers", "sf.restore", "sf.main", "sf.removelimit", "sf.thiefaccess", "sf.partial"],
       "forbid": [],
-      "answer": "Do not reset or delete Bread on any device you still have. If no other device has this wallet, restore it with your 12-word recovery phrase on a trusted device with no Bread wallet. This needs your Guardian online with a copy of your account data, and usually a USDCx fee. If Bread asks how this device should join, choose \"Make this device the main one\" to remove all others. \"Add this device\" keeps the stolen one. If another device has this wallet, your app may let you remove the stolen one there. Removal does not help if the thief has your recovery phrase. If the thief may open Bread or see your phrase, act now: ask what to do if someone has your recovery phrase. If you cannot get in, go to support.miden.xyz. Support cannot recover funds."
+      "answer": "Do not reset or delete Bread on any device you still have. If no other device has this wallet, restore it with your 12-word recovery phrase on a trusted device with no Bread wallet. This needs your Guardian online with your account data, and usually a USDCx fee. Some history or incoming payments may not come back. If asked, choose \"Make this device the main one\" to remove all others; \"Add this device\" keeps the stolen one. Another device with this wallet may let you remove the stolen one. Removal does not help if the thief has your recovery phrase. If the thief may open Bread or see your phrase, ask now what to do if someone has your recovery phrase. If you cannot get in, go to support.miden.xyz. Support cannot recover funds on your behalf."
     },
     {
       "id": "unexpected_tokens",
@@ -3054,7 +3058,7 @@
       "limit": ["p.bridgeswap", "x.br.norecover"],
       "required": ["p.bridgeswap", "x.br.norecover"],
       "forbid": [],
-      "answer": "A bridge moves money between Miden and another network, such as Ethereum. Bridges are run by others, and while money is on the way, the bridge's programs or an outside trading service hold it, not Bread. A bridge has two sides, so a confirmation on one network does not yet mean the money has arrived on the other. Check the network, address, fees and amount to receive before you approve. Bridges and swaps disclose details to the services and networks involved. Support can help trace a failed transfer but cannot promise to recover money held by a bridge or another network."
+      "answer": "A bridge moves money between Miden and another network, such as Ethereum. Bridges are run by others, and while money is on the way, the bridge's programs or an outside trading service hold it, not Bread. A bridge has two sides, so a confirmation on one network does not yet mean the money has arrived on the other. Check the network, address, fees and amount to receive before you approve. Bridges and swaps disclose details to the services and networks involved. Support can help trace a failed transfer but cannot recover funds on your behalf, including money held by a bridge or another network."
     },
     {
       "id": "bridge_in",
@@ -3082,7 +3086,7 @@
       "limit": ["x.out.less", "x.br.check", "x.out.noback"],
       "required": ["x.out.less", "x.br.check", "x.out.noback"],
       "forbid": [],
-      "answer": "To send money to another network, use a recipient address on that network. Arrival time varies by route and network, and delays can happen. If it is slow, check Activity before sending again, or you could pay twice. Some Slow withdrawals show \"Claim Asset\" in Activity, which uses the receiving wallet and may cost a fee there. Anyone may see the destination address and amount. Less can arrive than you send, because of a route fee that may not be known exactly in advance. Check the network, address, fees and amount to receive before you approve. Once sent, you may not be able to get it back."
+      "answer": "To send money to another network, use a recipient address on that network. Arrival time varies by route and network, and delays can happen. If slow, check Activity; do not resend while unsure, or you could pay twice. Some Slow withdrawals show \"Claim Asset\" in Activity, which uses the receiving wallet and may cost a fee there. Anyone may see the destination address and amount. Less can arrive than you send, because of a route fee that may not be known exactly in advance. Check the network, address, fees and amount to receive before you approve. Once sent, you may not be able to get it back."
     },
     {
       "id": "bridge_routes_limits",
@@ -3166,7 +3170,7 @@
       "limit": ["x.nf.needs", "x.nf.race"],
       "required": ["x.nf.first", "x.nf.needs", "x.nf.race"],
       "forbid": [],
-      "answer": "Check the swap in Activity before placing it again, or you could trade twice. When your waiting time ends, Bread tries to take back the unfilled part, and the filled part stays traded. With \"Auto accept\" on, an open order may offer \"Cancel swap\". With it off, Bread will not take it back for you; for help, use support.miden.xyz. If you see \"Payout stuck\", read the reason, then you can use \"Retry payout\". The automatic return needs \"Auto accept\" on for that swap, Bread running and unlocked, USDCx for the fee, and any Guardian's approval. Until the money is back, the order can still fill."
+      "answer": "Check Activity; do not place the swap again while unsure, or you could trade twice. When your waiting time ends, Bread tries to take back the unfilled part, and the filled part stays traded. With \"Auto accept\" on, an open order may offer \"Cancel swap\". With it off, Bread will not take it back for you; for help, use support.miden.xyz. If you see \"Payout stuck\", read the reason, then you can use \"Retry payout\". The automatic return needs \"Auto accept\" on for that swap, Bread running and unlocked, USDCx for the fee, and any Guardian's approval. Until the money is back, the order can still fill."
     },
     {
       "id": "earn_what",
