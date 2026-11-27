@@ -352,10 +352,12 @@ describe('ForgotPassword', () => {
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
   });
 
-  it('import-from-seed: moves to ImportFromSeed step', async () => {
+  it('import-from-seed: sets Import type, starts recover telemetry, and moves to ImportFromSeed step', async () => {
     const { container } = renderPage();
     await dispatch({ id: 'import-from-seed' });
+    expect(flow(container).getAttribute('data-type')).toBe(OnboardingType.Import);
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportFromSeed);
+    expect(flowsBegun()).toEqual(['recover']);
   });
 
   it('import-seed-phrase-submit: splits payload into seed and moves to CreatePassword', async () => {
@@ -429,6 +431,7 @@ describe('ForgotPassword', () => {
         })
     );
     const { container } = renderPage();
+    await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password' });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
     expect(captured.props?.canGoBack).toBe(true);
@@ -791,17 +794,20 @@ describe('ForgotPassword', () => {
     expect(mockNavigate).toHaveBeenCalled();
   });
 
-  it('clears the spinner and surfaces an error if post-restore client cleanup throws (#1093)', async () => {
+  it('clears the spinner, logs a warning, and still navigates home if post-restore client cleanup throws (#1093)', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     mockClearClientStorageAfterRestore.mockRejectedValueOnce(new Error('storage unavailable'));
     renderPage();
     await dispatch({ id: 'create-wallet' });
     await dispatch({ id: 'create-password-submit', payload: { password: 'secret' } });
     await dispatch({ id: 'confirmation' });
 
+    expect(warnSpy).toHaveBeenCalledTimes(1);
     expect(captured.props?.isLoading).toBe(false);
-    expect(captured.props?.recoveryError).toContain('storage unavailable');
+    expect(captured.props?.recoveryError).toBeNull();
     expect(mockRegisterWallet).toHaveBeenCalledTimes(1);
-    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+    warnSpy.mockRestore();
   });
 
   it('shows the reason and clears the spinner when settling the failed recover flow throws (#1093)', async () => {
@@ -1424,22 +1430,23 @@ describe('ForgotPassword non-destructive restore, hot-key recovery, and confirma
     await dispatch({ id: 'back' });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Welcome);
 
-    // Submit hot key pair -> probe with key -> password -> recovery method -> confirm.
+    // Submit hot key pair -> probe with extracted hot key -> password -> recovery method -> confirm.
     await dispatch({ id: 'import-with-key' });
     await dispatch({ id: 'import-hot-key-submit', payload: PAIR });
-    expect(mockProbeStartWithKey).toHaveBeenCalledWith(PAIR);
+    expect(mockProbeStartWithKey).toHaveBeenCalledWith('ab'.repeat(32));
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.CreatePassword);
 
     await dispatch({ id: 'create-password-submit', payload: { password: 'new-pw' } });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
 
-    // Back from Confirmation goes to ImportSelectRecoveryMethod, and retry-guardian-probe re-probes with key.
+    // Back from Confirmation goes to ImportSelectRecoveryMethod, and retry-guardian-probe re-probes with hot key.
     await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.Guardian } });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Confirmation);
     await dispatch({ id: 'back' });
     expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
     await dispatch({ id: 'retry-guardian-probe' });
     expect(mockProbeStartWithKey).toHaveBeenCalledTimes(2);
+    expect(mockProbeStartWithKey).toHaveBeenLastCalledWith('ab'.repeat(32));
 
     await dispatch({
       id: 'import-select-recovery-method',
@@ -1456,5 +1463,108 @@ describe('ForgotPassword non-destructive restore, hot-key recovery, and confirma
     expect(mockNavigate).toHaveBeenCalledWith('/');
     expect(mockFlowHandles.at(-1)!.handle.complete).toHaveBeenCalledTimes(1);
     expect(telemetryCallArgs()).not.toContain(PAIR);
+  });
+
+  it('skips startWithKey when import-hot-key-submit receives an unparseable payload', async () => {
+    renderPage();
+    await dispatch({ id: 'import-with-key' });
+    mockProbeReset.mockClear();
+    await dispatch({ id: 'import-hot-key-submit', payload: 'not-a-valid-pair' });
+
+    expect(mockProbeStartWithKey).not.toHaveBeenCalled();
+    expect(mockProbeReset).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits canCreateWithPhrase on OnboardingFlow even during non-invite-only seed import', async () => {
+    const { container } = renderPage();
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.ImportSelectRecoveryMethod);
+    expect(captured.props?.canCreateWithPhrase).toBeFalsy();
+  });
+
+  it('skips register when confirmation runs with a password but an empty seedPhrase and no keyPairPayload', async () => {
+    renderPage();
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'confirmation' });
+
+    expect(mockRegisterWallet).not.toHaveBeenCalled();
+    expect(mockRegisterWalletFromHotKey).not.toHaveBeenCalled();
+    expect(mockClearClientStorageAfterRestore).not.toHaveBeenCalled();
+    expect(mockNavigate).toHaveBeenCalledWith('/');
+  });
+
+  it('resets stale walletType, selectedGuardianEndpoint, seedPhrase, password, and recoveryError on Welcome back-out and fresh entry', async () => {
+    const { container } = renderPage();
+
+    // 1. Choose OnChain on recovery method, back all the way out to Welcome, then create a fresh wallet.
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'seed words here' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+    await dispatch({ id: 'back' }); // -> ImportSelectRecoveryMethod
+    await dispatch({ id: 'back' }); // -> CreatePassword
+    await dispatch({ id: 'back' }); // -> ImportFromSeed
+    await dispatch({ id: 'back' }); // -> Welcome
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Welcome);
+    expect(flow(container).getAttribute('data-seed')).toBe('');
+    expect(flow(container).getAttribute('data-type')).toBe('null');
+
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'secret2' } });
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenLastCalledWith(
+      WalletType.Guardian,
+      'secret2',
+      'fmt:a b c d e f g h i j k l',
+      false,
+      undefined
+    );
+
+    // 2. Back out from BackupSeedPhrase to Welcome clears seedPhrase and onboardingType.
+    await dispatch({ id: 'choose-protection' });
+    expect(flow(container).getAttribute('data-seed')).toBe('a,b,c,d,e,f,g,h,i,j,k,l');
+    await dispatch({ id: 'back' });
+    expect(flow(container).getAttribute('data-step')).toBe(OnboardingStep.Welcome);
+    expect(flow(container).getAttribute('data-seed')).toBe('');
+    expect(flow(container).getAttribute('data-type')).toBe('null');
+
+    // 3. Re-entering via import-from-seed clears stale selectedGuardianEndpoint and recoveryError.
+    mockRegisterWallet.mockRejectedValueOnce(new Error('previous failure'));
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'old words' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw1' } });
+    await dispatch({
+      id: 'import-select-recovery-method',
+      payload: { walletType: WalletType.Guardian, guardianEndpoint: 'https://stale.example.com' }
+    });
+    await dispatch({ id: 'confirmation' });
+    expect(captured.props?.recoveryError).toContain('previous failure');
+
+    await dispatch({ id: 'import-from-seed' });
+    expect(captured.props?.recoveryError).toBeNull();
+    mockProbeStart.mockResolvedValueOnce(undefined);
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'fresh words' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw2' } });
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenLastCalledWith(WalletType.Guardian, 'pw2', 'fmt:fresh words', true, undefined);
+
+    // 4. Direct create-wallet jump after selecting OnChain resets walletType without intermediate back.
+    await dispatch({ id: 'select-import-type' });
+    await dispatch({ id: 'import-seed-phrase-submit', payload: 'other words' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw3' } });
+    await dispatch({ id: 'import-select-recovery-method', payload: { walletType: WalletType.OnChain } });
+    await dispatch({ id: 'create-wallet' });
+    await dispatch({ id: 'create-password-submit', payload: { password: 'pw4' } });
+    await dispatch({ id: 'confirmation' });
+    expect(mockRegisterWallet).toHaveBeenLastCalledWith(
+      WalletType.Guardian,
+      'pw4',
+      'fmt:a b c d e f g h i j k l',
+      false,
+      undefined
+    );
   });
 });

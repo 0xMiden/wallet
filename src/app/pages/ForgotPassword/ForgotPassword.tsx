@@ -9,6 +9,7 @@ import { postOnboardingRoute } from 'lib/extension/side-panel-handoff';
 import { useMidenContext, request } from 'lib/miden/front';
 import { fetchFromStorage } from 'lib/miden/front/storage';
 import type { GuardianDiscoveryResult } from 'lib/miden/guardian/discover';
+import { parsePrivateKeyPair } from 'lib/miden/guardian/private-key-pair';
 import { GUARDIAN_PROBE_WAIT_DEADLINE_MS, useGuardianProbe } from 'lib/miden/guardian/use-guardian-probe';
 import { prepareMainnet } from 'lib/miden/prepare-mainnet';
 import { clearClientStorageAfterRestore } from 'lib/miden/reset';
@@ -84,6 +85,18 @@ const ForgotPassword: FC = () => {
   const resetGuardianProbe = guardianProbe.reset;
   const probeResult = useRef<Promise<GuardianDiscoveryResult | undefined> | null>(null);
 
+  const startGuardianProbeForKeyPair = useCallback(
+    (payload: string): Promise<GuardianDiscoveryResult | undefined> | null => {
+      const pair = parsePrivateKeyPair(payload);
+      if (!pair) {
+        resetGuardianProbe();
+        return null;
+      }
+      return startGuardianProbeWithKey(pair.hotPrivateKey);
+    },
+    [resetGuardianProbe, startGuardianProbeWithKey]
+  );
+
   // Telemetry for the `recover` flow — regaining access to an EXISTING wallet
   // from its seed phrase or hot key. The other half of this screen (wipe and create a
   // fresh wallet) is not a recovery, so it never opens a flow and every
@@ -120,6 +133,18 @@ const ForgotPassword: FC = () => {
     settleRecoverFlow(handle => handle.cancel());
   }, [resetGuardianProbe, settleRecoverFlow]);
 
+  const resetFlowToWelcome = useCallback(() => {
+    discardGuardianProbe();
+    setWalletType(WalletType.Guardian);
+    setSelectedGuardianEndpoint(undefined);
+    setSeedPhrase([]);
+    setKeyPairPayload(null);
+    setPassword(null);
+    setOnboardingType(null);
+    setRecoveryError(null);
+    setRecoveryErrorId(undefined);
+  }, [discardGuardianProbe]);
+
   const handleCancel = useCallback(() => {
     discardGuardianProbe();
     navigate('/unlock');
@@ -149,7 +174,7 @@ const ForgotPassword: FC = () => {
   // 'ok' registered | 'failed' registration or switch threw (with no prior wipe on
   // pre-commit failure) | 'skipped' preconditions absent so nothing ran.
   const register = useCallback(async (): Promise<'ok' | 'failed' | 'skipped'> => {
-    if (password && (seedPhrase || keyPairPayload)) {
+    if (password && (seedPhrase.length > 0 || keyPairPayload)) {
       let switchedMainnet = false;
       let registrationCommitted = false;
       let previousOverride: EndpointOverride | null = null;
@@ -182,7 +207,11 @@ const ForgotPassword: FC = () => {
           );
         }
         registrationCommitted = true;
-        await clearClientStorageAfterRestore();
+        try {
+          await clearClientStorageAfterRestore();
+        } catch (cleanupError) {
+          console.warn('Failed to clear client storage after restore:', cleanupError);
+        }
         return 'ok';
       } catch (e) {
         if (switchedMainnet && !registrationCommitted) {
@@ -230,29 +259,22 @@ const ForgotPassword: FC = () => {
         // The Welcome step's Get started emits choose-protection; this page has no protection picker.
         case 'choose-protection':
         case 'create-wallet':
-          discardGuardianProbe();
-          setKeyPairPayload(null);
+          resetFlowToWelcome();
           setSeedPhrase(generateMnemonic().split(' '));
           setOnboardingType(OnboardingType.Create);
           setStep(OnboardingStep.BackupSeedPhrase);
           break;
         case 'select-import-type':
+        case 'import-from-seed':
           // Entering seed recovery: begin `recover` telemetry flow and jump straight to seed entry.
-          flowRef.current?.cancel();
+          resetFlowToWelcome();
           flowRef.current = beginFlow('recover');
-          setKeyPairPayload(null);
           setOnboardingType(OnboardingType.Import);
           setStep(OnboardingStep.ImportFromSeed);
           break;
-        case 'import-from-seed':
-          setKeyPairPayload(null);
-          setStep(OnboardingStep.ImportFromSeed);
-          break;
         case 'import-with-key':
-          flowRef.current?.cancel();
+          resetFlowToWelcome();
           flowRef.current = beginFlow('recover');
-          setSeedPhrase([]);
-          setKeyPairPayload(null);
           setOnboardingType(OnboardingType.Import);
           setStep(OnboardingStep.ImportFromKey);
           break;
@@ -268,14 +290,14 @@ const ForgotPassword: FC = () => {
         case 'import-hot-key-submit':
           setSeedPhrase([]);
           setKeyPairPayload(action.payload);
-          probeResult.current = startGuardianProbeWithKey(action.payload);
+          probeResult.current = startGuardianProbeForKeyPair(action.payload);
           setStep(isMobile() ? OnboardingStep.SetupPasscode : OnboardingStep.CreatePassword);
           break;
         case 'retry-guardian-probe':
           setRecoveryError(null);
           setRecoveryErrorId(undefined);
           if (keyPairPayload) {
-            probeResult.current = startGuardianProbeWithKey(keyPairPayload);
+            probeResult.current = startGuardianProbeForKeyPair(keyPairPayload);
           } else if (seedPhrase.length > 0) {
             probeResult.current = startGuardianProbe(seedPhrase);
           }
@@ -343,6 +365,7 @@ const ForgotPassword: FC = () => {
           if (step === OnboardingStep.VerifySeedPhrase) {
             setStep(OnboardingStep.BackupSeedPhrase);
           } else if (step === OnboardingStep.BackupSeedPhrase) {
+            resetFlowToWelcome();
             setStep(OnboardingStep.Welcome);
           } else if (step === OnboardingStep.CreatePassword) {
             setStep(
@@ -374,8 +397,7 @@ const ForgotPassword: FC = () => {
             );
           } else if (step === OnboardingStep.ImportFromSeed || step === OnboardingStep.ImportFromKey) {
             // Back to the reset screen's own welcome step — out of the recovery.
-            setKeyPairPayload(null);
-            discardGuardianProbe();
+            resetFlowToWelcome();
             setStep(OnboardingStep.Welcome);
           }
           break;
@@ -390,8 +412,9 @@ const ForgotPassword: FC = () => {
       seedPhrase,
       keyPairPayload,
       startGuardianProbe,
-      startGuardianProbeWithKey,
+      startGuardianProbeForKeyPair,
       discardGuardianProbe,
+      resetFlowToWelcome,
       settleRecoverFlow
     ]
   );
@@ -425,7 +448,6 @@ const ForgotPassword: FC = () => {
       guardianProbe={guardianProbe.state}
       guardianNetwork={recoveryNetwork}
       importViaKey={Boolean(keyPairPayload)}
-      canCreateWithPhrase={!recoverOnly && seedPhrase.length > 0 && !keyPairPayload}
       replacesExistingWallet
       canGoBack={!isLoading}
       onAction={onAction}
