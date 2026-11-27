@@ -18,10 +18,25 @@ import { clearFieldValue } from 'lib/ui/clear-field';
 import { AddressChain } from 'utils/miden';
 import { truncateAddress } from 'utils/string';
 
-import { BridgeNetwork, BridgeNetworkId, getBridgeNetwork, SendNetworkId } from './bridge-networks';
-import { NetworkField } from './NetworkField';
+import { BRIDGE_NETWORKS, BridgeNetworkId, SendNetworkId } from './bridge-networks';
+import { NetworkField, NetworkOption } from './NetworkField';
+import { sendNetworkKind } from './send-network-kind';
 import { SendStepLayout } from './SendStepLayout';
 import { RecentRecipient } from './types';
+
+/** The network badge of a recent recipient's avatar. Only Miden and EVM have a badge. */
+function recentAvatarNetwork(chain: AddressChain): 'miden' | 'ethereum' | undefined {
+  switch (chain) {
+    case 'miden':
+      return 'miden';
+    case 'ethereum':
+      return 'ethereum';
+    case 'solana':
+    case 'bitcoin':
+    case 'near':
+      return undefined;
+  }
+}
 
 // One easing for everything that reacts to the address changing, so the field
 // growing, the pills swapping and the chips arriving read as one movement.
@@ -30,17 +45,21 @@ const DURATION = 0.28;
 
 export interface SelectRecipientProps {
   embedded?: boolean;
-  networks?: readonly BridgeNetwork[];
+  /** The destination networks the wallet can send to. The field shows the ones that match the address chain. */
+  networks?: readonly NetworkOption[];
   address: string;
+  /** Actual destination when the editable input is a Miden Name. */
+  resolvedAddress?: string;
   isValidAddress: boolean;
   error?: string;
   errorDiagnostics?: UiEvidenceInput;
   /**
-   * Chain detected from the typed address. `ethereum` offers the cross-chain
-   * destination networks; `miden` is same-chain, so Miden is its only network.
+   * Chain detected from the typed address. `ethereum` offers the EVM destination
+   * networks; `solana`, `bitcoin` and `near` have one NEAR Intents network each;
+   * `miden` is same-chain, so Miden is its only network.
    */
   chain: AddressChain;
-  /** Selected network. Miden is available before an address is entered; EVM sends use a bridge network. */
+  /** Selected network. Miden is available before an address is entered; other sends use a `SendNetwork` id. */
   network?: SendNetworkId;
   /** Name of a saved contact matching the entered address. */
   recipientName?: string;
@@ -57,7 +76,7 @@ export interface SelectRecipientProps {
   onAddContact?: () => void;
   /** Fills the recipient from a "Recent" row. */
   onSelectRecent?: (recipient: RecentRecipient) => void;
-  /** Picks the destination network for a 0x recipient. */
+  /** Picks the destination network for a cross-chain recipient. */
   onSelectNetwork: (network: BridgeNetworkId) => void;
   /** Scan a recipient address from a QR code. Omitted where scanning is unavailable (desktop/extension). */
   onScan?: () => void;
@@ -69,6 +88,7 @@ export interface SelectRecipientProps {
 export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   embedded,
   address,
+  resolvedAddress,
   isValidAddress,
   error,
   errorDiagnostics,
@@ -111,10 +131,16 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   };
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const addressId = useId();
-  const selectedNetwork = network === 'miden' ? undefined : getBridgeNetwork(network);
-  const isEthereum = chain === 'ethereum';
+  // Undefined for a Miden address: a same-chain send needs no destination network.
+  const networkKind = sendNetworkKind(chain);
+  const offeredNetworks: readonly NetworkOption[] = networks ?? BRIDGE_NETWORKS;
+  const selectedNetwork =
+    networkKind === undefined
+      ? undefined
+      : offeredNetworks.find(option => option.id === network && (option.kind ?? 'evm') === networkKind);
   const hasAddress = address.trim().length > 0;
-  const canConfirm = isValidAddress && (!isEthereum || !!selectedNetwork);
+  const showRecipientIdentity = !!recipientName && recipientName !== address.trim();
+  const canConfirm = isValidAddress && (networkKind === undefined || !!selectedNetwork);
   const showAddContact = canAddContact && !!onAddContact;
   const recentRecipients = hasAddress ? [] : (recents ?? []);
   const pillSet = !hasAddress ? 'empty' : showAddContact ? 'add' : 'book';
@@ -122,6 +148,21 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
   // The scanner's own key, already localised everywhere, rather than a second English literal:
   // sentence case, as the design system asks of a label.
   const scanQrCodeLabel = t('scanQrTitle');
+  // The second line of a recent recipient with no saved name: the network of the address.
+  const recentNetworkLabel = (recipient: RecentRecipient): string => {
+    switch (recipient.chain) {
+      case 'miden':
+        return t('miden');
+      case 'ethereum':
+        return recipient.networkName ?? t('ethereum');
+      case 'solana':
+        return recipient.networkName ?? t('networkSolana');
+      case 'bitcoin':
+        return recipient.networkName ?? t('networkBitcoin');
+      case 'near':
+        return recipient.networkName ?? t('networkNear');
+    }
+  };
 
   // Done label on the mobile keyboard. Set via the ref because this repo's
   // @types/react version types enterKeyHint on inputs but not textareas.
@@ -171,10 +212,10 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             {t('sendTo')}
           </label>
         )}
-        {recipientName && (
+        {showRecipientIdentity && (
           <div className="mb-2 flex items-center gap-3">
             <span data-testid="send-recipient-avatar" className="flex shrink-0">
-              <ContactAvatar address={address} name={recipientName} />
+              <ContactAvatar address={resolvedAddress ?? address} name={recipientName} />
             </span>
             <span data-testid="send-recipient-name" className="text-hero-name text-ink">
               {recipientName}
@@ -199,9 +240,13 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
               // Below the tab title, never above it: 24px holds the placeholder to two lines on a
               // 375pt phone, and a pasted address wraps to three.
               'wrap-break-word focus:placeholder:text-transparent',
-              embedded ? 'text-body placeholder:text-muted' : 'text-hero-name font-bold placeholder:text-muted/70',
+              embedded
+                ? 'text-body placeholder:text-muted'
+                : showRecipientIdentity
+                  ? 'text-body-sm'
+                  : 'text-hero-name font-bold placeholder:text-muted/70',
               'caret-accent-send',
-              error ? 'text-negative-tint-ink' : 'text-ink'
+              error ? 'text-negative-tint-ink' : showRecipientIdentity ? 'text-muted' : 'text-ink'
             )}
             value={address}
             onChange={onAddressChange}
@@ -225,6 +270,11 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
             />
           )}
         </div>
+        {resolvedAddress && resolvedAddress !== address.trim() && (
+          <p className="mt-2 break-all text-body-sm text-muted" data-testid="send-resolved-address">
+            {resolvedAddress}
+          </p>
+        )}
       </div>
 
       <AnimatePresence initial={false}>
@@ -238,7 +288,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
       <div className="pt-4">
         <NetworkField
           networks={networks}
-          chain={isValidAddress && !isEthereum ? 'miden' : 'ethereum'}
+          chain={isValidAddress ? chain : 'ethereum'}
           network={network === 'miden' ? undefined : network}
           requireSelection
           onSelect={onSelectNetwork}
@@ -320,7 +370,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                     <ContactAvatar
                       address={recipient.address}
                       name={recipient.name}
-                      network={recipient.chain === 'miden' ? 'miden' : 'ethereum'}
+                      network={recentAvatarNetwork(recipient.chain)}
                     />
                     <span className="flex min-w-0 flex-col gap-0.5">
                       <span className="truncate text-row-title text-ink">
@@ -329,11 +379,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
                       {/* The address once: with no saved name the line above already shows it, so
                           this line names the network instead. */}
                       <span className="truncate text-caption text-muted">
-                        {recipient.name
-                          ? truncateAddress(recipient.address)
-                          : recipient.chain === 'miden'
-                            ? t('miden')
-                            : (recipient.networkName ?? t('ethereum'))}
+                        {recipient.name ? truncateAddress(recipient.address) : recentNetworkLabel(recipient)}
                       </span>
                     </span>
                   </button>

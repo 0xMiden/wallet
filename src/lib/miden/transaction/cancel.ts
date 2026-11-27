@@ -1,5 +1,7 @@
 import { InputNoteState } from '@miden-sdk/miden-sdk/lazy';
 
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
+import { readTransactionIndexChunks, statusIndexSpecs } from 'lib/miden/db/index-query';
 import { isGuardianWriteDiscardedError } from 'lib/miden/guardian/direct-switch';
 import { isProofFreshnessUnknownError, isStaleProofError } from 'lib/miden/guardian/proof-freshness';
 import { getGuardianCandidate, recordGuardianCandidate } from 'lib/miden/guardian/serialize';
@@ -7,7 +9,12 @@ import { ESTIMATED_MS_PER_BLOCK } from 'lib/miden/helpers';
 import * as Repo from 'lib/miden/repo';
 import { monotonicNowMs } from 'lib/miden/sync-backoff';
 import { syncBeforeVerdict } from 'lib/miden/sync-lock';
-import { hiddenMsBetween, hiddenSecondsSince, isBackgroundTimeTrackingInstalled } from 'lib/mobile/background-time';
+import {
+  hiddenMsBetween,
+  hiddenSecondsSince,
+  isBackgroundTimeTrackingInstalled,
+  wasRecordingHiddenTimeAt
+} from 'lib/mobile/background-time';
 import { isMobile } from 'lib/platform';
 import { classifyError } from 'lib/telemetry/classify';
 import { ownDiagnosticData } from 'lib/telemetry/closed-root-diagnostics';
@@ -59,7 +66,7 @@ import {
 } from './helper';
 import { consumeQueueAdmission, queueSightingFor, type QueueAdmissionMember } from './queue-admission-diagnostics';
 import { attemptSubmitCrossing, hiddenShareBucket, submitApproach } from './submit-approach-diagnostics';
-import { canAwaitVerdict, crossedCandidateNonce, upsertEvidenceEntry } from './verdict-rules';
+import { canAwaitVerdict, crossedCandidateNonce, isNoteHoldingRow, upsertEvidenceEntry } from './verdict-rules';
 import { adoptLandedConsume } from '../activity/bridge-in';
 import {
   notifyBackgroundTransactionFailed,
@@ -72,6 +79,7 @@ import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import {
   indefiniteSubmitTransactionId,
   isIndefiniteSubmitOutcomeError,
+  isKilledBeforeSubmit,
   isKilledPipeline,
   isPoisonedPipeline
 } from '../sdk/sdk-error-code';
@@ -144,7 +152,8 @@ const describeFailure = (
   // unknown state, check your activity" on a row whose Retry is provably safe is a
   // falsehood that costs the user the retry.
   const abandonedPreWrite =
-    PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined;
+    isKilledBeforeSubmit(error) ||
+    (PRE_WRITE_STAGES.has(failedStage ?? '') && existing !== undefined && existing.processingStartedAt === undefined);
   // A reason the wallet itself wrote, final or unconfirmed, is stored exactly as written, whatever the row's
   // stage: running it through the stage classifier below would relabel it as prover copy (see 'proving' in
   // classifyTransactionError) and move the real reason to rawError, which is what let a stuck or interrupted
@@ -240,6 +249,7 @@ export const cancelTransaction = async (
   const { displayError, rawError, errorChain } = describeFailure(transaction, error, existing);
   const nodeDiscarded = isGuardianWriteDiscardedError(error);
   const effectRefused = error instanceof ProposalEffectRefusedError;
+  const preSubmitKill = isKilledBeforeSubmit(error);
   let applied = false;
   let racedTerminal = false;
   let attemptRefused = false;
@@ -269,6 +279,8 @@ export const cancelTransaction = async (
     if (nodeDiscarded) dbTx.extraInputs = { ...dbTx.extraInputs, nodeDiscarded: true };
     // Retry is withheld from a refused proposal: the same effect would be refused again (#2147).
     if (effectRefused) dbTx.proposalEffectRefused = true;
+    // Confirmed pre-submit kills are retryable without user acknowledgement (#2325).
+    if (preSubmitKill) dbTx.preSubmitKill = true;
     // Copied from the row this write is committing, not from the `existing` read
     // above it, so a submit stamp that lands between that read and this write is
     // seen by the notice below (#1250).
@@ -310,6 +322,7 @@ export const cancelTransaction = async (
     );
   }
   if (committed !== undefined && !committed.restoredFromBackup) {
+    signalTransactionCompleted();
     const failureReason = reportedReason ?? reportedWalletReason(error);
     reportTransactionFailure({
       point: 'pipeline',
@@ -456,13 +469,14 @@ const reportedPreflightSync = (row: ITransaction): PreflightSyncReport => {
   return 'not_entered';
 };
 
-/** Hidden time this process recorded over the wait. A restarted process can report `none` for time it did not see. */
+/** Hidden time this process recorded across the full queue wait. */
 export const queueHiddenBucket = (row: ITransaction, nowMs: number): QueueHiddenBucket => {
   if (!isMobile()) return 'not_measured';
   if (!isBackgroundTimeTrackingInstalled()) return 'unobserved';
   if (!Number.isFinite(row.initiatedAt) || row.initiatedAt < 0) return 'unavailable';
   const ageSec = nowMs / 1000 - row.initiatedAt;
   if (!Number.isFinite(ageSec) || ageSec <= 0) return 'unavailable';
+  if (!wasRecordingHiddenTimeAt(row.initiatedAt * 1000)) return 'unobserved';
   return hiddenShareBucket(hiddenSecondsSince(row.initiatedAt, nowMs), ageSec);
 };
 
@@ -566,6 +580,7 @@ export const markTransactionUnconfirmed = async (
     logOperationEnd('swap', 'unconfirmed', elapsedMsSince(committed.initiatedAt));
   }
   if (committed !== undefined && !committed.restoredFromBackup) {
+    signalTransactionCompleted();
     reportTransactionFailure({
       point: 'pipeline',
       type: committed.type,
@@ -735,8 +750,8 @@ export const cancelTransactionAfterPipelineStopped = async (tx: Transaction, err
   // Both kill classifications read the whole cause chain: a caller wrapping the kill
   // does not stop the pipeline it abandoned (#1313).
   const killed = isKilledPipeline(error);
-  let abandonedPreWrite = false;
-  if (killed) {
+  let abandonedPreWrite = isKilledBeforeSubmit(error);
+  if (killed && !abandonedPreWrite) {
     const committed = await Repo.transactions.where({ id: tx.id }).first();
     abandonedPreWrite = PRE_WRITE_STAGES.has(committed?.stage ?? '') && committed?.processingStartedAt === undefined;
   }
@@ -895,7 +910,11 @@ export const cancelStuckTransactions = async () => {
 export const cancelStaleQueuedTransactions = async (
   onQueuedSnapshot?: (rows: readonly QueueAdmissionMember[]) => void
 ): Promise<void> => {
-  const queued = await Repo.transactions.filter(rec => rec.status === ITransactionStatus.Queued).toArray();
+  const queued = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusIndexSpecs([ITransactionStatus.Queued]),
+    () => true
+  );
   const stale = queued.filter(
     tx => !tx.awaitingRecoverySeed && Math.floor(Date.now() / 1000) - tx.initiatedAt > MAX_QUEUED_AGE
   );
@@ -1094,7 +1113,12 @@ const startupSnapshot = (
  * than promising nothing was submitted (the existing 30-min reaper already
  * marks that same edge case Failed, so this is not a new regression).
  */
-export const failInterruptedTransactions = async () => {
+export type InterruptedSweepResult = {
+  failedCount: number;
+  failedNoteHolderCount: number;
+};
+
+export const failInterruptedTransactions = async (): Promise<InterruptedSweepResult> => {
   const inProgress = await getTransactionsInProgress();
   const nowMs = Date.now();
   const nowSeconds = Math.floor(nowMs / 1000);
@@ -1104,11 +1128,12 @@ export const failInterruptedTransactions = async () => {
       (!startedInThisRealm.has(tx.id) &&
         (tx.processingStartedAt === undefined || tx.processingStartedAt < SESSION_STARTED_AT))
   );
-  await Promise.all(
+  const outcomes = await Promise.all(
     transactions.map(async tx => {
+      const mayHoldNotes = isNoteHoldingRow(tx, nowSeconds);
       handBackInterruptedCandidate(tx);
       await recordOutOfBandEnd(tx.id);
-      return cancelTransaction(
+      const cancelled = await cancelTransaction(
         tx,
         TRANSACTION_INTERRUPTED_ON_STARTUP,
         'Interrupted - check your activity after it syncs',
@@ -1117,8 +1142,17 @@ export const failInterruptedTransactions = async () => {
         undefined,
         startupSnapshot(tx, nowSeconds, nowMs)
       );
+      return { cancelled, mayHoldNotes };
     })
   );
+  let failedCount = 0;
+  let failedNoteHolderCount = 0;
+  for (const outcome of outcomes) {
+    if (!outcome.cancelled) continue;
+    failedCount += 1;
+    if (outcome.mayHoldNotes) failedNoteHolderCount += 1;
+  }
+  return { failedCount, failedNoteHolderCount };
 };
 
 /**

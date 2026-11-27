@@ -157,6 +157,7 @@ jest.mock('lib/miden/transaction/get', () => ({
 jest.mock('lib/miden/db/types', () => ({
   ITransactionStatus: { Queued: 0, GeneratingTransaction: 1, Completed: 2, Failed: 3, Unconfirmed: 4 },
   STRUCTURAL_GUARDIAN_TYPES: jest.requireActual('lib/miden/db/types').STRUCTURAL_GUARDIAN_TYPES,
+  nearIntentsSendTrackingOf: jest.requireActual('lib/miden/db/types').nearIntentsSendTrackingOf,
   formatTransactionStatus: (...args: unknown[]) => mockFormatTransactionStatus(...args)
 }));
 
@@ -177,6 +178,8 @@ jest.mock('./transactionUtils', () => ({
   swapSettlementOf: jest.requireActual('./transactionUtils').swapSettlementOf,
   // The real naming, so a label assertion runs the rule the list renders with.
   labelHistoryEntry: jest.requireActual('./transactionUtils').labelHistoryEntry,
+  historySecondaryAddressOf: jest.requireActual('./transactionUtils').historySecondaryAddressOf,
+  loadedActivityOneClickTracking: jest.requireActual('./transactionUtils').loadedActivityOneClickTracking,
   resolveConsumeExtraAmounts: (...args: unknown[]) => mockResolveConsumeExtraAmounts(...args)
 }));
 
@@ -548,6 +551,25 @@ describe('History initial-load signal', () => {
 });
 
 describe('History', () => {
+  it('hands the view the row cap and stops paging once the capped list is full', async () => {
+    const rows = Array.from({ length: 7 }, (_, i) => ({
+      id: `capped-${i}`,
+      accountId: '0xme',
+      displayMessage: 'Sent',
+      displayIcon: 'DEFAULT',
+      type: 'send',
+      status: STATUS.Completed,
+      completedAt: 700 - i
+    }));
+    mockGetCompletedTransactions.mockResolvedValue(rows);
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+    await renderHistory({ numItems: 5, fullHistory: true });
+
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(5));
+    expect(mockHistoryViewProps.maxRows).toBe(5);
+    expect(mockHistoryViewProps.hasMore).toBe(false);
+  });
+
   it('filters Arcade by recorded dApp origins on both completed and pending entries, never by token name', async () => {
     const base = { accountId: '0xme', displayMessage: 'GC transfer', displayIcon: 'DEFAULT', type: 'send' };
     mockGetCompletedTransactions.mockResolvedValueOnce([
@@ -578,6 +600,39 @@ describe('History', () => {
         entry.dappOrigins?.some(origin => origin === 'https://game.example')
       )
     ).toBe(true);
+  });
+
+  it('projects the local initiating dApp on queued and settled rows only', async () => {
+    const granted = ['https://creator.example', 'https://waiter.example'];
+    const localAttribution = { initiatingDappOrigin: granted[0] };
+    const base = { accountId: '0xme', displayMessage: 'Transfer', displayIcon: 'DEFAULT', type: 'send' };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      { ...base, id: 'local', status: STATUS.Completed, completedAt: 400, ...localAttribution },
+      { ...base, id: 'legacy', status: STATUS.Completed, completedAt: 300, dappOrigins: granted },
+      {
+        ...base,
+        id: 'restored',
+        status: STATUS.Completed,
+        completedAt: 200,
+        restoredFromBackup: true,
+        ...localAttribution
+      },
+      { ...base, id: 'recovered', status: STATUS.Completed, completedAt: 100, recovered: true, ...localAttribution }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([
+      { ...base, id: 'queued', status: STATUS.Queued, initiatedAt: 500, dappOrigins: granted, ...localAttribution }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(5));
+
+    const entries = new Map((mockHistoryViewProps.entries as IHistoryEntry[]).map(entry => [entry.key, entry]));
+    expect(entries.get('pending-queued')).toMatchObject({ dappOrigins: granted, ...localAttribution });
+    expect(entries.get('completed-local')).toMatchObject(localAttribution);
+    expect(entries.get('completed-legacy')).toMatchObject({ dappOrigins: granted });
+    for (const key of ['completed-legacy', 'completed-restored', 'completed-recovered']) {
+      expect(entries.get(key)).not.toHaveProperty('initiatingDappOrigin', granted[0]);
+    }
   });
 
   it('fails closed when Arcade is requested without its origin predicate', async () => {
@@ -627,6 +682,28 @@ describe('History', () => {
     );
     expect(pending.previousGuardianEndpoint).toBeUndefined();
     expect(pending.newGuardianEndpoint).toBe('https://legacy-new.example');
+  });
+
+  // The Activity title tells an added device from a replaced one by the row's recorded mode.
+  it('marks only a hot-key rotation recorded in add mode as a device addition', async () => {
+    const rotation = { accountId: '0xme', displayIcon: 'DEFAULT', status: STATUS.Completed };
+    mockGetCompletedTransactions.mockResolvedValueOnce([
+      { ...rotation, id: 'added', type: 'replace-hot-key', completedAt: 400, extraInputs: { mode: 'add' } },
+      { ...rotation, id: 'replaced', type: 'replace-hot-key', completedAt: 300, extraInputs: { mode: 'replace' } },
+      { ...rotation, id: 'legacy', type: 'replace-hot-key', completedAt: 200, extraInputs: {} },
+      { ...rotation, id: 'other', type: 'execute', completedAt: 100, extraInputs: { mode: 'add' } }
+    ]);
+    mockGetUncompletedTransactions.mockResolvedValueOnce([]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(4));
+
+    const hotKeyAdded = (id: string) =>
+      mockHistoryViewProps.entries.find((entry: { key: string }) => entry.key === `completed-${id}`).hotKeyAdded;
+    expect(hotKeyAdded('added')).toBe(true);
+    expect(hotKeyAdded('replaced')).toBe(false);
+    expect(hotKeyAdded('legacy')).toBe(false);
+    expect(hotKeyAdded('other')).toBe(false);
   });
 
   it('projects each rotation row verdict for the Activity title and chip', async () => {
@@ -1479,6 +1556,30 @@ describe('History', () => {
     // Whitespace-only query → filter skipped (all entries retained).
     await doRerender({ searchQuery: '   ' });
     expect(entryKeys().length).toBe(9);
+  });
+
+  it('finds a send by its saved recipient name', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'SAVED-NAME',
+              type: 'send',
+              status: STATUS.Completed,
+              completedAt: 1000,
+              displayMessage: 'Sent',
+              displayIcon: 'SEND',
+              secondaryAccountId: '0xbbb',
+              recipientName: 'Alice.miden'
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory({ searchQuery: 'ALICE.MIDEN' });
+
+    expect(entryKeys()).toEqual(['completed-SAVED-NAME']);
   });
 
   it('finds a swap by the asset it asks for, which only its requestedToken names', async () => {
@@ -3013,6 +3114,35 @@ describe('History', () => {
     });
   });
 
+  it('shows peer bridge details for a claim recorded as a plain receive', async () => {
+    mockGetCompletedTransactions.mockResolvedValue([
+      {
+        id: 'LOCAL-CLAIM',
+        status: STATUS.Completed,
+        displayMessage: 'Received',
+        displayIcon: 'RECEIVE',
+        type: 'consume',
+        completedAt: 4000,
+        backupBridgeReceipt: {
+          displayMessage: 'Bridged from EVM',
+          bridgeIn: { provider: 'usdcx', evmTxHash: '0xdeposit', midenNoteId: '0xnote' }
+        }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() =>
+      expect(mockHistoryViewProps.entries).toContainEqual(
+        expect.objectContaining({
+          key: 'completed-LOCAL-CLAIM',
+          message: 'Bridged from EVM',
+          bridgeInProvider: 'usdcx',
+          bridgeInEvmTxHash: '0xdeposit'
+        })
+      )
+    );
+  });
+
   it('drops a failed claim row the superseded lookup names (#771)', async () => {
     mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
       offset === undefined
@@ -3092,6 +3222,103 @@ describe('History Agglayer destination plumbing', () => {
       expect.arrayContaining([
         expect.objectContaining({ key: 'completed-AGG-COMPLETE', bridgeAgglayerRoute: agglayerRoute }),
         expect.objectContaining({ key: 'pending-AGG-PENDING', bridgeAgglayerRoute: agglayerRoute })
+      ])
+    );
+  });
+});
+
+describe('History near-intents outbound plumbing', () => {
+  it('keeps destinationChain and oneClickTracking on completed and pending bridged-send entries', async () => {
+    const destinationChain = { id: 'sol', name: 'Solana' };
+    const completedTracking = { updatedAt: 1000, phase: 'delivered' };
+    const pendingTracking = { updatedAt: 2000, phase: 'processing' };
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'NI-COMPLETE',
+              status: STATUS.Completed,
+              type: 'bridged-send',
+              completedAt: 3000,
+              extraInputs: {
+                provider: 'near-intents',
+                destinationAddress: 'So1anaDest111',
+                destinationNetwork: -1,
+                destinationChain,
+                oneClick: completedTracking
+              }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'NI-PENDING',
+        status: STATUS.GeneratingTransaction,
+        type: 'bridged-send',
+        initiatedAt: 1000,
+        extraInputs: {
+          provider: 'near-intents',
+          destinationAddress: 'So1anaDest111',
+          destinationNetwork: -1,
+          destinationChain,
+          oneClick: pendingTracking
+        }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    expect(mockHistoryViewProps.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          key: 'completed-NI-COMPLETE',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationChain: destinationChain,
+          oneClickTracking: completedTracking
+        }),
+        expect.objectContaining({
+          key: 'pending-NI-PENDING',
+          bridgeProvider: 'near-intents',
+          bridgeDestinationChain: destinationChain,
+          oneClickTracking: pendingTracking
+        })
+      ])
+    );
+  });
+
+  it('keeps legacy send oneClickTracking when provider is omitted on completed and pending rows', async () => {
+    const completedTracking = { updatedAt: 1000, phase: 'delivered' };
+    const pendingTracking = { updatedAt: 2000, phase: 'processing' };
+    mockGetCompletedTransactions.mockImplementation(async (_address: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'NI-LEGACY-COMPLETE',
+              status: STATUS.Completed,
+              type: 'send',
+              completedAt: 3000,
+              extraInputs: { oneClick: completedTracking }
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([
+      {
+        id: 'NI-LEGACY-PENDING',
+        status: STATUS.GeneratingTransaction,
+        type: 'send',
+        initiatedAt: 1000,
+        extraInputs: { oneClick: pendingTracking }
+      }
+    ]);
+
+    await renderHistory();
+    await waitFor(() => expect(mockHistoryViewProps.entries).toHaveLength(2));
+    expect(mockHistoryViewProps.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ key: 'completed-NI-LEGACY-COMPLETE', oneClickTracking: completedTracking }),
+        expect.objectContaining({ key: 'pending-NI-LEGACY-PENDING', oneClickTracking: pendingTracking })
       ])
     );
   });
@@ -3450,6 +3677,76 @@ describe('History earn entries', () => {
 
     const entry = mockHistoryViewProps.entries.find((e: any) => e.key === 'pending-EDP');
     expect(entry.earnDepositStatus).toBe('failed');
+  });
+});
+
+describe('History Miden Name entries', () => {
+  it('reconciles the successful name receipt into the registration entry', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'RN',
+              type: 'register-name',
+              status: 2,
+              completedAt: 5000,
+              faucetId: 'fa1',
+              amount: 20n,
+              secondaryAccountId: 'mtst1registry',
+              extraInputs: { label: 'alice', phase: 'owned', registrationNoteId: '0xnote', claimTxId: 'NC' },
+              displayMessage: 'Name requested',
+              displayIcon: 'SEND'
+            },
+            // The name claim: no fungible asset, so no faucet and no amount.
+            {
+              id: 'NC',
+              type: 'consume',
+              status: 2,
+              completedAt: 6000,
+              secondaryAccountId: 'mtst1registry',
+              extraInputs: { midenNameClaim: { label: 'alice', registerTxId: 'RN' } },
+              displayMessage: 'Name received',
+              displayIcon: 'RECEIVE'
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory();
+
+    const registration = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-RN');
+    expect(registration.midenNameLabel).toBe('alice');
+    expect(registration.amount).toBe('fmt(20,6)');
+    expect(registration.token).toBe('TKF');
+
+    const claim = mockHistoryViewProps.entries.find((e: any) => e.key === 'completed-NC');
+    expect(claim).toBeUndefined();
+    expect(registration.midenNameReceiptTxId).toBe('NC');
+    expect(registration.midenNameStatus).toBe('confirmed');
+  });
+
+  it('finds a registration by its full name', async () => {
+    mockGetCompletedTransactions.mockImplementation(async (_addr: string, offset?: number) =>
+      offset === undefined
+        ? [
+            {
+              id: 'RN',
+              type: 'register-name',
+              status: 2,
+              completedAt: 5000,
+              extraInputs: { label: 'alice', phase: 'submitted' },
+              displayMessage: 'Name requested',
+              displayIcon: 'SEND'
+            }
+          ]
+        : []
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    await renderHistory({ searchQuery: 'alice.miden' });
+
+    expect(mockHistoryViewProps.entries.map((e: any) => e.key)).toEqual(['completed-RN']);
   });
 });
 
@@ -3823,6 +4120,16 @@ describe('History narrowed and re-rendered by its caller', () => {
     expect(mockHistoryViewProps.hasMore).toBe(true);
   });
 
+  it('calls the batch filter with an empty result without changing paging', async () => {
+    const filterEntries = jest.fn((entries: readonly IHistoryEntry[]) => [...entries]);
+
+    await renderHistory({ predicate: () => false, filterEntries });
+
+    expect(filterEntries).toHaveBeenCalledWith([]);
+    expect(entryKeys()).toEqual([]);
+    expect(mockHistoryViewProps.hasMore).toBe(true);
+  });
+
   it('hands `renderEntries` the same entries and paging state instead of the timeline', async () => {
     let seen: any;
     await act(async () => {
@@ -3919,6 +4226,11 @@ describe('History on the real SWR cache', () => {
         extraInputs: { evmRecipient: '0xrecipient', marketUid: 'market', sourceFaucetId: 'fa1', epochStatus: 'pending' }
       },
       {
+        id: 'STATUS-MIDEN-NAME',
+        type: 'register-name',
+        extraInputs: { label: 'alice', phase: 'claiming', claimTxId: 'OLD-CLAIM' }
+      },
+      {
         id: 'STATUS-EARN-WITHDRAW',
         type: 'earn-withdraw',
         extraInputs: {
@@ -3972,6 +4284,7 @@ describe('History on the real SWR cache', () => {
       expect(entryFor('STATUS-BRIDGE-SEND')?.bridgeClaimStatus).toBe('pending');
       expect(entryFor('STATUS-BRIDGE-RECEIVE')?.bridgeInPhase).toBe('delivering');
       expect(entryFor('STATUS-EARN-DEPOSIT')?.earnDepositStatus).toBe('pending');
+      expect(entryFor('STATUS-MIDEN-NAME')?.midenNameStatus).toBe('pending');
 
       const refreshedRows = oldRows.map(tx => {
         const extraInputs = { ...(tx.extraInputs as Record<string, unknown>) };
@@ -3979,6 +4292,10 @@ describe('History on the real SWR cache', () => {
         if (tx.id === 'STATUS-BRIDGE-RECEIVE') extraInputs.phase = 'received';
         if (tx.id === 'STATUS-EARN-DEPOSIT') extraInputs.epochStatus = 'confirmed';
         if (tx.id === 'STATUS-EARN-WITHDRAW') extraInputs.phase = 'received';
+        if (tx.id === 'STATUS-MIDEN-NAME') {
+          extraInputs.phase = 'owned';
+          extraInputs.claimTxId = 'LANDED-CLAIM';
+        }
         return { ...tx, extraInputs } as ITransaction;
       });
       await Repo.transactions.bulkPut(refreshedRows);
@@ -3989,8 +4306,60 @@ describe('History on the real SWR cache', () => {
       expect(entryFor('STATUS-BRIDGE-RECEIVE')?.bridgeInPhase).toBe('received');
       expect(entryFor('STATUS-EARN-DEPOSIT')?.earnDepositStatus).toBe('confirmed');
       expect(entryFor('STATUS-EARN-WITHDRAW')?.earnWithdrawPhase).toBe('received');
+      await waitFor(() => expect(entryFor('STATUS-MIDEN-NAME')?.midenNameStatus).toBe('confirmed'));
+      expect(entryFor('STATUS-MIDEN-NAME')?.midenNameReceiptTxId).toBe('LANDED-CLAIM');
     } finally {
       await Repo.transactions.clear();
+    }
+  }, 15_000);
+
+  it('refreshes an older registration when there are no older bridge or Earn rows', async () => {
+    const registration: ITransaction = {
+      id: 'NAME-ONLY-OLDER',
+      accountId: '0xme',
+      type: 'register-name',
+      status: ITransactionStatus.Completed,
+      completedAt: 4000,
+      initiatedAt: 4000,
+      displayIcon: 'RECEIVE',
+      extraInputs: { label: 'alice', phase: 'claiming', phaseUpdatedAt: 1 }
+    };
+    const head: ITransaction = {
+      id: 'NAME-ONLY-HEAD',
+      accountId: '0xme',
+      type: 'consume',
+      status: ITransactionStatus.Completed,
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const cursor = { effectiveTimestamp: 5000, transactionId: head.id, status: head.status, initiatedAt: 5000 };
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? { transactions: [head], rawCount: 1, hasMore: true, nextCursor: cursor }
+        : { transactions: [registration], rawCount: 1, hasMore: false }
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await Repo.transactions.put(registration);
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => visibleView().loadMore(0));
+      const nameStatus = () =>
+        visibleView().entries.find((entry: IHistoryEntry) => entry.txId === registration.id)?.midenNameStatus;
+      await waitFor(() => expect(nameStatus()).toBe('pending'));
+
+      await Repo.transactions.put({
+        ...registration,
+        extraInputs: { ...registration.extraInputs, phase: 'owned', phaseUpdatedAt: 2 }
+      });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+
+      await waitFor(() => expect(nameStatus()).toBe('confirmed'));
+    } finally {
+      await Repo.transactions.delete(registration.id);
     }
   }, 15_000);
 
@@ -4136,6 +4505,65 @@ describe('History on the real SWR cache', () => {
       expect(entryFor(older.id)?.transactionIcon).toBe('FAILED');
       expect(entryFor(older.id)?.isUnconfirmed).toBe(false);
       expect(entryFor(older.id)?.timestamp).toBe(older.completedAt);
+    } finally {
+      await Repo.transactions.clear();
+    }
+  }, 15_000);
+
+  it('refreshes oneClickTracking on an older completed legacy send row after a head refresh', async () => {
+    await Repo.transactions.clear();
+
+    const head: ITransaction = {
+      id: 'HEAD-ROW-LEGACY',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'consume',
+      initiatedAt: 5000,
+      completedAt: 5000,
+      displayIcon: 'RECEIVE'
+    };
+    const initialTracking = { updatedAt: 1000, phase: 'processing' };
+    const deliveredTracking = { updatedAt: 2000, phase: 'delivered' };
+    const older: ITransaction = {
+      id: 'OLDER-LEGACY-ONECLICK',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'send',
+      initiatedAt: 4000,
+      completedAt: 4000,
+      displayMessage: 'Sent',
+      displayIcon: 'SEND',
+      extraInputs: { oneClick: initialTracking }
+    };
+    const cursorFor = (tx: ITransaction): CompletedHistoryCursor => ({
+      effectiveTimestamp: tx.completedAt ?? tx.initiatedAt ?? 0,
+      transactionId: tx.id,
+      status: tx.status,
+      initiatedAt: tx.initiatedAt
+    });
+    await Repo.transactions.put(older);
+    mockGetCompletedTransactionsPage.mockImplementation(async (request: CompletedTransactionsPageRequest) =>
+      request.fromEnd
+        ? { transactions: [head], rawCount: 1, hasMore: true, nextCursor: cursorFor(head) }
+        : { transactions: [older], rawCount: 1, hasMore: false, nextCursor: cursorFor(older) }
+    );
+    mockGetUncompletedTransactions.mockResolvedValue([]);
+
+    try {
+      await act(async () => render(inCache(page(true, { fullHistory: true }))));
+      await waitFor(() => expect(visibleView()?.entries).toHaveLength(1));
+      await act(async () => visibleView().loadMore(0));
+      const entryFor = (id: string) => visibleView().entries.find((entry: any) => entry.txId === id);
+      await waitFor(() => expect(entryFor(older.id)?.oneClickTracking).toEqual(initialTracking));
+
+      await Repo.transactions.put({
+        ...older,
+        extraInputs: { oneClick: deliveredTracking }
+      });
+      await pastDedupe();
+      await act(async () => visibleView().onRetry());
+
+      await waitFor(() => expect(entryFor(older.id)?.oneClickTracking).toEqual(deliveredTracking));
     } finally {
       await Repo.transactions.clear();
     }
@@ -4735,5 +5163,91 @@ describe('patchLoadedActivityStatus', () => {
     );
     expect(replaced).not.toBe(loaded);
     expect(replaced.entries[0]?.oneClickTracking).toBe(moved);
+  });
+
+  it('tracks destinationChain and 1Click status on a near-intents bridged-send row', () => {
+    const tracking = { updatedAt: 1_000, phase: 'processing' };
+    const row = {
+      id: 'near-send-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'bridged-send',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'SEND',
+      extraInputs: {
+        provider: 'near-intents',
+        destinationAddress: 'So1anaDest111',
+        destinationNetwork: -1,
+        destinationChain: { id: 'sol', name: 'Solana' },
+        oneClick: tracking
+      }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-near-send-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    expect(loaded.entries[0]?.oneClickTracking).toBe(tracking);
+    expect(loaded.entries[0]?.bridgeDestinationChain).toEqual({ id: 'sol', name: 'Solana' });
+
+    const delivered = { ...tracking, phase: 'delivered', updatedAt: 2_000 };
+    const updated = patchLoadedActivityStatus(
+      loaded,
+      'scope',
+      ids,
+      new Map([[row.id, { ...row, extraInputs: { ...row.extraInputs, oneClick: delivered } }]])
+    );
+    expect(updated.entries[0]?.oneClickTracking).toBe(delivered);
+
+    const refreshed = patchLoadedActivityStatus(
+      updated,
+      'scope',
+      ids,
+      new Map([
+        [
+          row.id,
+          {
+            ...row,
+            extraInputs: {
+              ...row.extraInputs,
+              destinationChain: { id: 'sol', name: 'Solana' },
+              oneClick: { ...delivered }
+            }
+          }
+        ]
+      ])
+    );
+    expect(refreshed).toBe(updated);
+  });
+
+  it('preserves oneClickTracking on a legacy send row without provider', () => {
+    const tracking = { updatedAt: 1_000, phase: 'processing' };
+    const row = {
+      id: 'near-legacy-send-1',
+      accountId: '0xme',
+      status: ITransactionStatus.Completed,
+      type: 'send',
+      initiatedAt: 1000,
+      completedAt: 1000,
+      displayIcon: 'SEND',
+      extraInputs: { oneClick: tracking }
+    } as ITransaction;
+    const ids = new Set([row.id]);
+    const initial = {
+      key: 'scope',
+      entries: [{ key: 'completed-near-legacy-send-1', txId: row.id } as IHistoryEntry],
+      rawIds: new Set<string>(),
+      cursor: null,
+      cursorInitialized: true,
+      hasMore: false
+    };
+    const loaded = patchLoadedActivityStatus(initial, 'scope', ids, new Map([[row.id, row]]));
+    expect(loaded.entries[0]?.oneClickTracking).toBe(tracking);
   });
 });

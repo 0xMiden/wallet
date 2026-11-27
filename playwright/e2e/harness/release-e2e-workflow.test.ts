@@ -47,6 +47,7 @@ const RELEASE_SUITES = [
   'e2e-bridge-in.yml',
   'e2e-dapp.yml',
   'e2e-dapp-browser.yml',
+  'e2e-multi-device.yml',
   'e2e-resilience.yml',
   'e2e-telemetry.yml',
   'e2e-upgrade.yml',
@@ -69,7 +70,7 @@ describe('Release E2E', () => {
     expect(RELEASE).toContain("REF: ${{ github.event.release.tag_name || inputs.ref || 'main' }}");
   });
 
-  it('dispatches each of the seventeen release suites once, on the ref, and fails naming one it could not start', () => {
+  it('dispatches each of the eighteen release suites once, on the ref, and fails naming one it could not start', () => {
     expect(listed.map(line => line.split(' ')[0])).toEqual(RELEASE_SUITES);
     expect(RELEASE).toContain('gh workflow run "$file" --repo "$GITHUB_REPOSITORY" --ref "$REF" $args');
     expect(RELEASE).toMatch(/::error title=Release E2E::could not dispatch \$\{file\} on \$\{REF\}/);
@@ -87,6 +88,21 @@ describe('Release E2E', () => {
       const expectedNetworkFlags = declared.includes('network') ? ['-f network=testnet'] : [];
       expect(networkFlags).toEqual(expectedNetworkFlags);
     }
+  });
+
+  // The release runs the multi-device suite with its 10-minute hold tests; a dispatch by hand runs them only on request.
+  it('runs the multi-device suite with its long hold tests, which its own dispatch leaves off', () => {
+    expect(listed).toContain('e2e-multi-device.yml -f long_holds=true');
+    const multiDevice = read('e2e-multi-device.yml');
+    expect(dispatchInputs(multiDevice)).toEqual(['suite', 'long_holds']);
+    expect(multiDevice).toMatch(
+      /^ {6}long_holds:\n(?: {8}.*\n)*? {8}default: false\n(?: {8}.*\n)*? {8}type: boolean$/m
+    );
+    expect(multiDevice).toContain("E2E_MULTI_DEVICE_LONG_HOLDS: ${{ inputs.long_holds && 'true' || 'false' }}");
+    // A release run (long_holds=true) must not cancel a hand run (long_holds=false) on the same ref and suite.
+    expect(multiDevice).toContain(
+      'group: ${{ github.workflow }}-${{ github.ref }}-${{ inputs.suite }}-${{ inputs.long_holds }}'
+    );
   });
 
   it('starts automatically for a full release only, and says a release candidate is tested by hand', () => {

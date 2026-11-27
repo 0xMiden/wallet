@@ -10,11 +10,25 @@ import type { ConsumableNote } from '../types';
 
 type AutoConsumeNoteShape = Pick<
   ConsumableNote,
-  'faucetId' | 'swapOrder' | 'isBeingClaimed' | 'amount' | 'fromCache' | 'standardPayment'
+  'faucetId' | 'swapOrder' | 'isBeingClaimed' | 'amount' | 'fromCache' | 'standardPayment' | 'peerSwapPayback'
 >;
 
 function isNativeNonSwapNote(note: AutoConsumeNoteShape, nativeFaucetId: string | null): boolean {
   return nativeFaucetId !== null && note.faucetId === nativeFaucetId && !note.swapOrder;
+}
+
+/**
+ * A native standard payment that an unattended claim can take. A payback of a PSWAP order that this device did not
+ * place is not one: the device that placed the order claims it, and each other device of the account sees the same
+ * note with no `swapOrder`, so without this rule they would all claim it at the same time (multi-device).
+ */
+function isUnattendedNativeNote(note: AutoConsumeNoteShape, nativeFaucetId: string | null): boolean {
+  return (
+    isNativeNonSwapNote(note, nativeFaucetId) &&
+    note.standardPayment === true &&
+    note.peerSwapPayback !== true &&
+    !note.isBeingClaimed
+  );
 }
 
 /** The batch rule of `selectAutoConsumeBatch`, applied as though every entry were confirmed live.
@@ -26,9 +40,7 @@ function nativeBatchWorthClaiming<T extends AutoConsumeNoteShape>(
   nativeFaucetId: string | null,
   verificationBaseFee: number | null
 ): T[] {
-  const batch = notes.filter(
-    note => isNativeNonSwapNote(note, nativeFaucetId) && note.standardPayment === true && !note.isBeingClaimed
-  );
+  const batch = notes.filter(note => isUnattendedNativeNote(note, nativeFaucetId));
   return isWorthClaiming(totalClaimableAmount(batch.map(note => note.amount)), verificationBaseFee) ? batch : [];
 }
 
@@ -66,9 +78,7 @@ export function selectAutoConsumeBatch<T extends AutoConsumeNoteShape>(
   noteUnknownClaimFloor(
     'auto-consume',
     verificationBaseFee,
-    live.some(
-      note => isNativeNonSwapNote(note, nativeFaucetId) && note.standardPayment === true && !note.isBeingClaimed
-    )
+    live.some(note => isUnattendedNativeNote(note, nativeFaucetId))
   );
   return nativeBatchWorthClaiming(live, nativeFaucetId, verificationBaseFee);
 }

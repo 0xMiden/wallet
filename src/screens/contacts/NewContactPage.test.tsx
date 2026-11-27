@@ -36,6 +36,12 @@ jest.mock('lib/mobile/useMobileBackHandler', () => ({
 }));
 const navigateMock = jest.fn();
 const contactsMock = jest.fn();
+const resolveNameMock = jest.fn<Promise<string | null>, [string, { signal?: AbortSignal }]>();
+const nameSupportedMock = jest.fn(() => true);
+jest.mock('lib/miden/name/config', () => ({ isMidenNameSupported: () => nameSupportedMock() }));
+jest.mock('lib/miden/name/resolver', () => ({
+  resolveMidenName: (label: string, options: { signal?: AbortSignal }) => resolveNameMock(label, options)
+}));
 jest.mock('lib/miden/front', () => ({ useContacts: () => ({ addContact: addContactMock }) }));
 jest.mock('lib/miden/front/use-filtered-contacts.hook', () => ({
   useFilteredContacts: () => ({ allContacts: contactsMock() })
@@ -63,8 +69,17 @@ jest.mock('components/NetworkChip', () => ({
   NetworkChip: ({ label, ...rest }: any) => <span data-testid={rest['data-testid']}>{label}</span>
 }));
 let mockNetworkName = 'testnet';
+let mockRpcUrl = 'https://old.example';
+const mockEndpointListeners = new Set<() => void>();
 let mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetworkName }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => mockNetworkName,
+  getEffectiveRpcUrl: () => mockRpcUrl,
+  subscribeEffectiveEndpoints: (listener: () => void) => {
+    mockEndpointListeners.add(listener);
+    return () => mockEndpointListeners.delete(listener);
+  }
+}));
 jest.mock('screens/send-flow/bridge-networks', () => ({
   get BRIDGE_NETWORKS() {
     return mockBridgeNetworks;
@@ -79,8 +94,8 @@ jest.mock('lib/platform', () => ({ isMobile: jest.fn(() => false), isExtension: 
 jest.mock('lib/qr', () => ({ isScanAvailable: jest.fn(() => false), scanQRCode: jest.fn() }));
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: jest.fn() } }));
 jest.mock('utils/miden', () => ({
-  detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden'),
-  isValidRecipientAddress: (a: string) => a.startsWith('0x') || a.startsWith('mtst1good')
+  detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : a.endsWith('.near') ? 'near' : 'miden'),
+  isValidRecipientAddress: (a: string) => a.startsWith('0x') || a.startsWith('mtst1good') || a.endsWith('.near')
 }));
 
 const EVM = '0x3650dB63221d7A67f9b99B0C3590D366701D0Dd9';
@@ -88,10 +103,13 @@ const EVM = '0x3650dB63221d7A67f9b99B0C3590D366701D0Dd9';
 beforeEach(() => {
   // Both must reset, or the previous test's deps make the first render of this one skip its capture.
   mockNetworkName = 'testnet';
+  mockRpcUrl = 'https://old.example';
   mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
   capturedMobileBack = undefined;
   capturedMobileBackDeps = undefined;
   addContactMock.mockReset().mockResolvedValue(undefined);
+  resolveNameMock.mockReset().mockResolvedValue('mtst1goodbob');
+  nameSupportedMock.mockReturnValue(true);
   backMock.mockReset();
   navigateMock.mockReset();
   contactsMock.mockReturnValue([{ name: 'Alice', address: 'mtst1goodalice' }]);
@@ -106,10 +124,116 @@ const typeAddress = (value: string) => {
   fireEvent.blur(field);
 };
 
+describe('Miden Name contacts', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  const finishLookup = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(400);
+    });
+  };
+
+  it('resolves a normalized name and saves its address with the suggested username', async () => {
+    render(<NewContactPage />);
+    typeAddress(' Bob.MIDEN ');
+    expect(screen.getByRole('status')).toHaveTextContent('midenNameResolving');
+    expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
+    await finishLookup();
+    expect(resolveNameMock).toHaveBeenCalledWith('bob', expect.objectContaining({ signal: expect.anything() }));
+    expect(screen.getByTestId('contact-resolved-address')).toHaveTextContent('mtst1goodbob');
+    expect(screen.getByTestId('address-book-name-input')).toHaveValue('bob.miden');
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('address-book-add-contact'));
+    });
+    expect(addContactMock).toHaveBeenCalledWith(
+      expect.objectContaining({ address: 'mtst1goodbob', name: 'bob.miden' })
+    );
+  });
+
+  it('requires a fresh name resolution before saving after a same-network RPC change', async () => {
+    render(<NewContactPage />);
+    typeAddress('bob.miden');
+    await finishLookup();
+    const save = screen.getByTestId('address-book-add-contact');
+    expect(save).toBeEnabled();
+
+    mockRpcUrl = 'https://new.example';
+    await act(async () => fireEvent.click(save));
+    expect(addContactMock).not.toHaveBeenCalled();
+
+    act(() => mockEndpointListeners.forEach(listener => listener()));
+    expect(save).toBeDisabled();
+    expect(screen.queryByTestId('contact-resolved-address')).not.toBeInTheDocument();
+
+    resolveNameMock.mockResolvedValue('mtst1goodnewbob');
+    await finishLookup();
+    await act(async () => fireEvent.click(save));
+    expect(addContactMock).toHaveBeenCalledWith(
+      expect.objectContaining({ address: 'mtst1goodnewbob', name: 'bob.miden' })
+    );
+  });
+
+  it('keeps a custom contact label when the lookup finishes', async () => {
+    render(<NewContactPage />);
+    typeAddress('bob.miden');
+    fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'My friend' } });
+    await finishLookup();
+    expect(screen.getByTestId('address-book-name-input')).toHaveValue('My friend');
+  });
+
+  it.each([false, true])('checks the resolved address for an existing contact (owned: %s)', async accountInWallet => {
+    contactsMock.mockReturnValue([{ name: 'Bob', address: 'mtst1goodbob', accountInWallet }]);
+    render(<NewContactPage />);
+    typeAddress('bob.miden');
+    await finishLookup();
+    expect(screen.getByTestId('contact-address-error')).toHaveTextContent(
+      accountInWallet ? 'contactIsYourAccount' : 'contactAlreadySaved'
+    );
+    expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
+  });
+
+  it.each(['missing', 'failed', 'unsupported'])('prevents saving when lookup is %s', async outcome => {
+    if (outcome === 'missing') resolveNameMock.mockResolvedValue(null);
+    if (outcome === 'failed') resolveNameMock.mockRejectedValue(new Error('offline'));
+    if (outcome === 'unsupported') nameSupportedMock.mockReturnValue(false);
+    render(<NewContactPage />);
+    typeAddress('bob.miden');
+    await finishLookup();
+    expect(screen.getByTestId('contact-address-error')).toHaveTextContent(
+      outcome === 'missing'
+        ? 'midenNameNotFound'
+        : outcome === 'failed'
+          ? 'midenNameResolveFailed'
+          : 'midenNameUnsupportedNetwork'
+    );
+    expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
+    expect(resolveNameMock).toHaveBeenCalledTimes(outcome === 'unsupported' ? 0 : 1);
+  });
+
+  it('ignores a late name result after switching to an address', async () => {
+    let finish: (address: string) => void = () => undefined;
+    resolveNameMock.mockReturnValue(
+      new Promise(resolve => {
+        finish = resolve;
+      })
+    );
+    render(<NewContactPage />);
+    typeAddress('bob.miden');
+    await finishLookup();
+    typeAddress(EVM);
+    await act(async () => finish('mtst1goodbob'));
+    expect(screen.queryByTestId('contact-resolved-address')).not.toBeInTheDocument();
+    expect(screen.getByTestId('address-book-name-input')).toHaveValue('');
+    expect(screen.getByTestId('new-contact-network-sepolia')).toBeInTheDocument();
+    expect(resolveNameMock.mock.calls[0]?.[1].signal?.aborted).toBe(true);
+  });
+});
+
 it('labels the address and name fields with the 16px section title, the page set wholly in Nunito', () => {
   render(<NewContactPage />);
 
-  expect(screen.getByText('address')).toHaveClass('text-row-title', 'text-muted');
+  expect(screen.getByText('contactAddressOrMidenName')).toHaveClass('text-row-title', 'text-muted');
   expect(screen.getByText('name')).toHaveClass('text-row-title', 'text-muted');
   expect(screen.getByTestId('contact-new').querySelector('[data-slot="body"]')).toHaveClass('face-heading');
 });
@@ -147,6 +271,16 @@ it('saves a Miden contact without a network', async () => {
   const saved = addContactMock.mock.calls[0][0];
   expect(saved).toEqual(expect.objectContaining({ address: 'mtst1goodbob', name: 'Bob' }));
   expect(saved).not.toHaveProperty('network');
+});
+
+it('refuses a NEAR address: a send can go there, but the address book has no network for it', () => {
+  render(<NewContactPage />);
+  typeAddress('alice.near');
+  fireEvent.change(screen.getByTestId('address-book-name-input'), { target: { value: 'Alice' } });
+
+  expect(screen.getByTestId('contact-address-error')).toHaveTextContent('invalidAddress');
+  expect(screen.queryByTestId('new-contact-network-options')).not.toBeInTheDocument();
+  expect(screen.getByTestId('address-book-add-contact')).toBeDisabled();
 });
 
 it('flags an invalid address once the field is left', () => {
@@ -206,7 +340,7 @@ describe('TextField layout', () => {
   it('labels the address and name fields', () => {
     render(<NewContactPage />);
 
-    expect(screen.getByLabelText('address')).toBe(screen.getByTestId('address-book-address-input'));
+    expect(screen.getByLabelText('contactAddressOrMidenName')).toBe(screen.getByTestId('address-book-address-input'));
     expect(screen.getByLabelText('name')).toBe(screen.getByTestId('address-book-name-input'));
   });
 

@@ -4,6 +4,8 @@ This Worker keeps the 1Click partner credential on the server. It accepts only b
 
 The wallet uses this Worker for the "Near Intents" tab of the Receive page: the user selects an origin chain and token, the configuration sets the Miden token, and the wallet shows a 1Click deposit address and its QR code. The tab needs no wallet connection.
 
+The wallet also uses it to send from Miden to a configured chain: the same pairs in the other direction. The wallet asks for a deposit quote with the user's destination address as `recipient` and the wallet's bech32 Miden address as `refundTo`, sends a public Miden note to the deposit address, then submits the Miden transaction id to `POST /v0/deposit/submit` and follows `GET /v0/status`.
+
 ## Wallet configuration
 
 The wallet shows the tab only when `features.nearIntents` is exactly `true` and the document has a top-level `nearIntents` section. The wallet reads the section on mainnet only (and on localnet under the hermetic E2E gate below). A `swap.oneClick` section is not read any more.
@@ -58,9 +60,9 @@ All responses use `Cache-Control: private, no-store`; logs and traces are disabl
 
 App fees are set up by NEAR on the partner key, and 1Click adds them to every quote of that key. The wallet and this proxy send no fee list: the proxy refuses a quote request that names `appFees`, because a fee that is both sent and set up on the key is charged twice. The signed quote amounts already include the fees. The wallet does not check the unsigned fee fields of a quote, and never treats them as proof of payment authorization.
 
-A refused request returns `upstream_request_failed`, without the provider's text. One reason has its own code: `no_liquidity`, which the wallet shows to the user.
+A refused request returns `upstream_request_failed`, without the provider's text. Two reasons have their own code, which the wallet shows to the user: `no_liquidity` (the provider text "No liquidity available") and `invalid_recipient` (the provider text "recipient is not valid", a destination address that 1Click refuses on a send from Miden). Every other text stays `upstream_request_failed`. This includes "Internal server error", which 1Click also gives for a NEAR account that does not exist or for a token contract as recipient, so the wallet cannot tell that refusal from a provider fault.
 
-The receipt adapter must return only `{ "transactionHash": "...", "noteIds": ["..."] }` entries for requested hashes, after verifying the final Miden transaction and exact note IDs. The service validates that every hash was requested and caps each entry at 64 note IDs. If the adapter is absent or fails, the wallet continues to show incoming swaps as arriving. Do not map a destination hash to a note by amount or symbol.
+The receipt adapter must return only `{ "transactionHash": "...", "noteIds": ["..."] }` entries for requested hashes, after verifying the final Miden transaction and exact note IDs. The service validates that every hash was requested and caps each entry at 64 note IDs. If the adapter is absent or fails, the wallet continues to show deposits into Miden as arriving. Do not map a destination hash to a note by amount or symbol.
 
 ## Deploy
 

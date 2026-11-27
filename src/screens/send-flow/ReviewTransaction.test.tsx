@@ -23,6 +23,16 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { isValidNearIntentsAddress } from 'lib/one-click/address';
+import { OneClickHttpError } from 'lib/one-click/client';
+import { OneClickDeadlineError } from 'lib/one-click/deadline';
+import {
+  NearIntentsSendQuoteChangedError,
+  NearIntentsSendSupersededError,
+  startNearIntentsSend
+} from 'lib/one-click/send';
+import type { NearIntentsSendPair } from 'lib/one-click/send';
+import type { NearIntentsConfig, OneClickQuoteResponse } from 'lib/one-click/types';
 import { isExtension } from 'lib/platform';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
@@ -38,9 +48,10 @@ import { CommandShell } from 'screens/command/CommandShell';
 import { isValidMidenAddress } from 'utils/miden';
 
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
-import { ReviewTransaction } from './ReviewTransaction';
+import { nearIntentsSendFailureId, ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
 import { enterSendFlow, settleSendFlow } from './send-telemetry';
+import type { NearIntentsSendQuote, NearIntentsSendQuoteParams } from './useNearIntentsSendQuote';
 
 // This verified-list fixture assigns explicit price assets to the test faucets.
 const mockVerifiedPriceAssets = new Map<string, string>();
@@ -72,8 +83,13 @@ let mockPublicKey: string | null = 'pubkey-1';
 let mockIsNewRecipient: boolean | undefined;
 const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
 let mockBalanceData: any[] | undefined;
+let mockBalancesLoading = false;
+let mockBalanceReadFailed = false;
+let mockBalanceReadInFlight = false;
+const mockRetryBalanceRead = jest.fn();
+let mockReviewSubmit: (() => void | Promise<void>) | undefined;
 let mockTokensMeta: any[] = [];
-let mockDetectedChain: 'miden' | 'ethereum' = 'miden';
+let mockDetectedChain: 'miden' | 'ethereum' | 'solana' = 'miden';
 const reviewedEpochBinding: { address: string; validity: QuoteValidity } = {
   address: '0x2222222222222222222222222222222222222222',
   validity: { kind: 'provider' }
@@ -368,11 +384,14 @@ jest.mock('components/TokenLogo', () => ({
 }));
 jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'primary', Secondary: 'secondary' },
-  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => (
-    <button type="button" data-accent={accent} {...rest}>
-      {title}
-    </button>
-  )
+  Button: ({ title, variant: _variant, isLoading: _isLoading, accent, ...rest }: any) => {
+    if (rest['data-testid'] === 'send-review-submit') mockReviewSubmit = rest.onClick;
+    return (
+      <button type="button" data-accent={accent} {...rest}>
+        {title}
+      </button>
+    );
+  }
 }));
 
 jest.mock('lib/biometric', () => ({
@@ -402,6 +421,7 @@ jest.mock('../../lib/epoch/sdk', () => ({
 
 jest.mock('lib/i18n/numbers', () => ({
   formatUsd: jest.requireActual('lib/i18n/numbers').formatUsd,
+  formatBigInt: jest.requireActual('lib/i18n/numbers').formatBigInt,
   stringToBigInt: jest.fn(),
   // The deep-link balance guard compares base units. The stringToBigInt stand-in above is a fixed
   // return, so the guard has to call the real helper.
@@ -418,7 +438,13 @@ jest.mock('lib/miden/activity', () => ({
 
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: mockPublicKey }),
-  useAllBalances: () => ({ data: mockBalanceData }),
+  useAllBalances: () => ({
+    data: mockBalanceData,
+    isLoading: mockBalancesLoading,
+    readFailed: mockBalanceReadFailed,
+    balanceReadInFlight: mockBalanceReadInFlight,
+    mutate: mockRetryBalanceRead
+  }),
   useAllTokensBaseMetadata: () => mockTokensMeta
 }));
 
@@ -573,6 +599,18 @@ jest.mock('./send-draft', () => ({
   clearSendDraft: jest.fn()
 }));
 
+// The Miden Name lookup and the network deployment check. By default the network
+// has no deployment, so the suites above see the plain address behaviour.
+let mockNameSupported = false;
+const resolveMidenNameMock = jest.fn<Promise<string | null>, [string, { signal?: AbortSignal }?]>();
+jest.mock('lib/miden/name/config', () => ({
+  ...jest.requireActual('lib/miden/name/config'),
+  isMidenNameSupported: () => mockNameSupported
+}));
+jest.mock('lib/miden/name/resolver', () => ({
+  resolveMidenName: (label: string, options?: { signal?: AbortSignal }) => resolveMidenNameMock(label, options)
+}));
+
 // The real `./send-telemetry` is kept: this page settling the flow the send form
 // began is the whole point of that module, so it must not be stubbed out.
 jest.mock('lib/telemetry', () => ({
@@ -583,6 +621,39 @@ jest.mock('lib/telemetry', () => ({
 jest.mock('./useIsNewRecipient', () => ({
   useIsNewRecipient: (...a: unknown[]) => mockUseIsNewRecipient(...a)
 }));
+
+// NEAR Intents: the quote hook, the send start and the Solana network are stand-ins; their own suites test them.
+let mockNearIntentsQuote: NearIntentsSendQuote = { status: 'idle' };
+let mockNearIntentsQuoteArgs: NearIntentsSendQuoteParams | undefined;
+let mockNearIntentsConfig: NearIntentsConfig | null = null;
+jest.mock('./useNearIntentsSendQuote', () => ({
+  ...jest.requireActual<typeof import('./useNearIntentsSendQuote')>('./useNearIntentsSendQuote'),
+  useNearIntentsSendQuote: (args: NearIntentsSendQuoteParams) => {
+    mockNearIntentsQuoteArgs = args;
+    return mockNearIntentsQuote;
+  }
+}));
+jest.mock('lib/one-click/send', () => ({
+  ...jest.requireActual<typeof import('lib/one-click/send')>('lib/one-click/send'),
+  startNearIntentsSend: jest.fn()
+}));
+jest.mock('lib/one-click/config', () => ({
+  ...jest.requireActual<typeof import('lib/one-click/config')>('lib/one-click/config'),
+  useNearIntentsConfig: () => mockNearIntentsConfig
+}));
+jest.mock('lib/one-click/address', () => ({
+  ...jest.requireActual<typeof import('lib/one-click/address')>('lib/one-click/address'),
+  isValidNearIntentsAddress: jest.fn(() => true)
+}));
+jest.mock('./bridge-networks', () => {
+  const actual = jest.requireActual<typeof import('./bridge-networks')>('./bridge-networks');
+  const solana = { id: 'solana', name: 'Solana', kind: 'solana', nearIntentsChainId: 'sol', bridge: false };
+  return {
+    ...actual,
+    getSendNetwork: (id: string | undefined) => (id === 'solana' ? solana : actual.getSendNetwork(id)),
+    isSendNetworkId: (id: string | null | undefined) => id === 'solana' || actual.isSendNetworkId(id)
+  };
+});
 jest.mock('./useEpochQuote', () => ({
   useEpochQuote: (args: { amount?: bigint }) => {
     mockEpochQuoteArgs = args;
@@ -649,6 +720,14 @@ const UNSCALED_TOKEN = {
   fiatPrice: 0
 };
 
+const PROVISIONAL_USDCX_BALANCE = {
+  ...UNSCALED_TOKEN,
+  tokenId: USDCX_FAUCET_ID_BECH32,
+  metadata: { ...UNSCALED_TOKEN.metadata, symbol: 'USDCX', name: 'USDCX' },
+  balance: 0,
+  balanceBaseUnits: '0'
+};
+
 const setValidRoute = (tokenId = VALID_TOKEN.tokenId) => {
   mockSearch = `amount=5&to=0xrecipient&tokenId=${tokenId}`;
   mockBalanceData = [{ ...VALID_TOKEN, tokenId }];
@@ -706,14 +785,24 @@ beforeEach(() => {
   mockIsNewRecipient = undefined;
   mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
   mockBalanceData = undefined;
+  mockBalancesLoading = false;
+  mockBalanceReadFailed = false;
+  mockBalanceReadInFlight = false;
+  mockRetryBalanceRead.mockResolvedValue(undefined);
+  mockReviewSubmit = undefined;
   mockTokensMeta = [];
   mockDetectedChain = 'miden';
   mockEpochQuote = { amount: undefined, loading: false, error: null, symbol: 'USDC' };
   mockEpochQuoteArgs = {};
   mockNativeMetadata = null;
+  mockNameSupported = false;
   mockNativeVerified = true;
   mockBurnFeeReserve = { ...REVIEWED_BURN_FEE };
   jest.mocked(useBurnFeeReserve).mockImplementation(() => mockBurnFeeReserve);
+  mockNearIntentsQuote = { status: 'idle' };
+  mockNearIntentsQuoteArgs = undefined;
+  mockNearIntentsConfig = null;
+  jest.mocked(isValidNearIntentsAddress).mockReturnValue(true);
 
   delete process.env.MIDEN_E2E_TEST;
 });
@@ -1303,7 +1392,6 @@ describe('Command Send review controller', () => {
         false,
         undefined,
         undefined,
-        undefined,
         new Date(2030, 0, 3, 14).toISOString()
       );
       expect(dateTimeToRecallBlocksMock).toHaveBeenLastCalledWith(new Date(2030, 0, 3, 14));
@@ -1506,6 +1594,108 @@ describe('USDCx burn review', () => {
     mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
   });
 
+  const balancePlaceholders = {
+    empty: [],
+    'native zero': [
+      {
+        ...VALID_TOKEN,
+        tokenId: USDCX_FAUCET_ID_BECH32,
+        metadata: { symbol: 'USDCX', decimals: 6 },
+        balance: 0,
+        balanceBaseUnits: '0'
+      }
+    ]
+  };
+
+  it.each(Object.entries(balancePlaceholders))(
+    'keeps the %s pending balance placeholder on the USDCx burn review',
+    async (_label, placeholder) => {
+      const landedBalances = mockBalanceData;
+      mockBalancesLoading = true;
+      mockBalanceData = placeholder;
+      const { rerender } = render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+
+      // A disabled button suppresses click events, so invoke the handler itself.
+      expect(mockReviewSubmit).toEqual(expect.any(Function));
+      await act(async () => {
+        await mockReviewSubmit?.();
+      });
+      expect(mockWalletStoreState.assessSpendingLimit).not.toHaveBeenCalled();
+      expect(confirmMock).not.toHaveBeenCalled();
+      expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+
+      mockBalancesLoading = false;
+      mockBalanceData = landedBalances;
+      rerender(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    }
+  );
+
+  it.each(['compact', 'command'] as const)(
+    'offers balance retry after a failed initial USDCx read in %s review',
+    async presentation => {
+      const landedBalances = mockBalanceData;
+      mockBalancesLoading = true;
+      mockBalanceData = [];
+      const review = () => (
+        <FlowPresentationProvider value={presentation}>
+          <ReviewTransaction />
+        </FlowPresentationProvider>
+      );
+      const { rerender } = render(review());
+      await flush();
+      expect(screen.queryByText('tokenDetailBalanceUnavailable')).not.toBeInTheDocument();
+
+      mockBalanceReadFailed = true;
+      rerender(review());
+      await flush();
+      expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+      expect(screen.getByText('tokenDetailBalanceUnavailable')).toBeInTheDocument();
+      const retry = screen.getByRole('button', { name: 'retry' });
+      fireEvent.click(retry);
+      expect(mockRetryBalanceRead).toHaveBeenCalledTimes(1);
+      expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+
+      mockBalanceReadInFlight = true;
+      rerender(review());
+      await flush();
+      expect(screen.getByRole('button', { name: 'retry' })).toBeDisabled();
+      fireEvent.click(screen.getByRole('button', { name: 'retry' }));
+      expect(mockRetryBalanceRead).toHaveBeenCalledTimes(1);
+
+      mockBalanceReadFailed = false;
+      mockBalanceReadInFlight = false;
+      mockBalancesLoading = false;
+      mockBalanceData = landedBalances;
+      rerender(review());
+      await flush();
+      expect(screen.queryByText('tokenDetailBalanceUnavailable')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'retry' })).not.toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    }
+  );
+
+  it.each(Object.entries(balancePlaceholders))(
+    'redirects a loaded USDCx burn when the landed snapshot is %s',
+    async (_label, placeholder) => {
+      mockBalanceData = placeholder;
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+      expect(initiateUsdcxBurn).not.toHaveBeenCalled();
+    }
+  );
+
   it('submits the exact base-unit burn and shows Circle fee as varying, with no payout bound', async () => {
     render(<ReviewTransaction />);
     await flush();
@@ -1552,6 +1742,34 @@ describe('USDCx burn review', () => {
     fireEvent.click(screen.getByTestId('send-review-submit'));
     expect(initiateUsdcxBurn).not.toHaveBeenCalled();
   });
+
+  it('shows loading for a current measured fee awaiting native scale', async () => {
+    mockNativeMetadata = null;
+    mockBalancesLoading = true;
+    mockBalanceData = [PROVISIONAL_USDCX_BALANCE];
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.queryByText('usdcxBurnFeeUnavailable')).not.toBeInTheDocument();
+    expect(screen.getByText('loading', { selector: '[role="status"]' })).toBeInTheDocument();
+    expect(screen.queryByText('0.000298 USDCX')).not.toBeInTheDocument();
+  });
+
+  it.each(unreviewable.slice(2))(
+    'shows an unreviewable %s fee as unavailable even while waiting for native scale',
+    async (_label, estimate) => {
+      mockNativeMetadata = null;
+      mockBalancesLoading = true;
+      mockBalanceData = [PROVISIONAL_USDCX_BALANCE];
+      mockBurnFeeReserve = estimate;
+      render(<ReviewTransaction />);
+      await flush();
+
+      expect(screen.getByText('usdcxBurnFeeUnavailable')).toBeInTheDocument();
+      expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    }
+  );
 
   it('does not confirm a native fee whose scale is unknown', async () => {
     mockNativeMetadata = null;
@@ -1701,6 +1919,16 @@ describe('ReviewTransaction — redirect guards', () => {
     mockBalanceData = [{ ...VALID_TOKEN, tokenId: 'other' }];
     render(<ReviewTransaction />);
     await flush();
+    expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
+  });
+
+  it('redirects a same-chain review while a matching zero row is still loading', async () => {
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1';
+    mockBalancesLoading = true;
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 0 }];
+    render(<ReviewTransaction />);
+    await flush();
+
     expect(screen.getByTestId('redirect').textContent).toBe('redirect:/send');
   });
 
@@ -3299,6 +3527,122 @@ describe('ReviewTransaction — send telemetry', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Miden Name recipient (the `name` URL value)
+// ---------------------------------------------------------------------------
+describe('ReviewTransaction — Miden Name recipient', () => {
+  let warnSpy: jest.SpyInstance;
+  const clickSubmit = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+  };
+
+  beforeEach(() => {
+    mockNameSupported = true;
+    mockSearch = 'amount=5&to=mtst1alice&tokenId=tok1&name=alice.miden';
+    mockBalanceData = [VALID_TOKEN];
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+  });
+
+  it('shows the name above the address when a new lookup gives the same address', async () => {
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(resolveMidenNameMock).toHaveBeenCalledWith('alice', expect.objectContaining({ signal: expect.anything() }));
+    expect(screen.getByTestId('review-recipient-name').textContent).toBe('alice.miden');
+    expect(screen.getByText('mtst1alice')).toBeInTheDocument();
+  });
+
+  it('drops the old name when the RPC changes and rechecks it against that endpoint', async () => {
+    resolveMidenNameMock.mockResolvedValueOnce('mtst1alice').mockResolvedValueOnce('mtst1mallory');
+    const view = render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('review-recipient-name')).toHaveTextContent('alice.miden');
+
+    mockReviewRpcUrl = 'https://another-rpc.example';
+    view.rerender(<ReviewTransaction />);
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    await flush();
+
+    expect(resolveMidenNameMock).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    expect(screen.getByText('mtst1alice')).toBeInTheDocument();
+  });
+
+  it('drops the name when the new lookup gives a different address', async () => {
+    resolveMidenNameMock.mockResolvedValue('mtst1mallory');
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    expect(screen.getByText('mtst1alice')).toBeInTheDocument();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('drops the name when the name is not found or the lookup fails', async () => {
+    resolveMidenNameMock.mockResolvedValueOnce(null);
+    const first = render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    first.unmount();
+
+    resolveMidenNameMock.mockRejectedValueOnce(new Error('rpc down'));
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+  });
+
+  it('drops the name without a lookup on a network without a deployment', async () => {
+    mockNameSupported = false;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+    expect(warnSpy).toHaveBeenCalled();
+  });
+
+  it('does no lookup when there is no name', async () => {
+    mockSearch = 'amount=5&to=mtst1alice&tokenId=tok1';
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('review-recipient-name')).not.toBeInTheDocument();
+  });
+
+  it('signs the `to` address, never the name', async () => {
+    confirmMock.mockResolvedValue(true);
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    render(<ReviewTransaction />);
+    await flush();
+    await waitFor(() => expect(screen.getByTestId('review-recall-note')).toBeInTheDocument());
+
+    await clickSubmit();
+
+    expect(initiateMock).toHaveBeenCalledWith(
+      'pubkey-1',
+      'mtst1alice',
+      'tok1',
+      'private',
+      12345n,
+      999,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      'alice.miden'
+    );
+  });
+});
+
 describe('ReviewTransaction user-visible errors', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -3456,6 +3800,49 @@ describe('ReviewTransaction user-visible errors', () => {
     expect(screen.getByTestId('review-error')).toHaveTextContent('usdcxUnsupportedFaucet');
     expect(screen.getByTestId('send-review-submit')).toBeEnabled();
     await expectReport('usdcxUnsupportedFaucet');
+  });
+
+  it('waits for burn balance data without reporting an invalid amount', async () => {
+    setBurnRoute();
+    const balances = mockBalanceData;
+    mockBalanceData = undefined;
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect({
+      error: screen.queryByTestId('review-error')?.textContent,
+      reports: jest.mocked(reportUserVisibleError).mock.calls
+    }).toEqual({ error: undefined, reports: [] });
+
+    mockBalanceData = balances;
+    rerender(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
+  it('waits to report unknown native scale until the USDCx balance lands', async () => {
+    setBurnRoute();
+    mockNativeMetadata = null;
+    mockBalancesLoading = true;
+    mockBalanceData = [PROVISIONAL_USDCX_BALANCE];
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+    await act(async () => jest.advanceTimersByTimeAsync(1000));
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+    expect(reportUserVisibleError).not.toHaveBeenCalled();
+
+    mockBalancesLoading = false;
+    mockBalanceData = [{ ...PROVISIONAL_USDCX_BALANCE, balance: 100, balanceBaseUnits: '100000000' }];
+    rerender(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    expect(screen.getByTestId('review-error')).toHaveTextContent('unknownTokenScale');
+    await expectReport('unknownTokenScale');
   });
 
   it('does not report the immediate minimum or a pending minimum read as a failure', async () => {
@@ -3653,5 +4040,333 @@ describe('ReviewTransaction - new recipient tag', () => {
 
     expect(mockUseIsNewRecipient).toHaveBeenCalledWith('pubkey-1', '0x1111111111111111111111111111111111111111');
     expect(within(screen.getByTestId('review-row-to')).getByTestId('review-new-recipient')).toBeInTheDocument();
+  });
+});
+
+describe('ReviewTransaction — NEAR Intents', () => {
+  const RECIPIENT = '7EcDhSYGxXyscszYEp35KHN8vvw3svAuLKTzXwCFLtV';
+  const CONFIG: NearIntentsConfig = { serviceUrl: 'https://one-click.example', chains: [], midenAssets: [] };
+  const PAIR: NearIntentsSendPair = {
+    chain: { id: 'sol', name: 'Solana', addressKind: 'solana', tokens: [] },
+    origin: { assetId: 'miden-mdn', blockchain: 'miden', symbol: 'MDN', decimals: 8, faucetId: 'tok1' },
+    destination: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 }
+  };
+  const QUOTE: OneClickQuoteResponse = {
+    correlationId: 'correlation',
+    timestamp: '2026-11-11T00:00:00.000Z',
+    signature: 'signed',
+    quoteRequest: {
+      dry: true,
+      swapType: 'EXACT_INPUT',
+      slippageTolerance: 100,
+      originAsset: 'miden-mdn',
+      depositType: 'ORIGIN_CHAIN',
+      destinationAsset: 'sol-usdc',
+      amount: '12345',
+      refundTo: 'pubkey-1',
+      refundType: 'ORIGIN_CHAIN',
+      recipient: RECIPIENT,
+      recipientType: 'DESTINATION_CHAIN',
+      deadline: '2026-11-11T00:05:00.000Z'
+    },
+    quote: {
+      amountIn: '12345',
+      amountInFormatted: '0.00012345',
+      amountInUsd: '20',
+      minAmountIn: '12345',
+      amountOut: '19650000',
+      amountOutFormatted: '19.65',
+      amountOutUsd: '19.65',
+      minAmountOut: '19400000',
+      timeEstimate: 22
+    }
+  };
+  const READY: NearIntentsSendQuote = { status: 'ready', pair: PAIR, quote: QUOTE };
+
+  const setNearIntentsRoute = (network = 'solana') => {
+    mockDetectedChain = 'solana';
+    mockSearch = `amount=5&to=${RECIPIENT}&tokenId=tok1&network=${network}&route=near-intents`;
+    mockBalanceData = [VALID_TOKEN];
+    mockNearIntentsConfig = CONFIG;
+    mockNearIntentsQuote = READY;
+  };
+  const rowText = (testId: string) => within(screen.getByTestId(testId)).getByTestId('row-children').textContent;
+  const clickSubmit = async () => {
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+    });
+    await flush();
+  };
+
+  beforeEach(() => {
+    jest.mocked(startNearIntentsSend).mockResolvedValue('tx-near');
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('asks for the quote of the token, the chain and the recipient', async () => {
+    setNearIntentsRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(mockNearIntentsQuoteArgs).toEqual({
+      chainId: 'sol',
+      faucetId: 'tok1',
+      amount: 12345n,
+      recipient: RECIPIENT,
+      enabled: true
+    });
+  });
+
+  it('shows the quote, the minimum, the arrival estimate, the route and the refund note, with no Miden options', async () => {
+    setNearIntentsRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.queryByTestId('redirect')).not.toBeInTheDocument();
+    expect(rowText('review-row-you-receive')).toBe('≈ 19.65 USDC');
+    expect(rowText('review-row-minimum-received')).toBe('19.4 USDC');
+    expect(rowText('review-row-arrival')).toBe('nearIntentsSendArrivalSeconds');
+    expect(screen.getByText('bridgeRouteNearIntents')).toBeInTheDocument();
+    expect(screen.getByText('Solana')).toBeInTheDocument();
+    expect(screen.getByTestId('near-intents-refund-note')).toHaveTextContent('nearIntentsSendRefundNote');
+    expect(screen.queryByTestId('review-advanced-options')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('feature-unavailable-notice')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
+  it.each<NearIntentsSendQuote>([
+    { status: 'loading', pair: PAIR },
+    { status: 'error', pair: PAIR, errorCode: 'no_liquidity' },
+    { status: 'unsupported' }
+  ])('keeps the send disabled while the quote is $status', async quote => {
+    setNearIntentsRoute();
+    mockNearIntentsQuote = quote;
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+  });
+
+  it('says why when 1Click has no liquidity for the amount', async () => {
+    setNearIntentsRoute();
+    mockNearIntentsQuote = { status: 'error', pair: PAIR, errorCode: 'no_liquidity' };
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('near-intents-route-error')).toHaveTextContent('nearIntentsSendNoLiquidity');
+  });
+
+  it('ignores the Epoch and Agglayer features', async () => {
+    setNearIntentsRoute();
+    mockBridgeAvailability = { state: 'unavailable', reason: 'service-down', detail: 'down' };
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
+  it('redirects to the send form for a network that NEAR Intents does not serve', async () => {
+    setNearIntentsRoute('sepolia');
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('redirect')).toHaveTextContent('redirect:/send');
+  });
+
+  it('redirects to the send form for an address that is not valid on the network', async () => {
+    setNearIntentsRoute();
+    jest.mocked(isValidNearIntentsAddress).mockReturnValue(false);
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(screen.getByTestId('redirect')).toHaveTextContent('redirect:/send');
+  });
+
+  it('runs the spending-limit check, starts the send with the reviewed minimum, and opens the progress page', async () => {
+    setNearIntentsRoute();
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(mockWalletStoreState.assessSpendingLimit).toHaveBeenCalledWith('pubkey-1', [
+      { faucetId: 'tok1', amount: 12345n }
+    ]);
+    expect(startNearIntentsSend).toHaveBeenCalledWith({
+      config: CONFIG,
+      pair: PAIR,
+      amount: 12345n,
+      recipient: RECIPIENT,
+      refundTo: 'pubkey-1',
+      network: expect.any(String),
+      accountId: 'pubkey-1',
+      accountAddress: 'pubkey-1',
+      reviewedMinAmountOut: 19_400_000n,
+      authorization: undefined,
+      signal: expect.any(AbortSignal),
+      isCurrent: expect.any(Function)
+    });
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-near', 'replacestate');
+    expect(initiateMock).not.toHaveBeenCalled();
+    expect(bridgeEpochSendMock).not.toHaveBeenCalled();
+  });
+
+  it('names the wait for the deposit address on the button while 1Click makes it', async () => {
+    setNearIntentsRoute();
+    const pending = deferred<string>();
+    jest.mocked(startNearIntentsSend).mockReturnValue(pending.promise);
+    render(<ReviewTransaction />);
+    await flush();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('sendPayment');
+
+    await clickSubmit();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('nearIntentsSendGeneratingDepositAddress');
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+
+    await act(async () => {
+      pending.resolve('tx-near');
+    });
+    await flush();
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-near', 'replacestate');
+  });
+
+  it('aborts and marks stale a pending startNearIntentsSend on unmount and ignores superseded rejections', async () => {
+    setNearIntentsRoute();
+    const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+    beginFlowMock.mockReturnValue(handle);
+    settleSendFlow(flow => flow.cancel());
+    const pending = deferred<string>();
+    jest.mocked(startNearIntentsSend).mockReturnValue(pending.promise);
+    const { unmount } = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    const arg = jest.mocked(startNearIntentsSend).mock.calls[0]?.[0];
+    expect(arg?.signal).toBeInstanceOf(AbortSignal);
+    expect(arg?.signal?.aborted).toBe(false);
+    expect(arg?.isCurrent?.()).toBe(true);
+    unmount();
+    expect(arg?.signal?.aborted).toBe(true);
+    expect(arg?.isCurrent?.()).toBe(false);
+
+    await act(async () => {
+      pending.resolve('tx-near');
+    });
+    await flush();
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(handle.complete).not.toHaveBeenCalled();
+    settleSendFlow(flow => flow.cancel());
+
+    jest.mocked(startNearIntentsSend).mockRejectedValueOnce(new NearIntentsSendSupersededError());
+    render(<ReviewTransaction />);
+    await flush();
+    await clickSubmit();
+    expect(screen.queryByTestId('review-error')).not.toBeInTheDocument();
+  });
+
+  it('aborts and shields a newer account submission when publicKey changes mid-flight', async () => {
+    setNearIntentsRoute();
+    const handle: TelemetryHandle = { complete: jest.fn(), cancel: jest.fn(), fail: jest.fn(), step: jest.fn() };
+    beginFlowMock.mockReturnValue(handle);
+    settleSendFlow(flow => flow.cancel());
+    const first = deferred<string>();
+    const second = deferred<string>();
+    jest.mocked(startNearIntentsSend).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { rerender } = render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    const firstArg = jest.mocked(startNearIntentsSend).mock.calls[0]?.[0];
+    expect(firstArg?.signal?.aborted).toBe(false);
+
+    mockPublicKey = 'pubkey-2';
+    rerender(<ReviewTransaction />);
+    await flush();
+    expect(firstArg?.signal?.aborted).toBe(true);
+    expect(firstArg?.isCurrent?.()).toBe(false);
+
+    await clickSubmit();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('nearIntentsSendGeneratingDepositAddress');
+
+    await act(async () => {
+      first.resolve('tx-stale');
+    });
+    await flush();
+    expect(handle.complete).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('nearIntentsSendGeneratingDepositAddress');
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    // A stale settlement must not unlock `submittingRef` while the newer submission is still running.
+    await clickSubmit();
+    expect(startNearIntentsSend).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      second.resolve('tx-fresh');
+    });
+    await flush();
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-fresh', 'replacestate');
+    settleSendFlow(flow => flow.cancel());
+  });
+
+  it('gives the button its label back when the deposit address request fails', async () => {
+    setNearIntentsRoute();
+    jest.mocked(startNearIntentsSend).mockRejectedValue(new Error('1Click request failed (502)'));
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('send-review-submit')).toHaveTextContent('sendPayment');
+    expect(screen.getByTestId('review-error')).toHaveTextContent('oneClickSubmitFailed');
+  });
+
+  it('passes the spending-limit authorization to the send', async () => {
+    setNearIntentsRoute();
+    mockWalletStoreState.assessSpendingLimit.mockResolvedValue(breachAssessment());
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(startNearIntentsSend).not.toHaveBeenCalled();
+    await act(async () => {
+      fireEvent.click(screen.getByText('authorize-limit'));
+    });
+    await flush();
+
+    expect(startNearIntentsSend).toHaveBeenCalledWith(
+      expect.objectContaining({ authorization: expect.objectContaining({ id: 'authorization-1' }) })
+    );
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-near', 'replacestate');
+  });
+
+  it.each<[string, unknown, string]>([
+    [
+      'a lower deposit quote',
+      new NearIntentsSendQuoteChangedError(19_400_000n, 18_000_000n),
+      'nearIntentsSendQuoteChanged'
+    ],
+    ['an expired quote', new OneClickDeadlineError('expired'), 'nearIntentsSendQuoteExpired'],
+    ['no liquidity', new OneClickHttpError(400, 'no_liquidity'), 'nearIntentsSendNoLiquidity'],
+    ['a refused recipient', new OneClickHttpError(400, 'invalid_recipient'), 'nearIntentsSendInvalidRecipient'],
+    ['any other failure', new Error('1Click request failed (502)'), 'oneClickSubmitFailed']
+  ])('shows an inline message for %s', async (_case, error, message) => {
+    setNearIntentsRoute();
+    jest.mocked(startNearIntentsSend).mockRejectedValue(error);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+
+    expect(screen.getByTestId('review-error')).toHaveTextContent(message);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('maps every failure to a registered user-visible error id', () => {
+    expect(nearIntentsSendFailureId(new Error('x'))).toBe('oneClickSubmitFailed');
+    expect(nearIntentsSendFailureId(new OneClickHttpError(500))).toBe('oneClickSubmitFailed');
   });
 });

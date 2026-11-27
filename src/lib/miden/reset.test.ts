@@ -91,6 +91,7 @@ jest.mock(
   { virtual: true }
 );
 
+import { backupStorageEpoch } from 'lib/backup/state';
 import { BADGE_SEEN_STORAGE_KEY, BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { CARRIED_MAINNET_CODE_STORAGE_KEY } from 'lib/carried-mainnet-code';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
@@ -108,6 +109,7 @@ import { onStorageCleared } from 'lib/storage-cleared';
 
 import {
   clearClientStorage,
+  clearClientStorageAfterRestore,
   clearStorage,
   PENDING_ADMISSION_STORAGE_KEY,
   PRESERVED_STORAGE_KEYS,
@@ -673,6 +675,76 @@ describe('clearClientStorage', () => {
 
   it('announces the clear only once localStorage is empty', async () => {
     expect(await announcementsSeeingTheKeyGone(() => clearClientStorage())).toEqual([true]);
+  });
+});
+
+describe('clearClientStorageAfterRestore', () => {
+  it('preserves miden_wallet_* desktop storage and preserved keys while clearing stale UI cache and session records when isDesktop() is true', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(true);
+    localStorage.setItem('miden_wallet_endpoint_overrides', '{"rpcUrl":"https://rpc.custom"}');
+    localStorage.setItem('miden_wallet_vault_key_password', 'new-pw-key');
+    localStorage.setItem('miden_wallet_vault_check', 'new-check');
+    localStorage.setItem('miden_wallet_accounts', 'new-accounts');
+    localStorage.setItem('ui_cache', 'stale-ui');
+    sessionStorage.setItem('open-link:taken', '["com.miden.wallet://open?url=https%3A%2F%2Flive.example%2F"]');
+    sessionStorage.setItem('open-link:pending', 'https://bread.miden.xyz/open#url=https%3A%2F%2Fheld.example%2F');
+    sessionStorage.setItem('open-link:launch', 'https://bread.miden.xyz/open#url=https%3A%2F%2Flaunch.example%2F');
+    sessionStorage.setItem('bread-connect:taken', '["AAAAAAAAAAAAAAAAAAAAAA"]');
+    sessionStorage.setItem('draft', 'stale-draft');
+
+    const cleared = jest.fn();
+    const unsub = onStorageCleared(cleared);
+    const epochBefore = backupStorageEpoch();
+    try {
+      await clearClientStorageAfterRestore();
+    } finally {
+      unsub();
+    }
+
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+    expect(Object.keys(localStorage).sort()).toEqual([
+      'miden_wallet_accounts',
+      'miden_wallet_endpoint_overrides',
+      'miden_wallet_vault_check',
+      'miden_wallet_vault_key_password'
+    ]);
+    expect(sessionStorage.getItem('open-link:taken')).toBe(
+      '["com.miden.wallet://open?url=https%3A%2F%2Flive.example%2F"]'
+    );
+    expect(sessionStorage.getItem('open-link:pending')).toBe(
+      'https://bread.miden.xyz/open#url=https%3A%2F%2Fheld.example%2F'
+    );
+    expect(sessionStorage.getItem('open-link:launch')).toBe(
+      'https://bread.miden.xyz/open#url=https%3A%2F%2Flaunch.example%2F'
+    );
+    expect(sessionStorage.getItem('bread-connect:taken')).toBe('["AAAAAAAAAAAAAAAAAAAAAA"]');
+    expect(sessionStorage.getItem('draft')).toBeNull();
+    expect(mockReread).toHaveBeenCalledTimes(1);
+    expect(backupStorageEpoch()).toBeGreaterThan(epochBefore);
+    expect(cleared).toHaveBeenCalledTimes(1);
+    expect(mockReread.mock.invocationCallOrder[0]!).toBeLessThan(cleared.mock.invocationCallOrder[0]!);
+  });
+
+  it('clears non-preserved miden_wallet_* keys on non-desktop while keeping preserved keys and firing cache/storage events', async () => {
+    (isDesktop as jest.Mock).mockReturnValue(false);
+    localStorage.setItem('miden_wallet_endpoint_overrides', '{"rpcUrl":"https://rpc.custom"}');
+    localStorage.setItem('miden_wallet_vault_key', 'v');
+    localStorage.setItem('ui_cache', 'u');
+    sessionStorage.setItem('draft', 'd');
+
+    const cleared = jest.fn();
+    const unsub = onStorageCleared(cleared);
+    try {
+      await clearClientStorageAfterRestore();
+    } finally {
+      unsub();
+    }
+
+    expect(Object.keys(localStorage)).toEqual(['miden_wallet_endpoint_overrides']);
+    expect(sessionStorage.getItem('draft')).toBeNull();
+    expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+    expect(mockReread).toHaveBeenCalledTimes(1);
+    expect(cleared).toHaveBeenCalledTimes(1);
   });
 });
 

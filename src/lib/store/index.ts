@@ -7,7 +7,7 @@ import { fromSimulatedEffectsWire } from 'app/confirm/simulated-wire';
 import { installFaucetAddressTestHook } from 'lib/e2e/faucet-address';
 import { createIntercomClient, IIntercomClient } from 'lib/intercom/client';
 import { clearPersistedSeenNoteIds, persistSeenNoteIds } from 'lib/miden/back/note-checker-storage';
-import { tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
+import { remapBalanceRows, tagBalanceSnapshot, type BalanceSnapshot } from 'lib/miden/balance-snapshot';
 import type { IConsumeBridgeInExtraInputs, IEarnWithdrawExtraInputs, ITransaction } from 'lib/miden/db/types';
 import { isSyncFused } from 'lib/miden/front/sync-fuse';
 import { setTestSyncPaused } from 'lib/miden/front/test-sync-pause';
@@ -200,7 +200,7 @@ function withOverrides(
     balances = Object.fromEntries(
       Object.entries(balances).map(([account, rows]) => [
         account,
-        rows.map(row =>
+        remapBalanceRows(rows, row =>
           row.tokenId === faucetId && faucetId !== state.balancesDisplayFaucetId[account]
             ? {
                 ...row,
@@ -240,6 +240,7 @@ export function withLandedBalances(
   | 'balancesDisplayFaucetId'
   | 'balancesLoading'
   | 'balancesLastFetched'
+  | 'balanceRefreshFailed'
 > {
   const balancesDisplayFaucetId = { ...state.balancesDisplayFaucetId };
   if (midenFaucetId === null) delete balancesDisplayFaucetId[accountAddress];
@@ -257,7 +258,8 @@ export function withLandedBalances(
     ...withOverrides(landed, state.tokenMetadataOverrides, faucetIds),
     balancesDisplayFaucetId,
     balancesLoading: { ...state.balancesLoading, [accountAddress]: false },
-    balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() }
+    balancesLastFetched: { ...state.balancesLastFetched, [accountAddress]: Date.now() },
+    balanceRefreshFailed: { ...state.balanceRefreshFailed, [accountAddress]: false }
   };
   const finalRows = result.balances[accountAddress];
   if (snapshot && finalRows) tagBalanceSnapshot(finalRows, snapshot, accountAddress);
@@ -325,6 +327,7 @@ export const useWalletStore = create<WalletStore>()(
     balances: {},
     balancesLoading: {},
     balanceReadFailed: {},
+    balanceRefreshFailed: {},
     balanceReadInFlight: {},
     balancesLastFetched: {},
     balancesDisplayFaucetId: {},
@@ -381,6 +384,15 @@ export const useWalletStore = create<WalletStore>()(
         isInitialized: true,
         lastSyncedAt: Date.now()
       });
+
+      // The encrypted backup reads its storage index on unlock (architecture doc 7.3). Here, after the
+      // unlock's queue task ended, never inside it: a peer's account rename waits on that same queue.
+      // A popup that opens on an unlocked service worker turns Ready too, which is its foreground.
+      if (justBecameReady) {
+        get()
+          .refreshBackup('unlock')
+          .catch(err => console.warn('[syncFromBackend] the backup refresh on unlock failed:', err));
+      }
 
       // Immediately fetch balances when wallet becomes Ready (before any React effects).
       // Through the store action: with nothing on screen it queues for the WASM lock rather
@@ -691,10 +703,11 @@ export const useWalletStore = create<WalletStore>()(
       return new Uint8Array(Buffer.from(signatureAsHex, 'hex'));
     },
 
-    signWord: async (publicKey, wordHex, transactionId) => {
+    signWord: async (publicKey, wordHex, transactionId, rotationProposal) => {
       const res = await request({
         type: WalletMessageType.SignWordRequest,
         transactionId,
+        ...(rotationProposal === true && { rotationProposal }),
         publicKey,
         wordHex
       });
@@ -795,6 +808,18 @@ export const useWalletStore = create<WalletStore>()(
         expectedHotPubKey
       });
       assertResponse(res.type === WalletMessageType.RetireRotatedOutHotKeyResponse);
+    },
+
+    refreshBackup: async reason => {
+      const res = await request({ type: WalletMessageType.BackupRefreshRequest, reason });
+      assertResponse(res.type === WalletMessageType.BackupRefreshResponse);
+      return res.outcome;
+    },
+
+    deleteBackup: async () => {
+      const res = await request({ type: WalletMessageType.BackupDeleteProfileRequest });
+      assertResponse(res.type === WalletMessageType.BackupDeleteProfileResponse);
+      return res.outcome;
     },
 
     checkGuardianDrift: async accountPublicKey => {
@@ -995,15 +1020,18 @@ export const useWalletStore = create<WalletStore>()(
         set(state => ({
           balanceReadInFlight: { ...state.balanceReadInFlight, [accountAddress]: true }
         }));
-        const recordUnlandedRead = () => {
+        const recordUnlandedRead = (markRefreshFused: boolean) => {
           const hasBalances = get().balances[accountAddress] !== undefined;
           if (hasBalances) {
             set(state => ({
-              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false }
+              balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: false },
+              ...(markRefreshFused
+                ? { balanceRefreshFailed: { ...state.balanceRefreshFailed, [accountAddress]: true } }
+                : {})
             }));
             return;
           }
-          if (isSyncFused('balances')) {
+          if (markRefreshFused) {
             set(state => ({
               balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
             }));
@@ -1031,13 +1059,13 @@ export const useWalletStore = create<WalletStore>()(
         // `null` = a refresh found the lock busy or the balance probe is fused; keep any
         // prior balances. Only a landed read ends loading.
         if (balances === null) {
-          recordUnlandedRead();
+          recordUnlandedRead(isSyncFused('balances'));
           return;
         }
         // A Developer Settings save repointed this realm while the read was out: these are the old
         // node's balances. The metadata it wrote stays, each faucet's own record on any network.
         if (effectiveNetwork() !== network) {
-          recordUnlandedRead();
+          recordUnlandedRead(false);
           return;
         }
         set(state => ({
@@ -1048,6 +1076,10 @@ export const useWalletStore = create<WalletStore>()(
         if (get().balances[accountAddress] === undefined) {
           set(state => ({
             balanceReadFailed: { ...state.balanceReadFailed, [accountAddress]: true }
+          }));
+        } else {
+          set(state => ({
+            balanceRefreshFailed: { ...state.balanceRefreshFailed, [accountAddress]: true }
           }));
         }
         throw error;
@@ -1071,6 +1103,7 @@ export const useWalletStore = create<WalletStore>()(
         balancesLoading: {},
         balancesLastFetched: {},
         balanceReadFailed: {},
+        balanceRefreshFailed: {},
         balanceReadInFlight: {}
       });
     },
@@ -1555,7 +1588,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
   // thresholds + the active guardian-operator commitment) for E2E assertions —
   // the harness's balance checks can't see the 3-key shape. The guardian
   // commitment (`GUARDIAN_SLOT_NAMES.PUBLIC_KEY`) is a SEPARATE storage slot
-  // from the multisig `signerCommitments` (`[hot, cold]`) — a guardian switch
+  // from the multisig `signerCommitments` (hot keys and cold, in any order) — a guardian switch
   // changes the former while the latter (and its threshold) stay put, so it's
   // the field E2E specs need to verify a switch actually landed. Dynamic
   // imports avoid a static cycle.
@@ -1662,7 +1695,7 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
       const [
         { GuardianHttpClient },
         { assertWasmHoldCurrent, getMidenClient, withWasmClientLock },
-        { getSignerDetailsFromAccount },
+        { findOwnSignerCommitment },
         { isGuardianAccountReleased },
         { WalletSigner },
         { registerGuardianOrigin },
@@ -1688,7 +1721,10 @@ if (process.env.MIDEN_E2E_TEST === 'true') {
           const account = await client.getAccount(walletAccount.publicKey);
           assertWasmHoldCurrent(hold, 'e2e-guardian-operator-view after the account read');
           if (!account) throw new Error(`Guardian account ${accountPublicKey} not found in local client`);
-          return (await getSignerDetailsFromAccount(account)).commitment;
+          // This device's hot signer, found by membership: its slot is not fixed.
+          const own = await findOwnSignerCommitment(account, hotPublicKey);
+          if (own === undefined) throw new Error(`No on-chain signer holds the hot key of ${accountPublicKey}`);
+          return own.replace(/^0x/, '');
         },
         { label: 'e2e-guardian-operator-view' }
       );

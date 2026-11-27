@@ -1,6 +1,21 @@
-import { ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
+import { type ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
 import { ConsumableNote, SwapOrderNoteMetadata } from '../types';
-import { isLiveRotationFundingRow, isLiveRotationRow, selectRotationFundingNotes } from './rotation-funding';
+import { TRANSACTION_VAULT_SHORTFALL_ERROR } from './constants';
+import {
+  findAdoptableShortfallRow,
+  isLiveRotationFundingRow,
+  isLiveRotationRow,
+  selectRotationFundingNotes
+} from './rotation-funding';
+
+let mockTransactionRows: ITransaction[] = [];
+jest.mock('lib/miden/repo', () => ({
+  transactions: {
+    filter: (matches: (row: ITransaction) => boolean) => ({
+      toArray: async () => mockTransactionRows.filter(matches)
+    })
+  }
+}));
 
 const NATIVE = 'native-faucet';
 const ACCOUNT = 'acc-1';
@@ -130,5 +145,23 @@ describe('the gate row predicates', () => {
     expect(isLiveRotationRow(rotation, 'acc-2')).toBe(false);
     expect(isLiveRotationFundingRow({ ...rotation, type: 'consume', rotationFunding: true }, ACCOUNT)).toBe(true);
     expect(isLiveRotationFundingRow({ ...rotation, type: 'consume' }, ACCOUNT)).toBe(false);
+  });
+});
+
+describe('findAdoptableShortfallRow', () => {
+  const localShortfall = {
+    ...new ReplaceHotKeyTransaction(ACCOUNT, false),
+    status: ITransactionStatus.Failed,
+    error: TRANSACTION_VAULT_SHORTFALL_ERROR,
+    initiatedAt: 1
+  };
+
+  it.each([
+    ['a device revocation', { extraInputs: { revokedSignerCommitment: '0xrevoked' } }],
+    ['a row restored from backup', { restoredFromBackup: true }]
+  ] as const)('keeps the local activation shortfall when %s is newer', async (_label, extra) => {
+    mockTransactionRows = [localShortfall, { ...localShortfall, ...extra, id: 'newer-row', initiatedAt: 2 }];
+
+    await expect(findAdoptableShortfallRow(ACCOUNT)).resolves.toBe(localShortfall);
   });
 });

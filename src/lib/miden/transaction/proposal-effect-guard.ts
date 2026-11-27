@@ -9,7 +9,7 @@ import {
 import { getMessage } from 'lib/i18n/core';
 import { isSummaryFeeUnknownAtDecode } from 'lib/miden-chain/fee-at-decode';
 import { cacheScope, isVerificationBaseFeeKnownAbsent, refreshVerificationBaseFee } from 'lib/miden-chain/native-asset';
-import { usdcxSponsorshipApprovalOf } from 'lib/usdcx/sponsorship';
+import { sponsorshipApprovalOf } from 'lib/usdcx/sponsorship';
 
 import { ProposalEffectRefusedError, ProposalFeeUnknownError } from './constants';
 import type { IConsumeGcPurchaseExtraInputs, IExecuteApproval, ITransaction, ITransactionType } from '../db/types';
@@ -61,7 +61,11 @@ const ALLOWED_OUTFLOW: Partial<Record<ITransactionType, (transaction: ITransacti
   send: approvedTransfer,
   swap: approvedTransfer,
   'earn-deposit': approvedPrebuiltTransfer,
-  'bridged-send': approvedPrebuiltTransfer,
+  'register-name': approvedPrebuiltTransfer,
+  'bridged-send': transaction =>
+    transaction.extraInputs?.provider === 'near-intents'
+      ? approvedTransfer(transaction)
+      : approvedPrebuiltTransfer(transaction),
   // A claim only takes in. The one consume that pays is an Arcade GC purchase, which pays its quoted fill.
   consume: transaction => {
     const purchase: IConsumeGcPurchaseExtraInputs['gcPurchase'] | undefined = transaction.extraInputs?.gcPurchase;
@@ -103,15 +107,13 @@ export function proposalEffectRefusal(transaction: ITransaction, view: TxAssetVi
   if (allowedOutflow === undefined) return undefined;
   const allowance = allowedOutflow(transaction);
   try {
-    const approval = usdcxSponsorshipApprovalOf(transaction);
-    if (
-      approval &&
-      view.fee &&
-      (view.fee.faucetId !== approval.budget.faucetId ||
-        view.fee.amount < 0n ||
-        view.fee.amount > BigInt(approval.budget.maxAmount))
-    )
-      return 'the network fee exceeds its reviewed native budget';
+    const approval = sponsorshipApprovalOf(transaction);
+    if (approval && view.fee) {
+      const exceedsCap = approval.capKernelFee && view.fee.amount > approval.maxAmount;
+      if (view.fee.faucetId !== approval.feeFaucetId || view.fee.amount < 0n || exceedsCap) {
+        return 'the network fee exceeds its reviewed native budget';
+      }
+    }
   } catch (error) {
     if (error instanceof WebAssembly.RuntimeError || isKilledPipeline(error)) throw error;
     return 'the reviewed native fee budget could not be read';
@@ -279,7 +281,7 @@ export async function assertProposalEffectApproved(
       return await withWasmClientLock(
         async () => {
           assertFeeKnownAtDecode();
-          return summaryBytesToView(txSummary, usdcxSponsorshipApprovalOf(transaction));
+          return summaryBytesToView(txSummary, sponsorshipApprovalOf(transaction));
         },
         { label: 'proposal effect check' }
       );

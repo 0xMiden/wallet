@@ -45,7 +45,11 @@ export function usdcxDepositSteps({
   const minted = phase === 'received';
   const depositAttested = minted || phase === 'ready';
   const executed = depositAttested || cctp?.executeTxHash !== undefined;
-  const burnAttested = executed || cctp?.attestation !== undefined || cctp?.forwardState !== undefined;
+  const burnAttested =
+    executed ||
+    cctp?.attestation !== undefined ||
+    cctp?.receiptBurnAttested === true ||
+    cctp?.forwardState !== undefined;
 
   const stateOf = (done: boolean, previousDone: boolean): TransactionStepState => {
     if (done) return 'complete';

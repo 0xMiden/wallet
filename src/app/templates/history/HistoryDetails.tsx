@@ -38,6 +38,7 @@ import {
   ITransaction,
   ITransactionStatus,
   ISwitchGuardianExtraInputs,
+  IOneClickPhase,
   IOneClickTrackingData
 } from 'lib/miden/db/types';
 import { useAllAccounts, useAccount } from 'lib/miden/front';
@@ -46,6 +47,8 @@ import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { formatMidenName } from 'lib/miden/name/encoding';
+import { type MidenNameUiState, phaseOf, registerNameInputsOf, uiStateOf } from 'lib/miden/name/registrations';
 import { requestSwapOrderRefresh, useSwapOrderTrackingStore } from 'lib/miden/swap/order-tracking-store';
 import { stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import { isOpenRecoveredOrder, isRecoveredSwapOrder } from 'lib/miden/swap/recovered-order';
@@ -69,7 +72,7 @@ import { cn } from 'lib/ui/util';
 import { isUsdcxExecutorSource } from 'lib/usdcx/constant';
 import { useUsdcxDestinationTransaction } from 'lib/usdcx/use-destination-transaction';
 import { DEFAULT_CHAIN_ID, evmExplorerUrl, getChain } from 'lib/walletconnect/config';
-import { navigate } from 'lib/woozie';
+import { Link, navigate } from 'lib/woozie';
 import {
   consumeAssetBreakdown,
   earnMarketLabel,
@@ -77,6 +80,7 @@ import {
   useTransactionSummaryBadgeContent
 } from 'screens/generating-transaction/TransactionSummaryBadge';
 import { useTransactionRow } from 'screens/generating-transaction/useTransactionRow';
+import { formatNearIntentsAmount } from 'screens/send-flow/near-intents-format';
 
 import AddressChip from '../AddressChip';
 import { EpochLockedDepositAction } from '../EvmConnectModal/EpochLockedDepositAction';
@@ -85,8 +89,8 @@ import { UsdcxExecuteAction } from '../EvmConnectModal/UsdcxExecuteAction';
 import HashChip from '../HashChip';
 import { BridgeClaimSection } from './BridgeClaimSection';
 import { DetailSection } from './DetailSection';
-import { guardianHistoryActionKey, guardianHistoryIcon } from './guardianHistoryLabels';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import { guardianHistoryIcon, guardianRecoveredActionKey } from './guardianHistoryLabels';
+import { HistoryEntryType, IHistoryEntry, midenNameActivityOf, midenNameLabelOf } from './IHistoryEntry';
 import { SwapDetail } from './SwapDetail';
 import { deriveSwapReceipt } from './swapReceipt';
 import { TransactionFailureCard } from './TransactionFailureCard';
@@ -100,9 +104,11 @@ import {
   earnWithdrawShowsSource,
   formatDate,
   formatMoneyAmount,
+  historySecondaryAddressOf,
   isBridgeInEntry,
   isReceiveEntry,
   labelHistoryEntry,
+  loadedActivityOneClickTracking,
   lockedDepositStateOf,
   swapSettlementOf
 } from './transactionUtils';
@@ -183,6 +189,54 @@ function isOpenNearIntentsDeposit(tracking: IOneClickTrackingData): boolean {
   }
 }
 
+/**
+ * The amount and token of a 1Click row, from its own tracking: what a deposit into Miden delivers, or what a NEAR
+ * Intents send took from Miden (the row's quote and Miden asset, as the wallet can have no metadata for the faucet).
+ * Undefined when the stored amount is not a base-unit amount, so the row's own amount stands.
+ */
+function oneClickEntryAmount(tracking: IOneClickTrackingData): { amount: string; token: string } | undefined {
+  switch (tracking.direction) {
+    case 'evm-to-miden':
+      return /^[0-9]{1,78}$/.test(tracking.amount)
+        ? {
+            amount: formatAmount(BigInt(tracking.amount), tracking.destinationAsset.decimals),
+            token: tracking.destinationAsset.symbol
+          }
+        : undefined;
+    case 'miden-to-evm': {
+      const amount = formatNearIntentsAmount(tracking.quote.quote.amountIn, tracking.originAsset.decimals);
+      return amount === undefined ? undefined : { amount, token: tracking.originAsset.symbol };
+    }
+    default:
+      return undefined;
+  }
+}
+
+/** The live status line of a NEAR Intents send, by its 1Click phase. */
+function nearIntentsSendStatus(t: TFunction, phase: IOneClickPhase): string {
+  switch (phase) {
+    case 'depositing':
+      return t('nearIntentsSendStatusSending');
+    case 'known-deposit-tx':
+      return t('oneClickStatusKnownDepositTx');
+    case 'pending-deposit':
+      return t('oneClickStatusPendingDeposit');
+    case 'incomplete-deposit':
+      return t('oneClickStatusIncompleteDeposit');
+    case 'processing':
+      return t('oneClickStatusProcessing');
+    case 'arriving':
+    case 'delivered':
+      return t('nearIntentsSendStatusDelivered');
+    case 'refunded':
+      return t('oneClickStatusRefunded');
+    case 'failed':
+      return t('oneClickStatusFailed');
+    case 'expired':
+      return t('nearIntentsSendStatusExpired');
+  }
+}
+
 function formatOneClickBaseUnit(value: string | undefined, decimals: number): string | undefined {
   if (!value || !/^[0-9]{1,78}$/.test(value) || !Number.isInteger(decimals) || decimals < 0 || decimals > 38)
     return undefined;
@@ -246,6 +300,9 @@ const receiveSectionPolicy = (entry: IHistoryEntry): HistoryDetailsSectionPolicy
   };
 };
 
+const allowOutboundBridgeDetails = (entry: IHistoryEntry): boolean =>
+  (!entry.isCancelled || entry.isUnconfirmed === true) && entry.guardianRecovered !== true;
+
 /**
  * Explicit section and address-role policy for `HistoryDetails`, switched exhaustively over
  * `entry.txType` so new transaction types cannot silently inherit another type's sections.
@@ -253,12 +310,17 @@ const receiveSectionPolicy = (entry: IHistoryEntry): HistoryDetailsSectionPolicy
 export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDetailsSectionPolicy => {
   switch (entry.txType) {
     case 'send':
+    case 'register-name':
       return {
         bridgeClaim: false,
         inboundBridge: false,
-        oneClick: entry.oneClickTracking !== undefined,
+        oneClick: entry.txType === 'send' && entry.oneClickTracking !== undefined && allowOutboundBridgeDetails(entry),
         from: 'account',
-        to: 'secondary'
+        // The 1Click section shows the recipient, so `To` appears once.
+        to:
+          entry.oneClickTracking?.direction === 'miden-to-evm' && allowOutboundBridgeDetails(entry)
+            ? 'none'
+            : 'secondary'
       };
     case 'earn-deposit':
       return {
@@ -269,15 +331,22 @@ export const getHistoryDetailsSectionPolicy = (entry: IHistoryEntry): HistoryDet
         to: 'secondary'
       };
     case 'bridged-send': {
-      // An unstamped user cancel or a Guardian-recovered row keeps no bridge claim UI
+      const isNearIntents = entry.bridgeProvider === 'near-intents';
+      const allowOutbound = allowOutboundBridgeDetails(entry);
+      // An unstamped user cancel or a Guardian-recovered row keeps no bridge claim or 1Click UI
       // and falls back to a standard outbound transfer's From/To addresses.
-      const bridgeClaim = (!entry.isCancelled || entry.isUnconfirmed === true) && entry.guardianRecovered !== true;
+      // NEAR Intents swaps are fulfilled automatically by 1Click and have no L1 claim UI.
+      const bridgeClaim = !isNearIntents && allowOutbound;
       return {
         bridgeClaim,
         inboundBridge: false,
-        oneClick: false,
+        oneClick: isNearIntents && entry.oneClickTracking !== undefined && allowOutbound,
         from: 'account',
-        to: bridgeClaim ? 'none' : 'secondary'
+        // The 1Click section shows the recipient, so `To` appears once.
+        to:
+          bridgeClaim || (isNearIntents && entry.oneClickTracking?.direction === 'miden-to-evm' && allowOutbound)
+            ? 'none'
+            : 'secondary'
       };
     }
     case 'consume':
@@ -316,6 +385,18 @@ const resolvePolicyAddress = (role: HistoryAddressRole, entry: IHistoryEntry): s
       return entry.secondaryAddress;
     case 'none':
       return undefined;
+  }
+};
+
+/** Translation key of the UI state of a Miden Name registration, for the Phase row. */
+const midenNameStateKey = (state: MidenNameUiState): string => {
+  switch (state) {
+    case 'owned':
+      return 'midenNameStateOwned';
+    case 'failed':
+      return 'midenNameStateFailed';
+    default:
+      return 'midenNameStateClaiming';
   }
 };
 
@@ -427,6 +508,29 @@ const NoteIdList: FC<{ noteIds: string[]; testId: string }> = ({ noteIds, testId
   );
 };
 
+const isOutboundBridgeHero = (
+  entry: IHistoryEntry | null,
+  sectionPolicy: HistoryDetailsSectionPolicy | undefined
+): boolean =>
+  (sectionPolicy?.bridgeClaim ?? false) ||
+  (entry?.txType === 'bridged-send' && entry.bridgeProvider === 'near-intents' && allowOutboundBridgeDetails(entry));
+
+const ToDetailValue: FC<{
+  isExternalDestination: boolean;
+  address: string;
+  account: WalletAccount;
+  allAccounts: WalletAccount[];
+}> = memo(({ isExternalDestination, address, account, allAccounts }) =>
+  isExternalDestination ? (
+    <HashChip hash={address} trimHash className="ml-2" />
+  ) : (
+    <ExternalLinkValue
+      displayValue={<AccountDisplay address={address} account={account} allAccounts={allAccounts} />}
+      href={getExplorerAccountUrl(address)}
+    />
+  )
+);
+
 const AccountDisplay: FC<{
   address: string | undefined;
   account: WalletAccount;
@@ -528,6 +632,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const [deriveErrorId, setDeriveErrorId] = useState<{ id: UserErrorId; transactionId: string } | null>(null);
   // The root tracker follows the orderId persisted by completeSwapTransaction.
   const [orderId, setOrderId] = useState<string | bigint | null>(null);
+  const { trackingEntry, orderKey, tracksOrder, recoveredOrderOpen, settlementNotes } = useHistorySwapOrderTracking(
+    readFailed,
+    orderId,
+    transaction
+  );
   const [requestedToken, setRequestedToken] = useState<RequestedTokenInfo | null>(null);
   const [swapAutoConsume, setSwapAutoConsume] = useState(true);
   const [swapSlippageBps, setSwapSlippageBps] = useState<number | undefined>(undefined);
@@ -594,10 +703,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
         const bridge: IBridgedSendExtraInputs | undefined = tx.type === 'bridged-send' ? tx.extraInputs : undefined;
         const bridgeReceive: IBridgedReceiveExtraInputs | undefined =
           tx.type === 'bridged-receive' ? tx.extraInputs : undefined;
-        const oneClickTracking: IOneClickTrackingData | undefined = tx.extraInputs?.oneClick;
+        const oneClickTracking: IOneClickTrackingData | undefined = loadedActivityOneClickTracking(tx);
+        const oneClickAmount = oneClickTracking ? oneClickEntryAmount(oneClickTracking) : undefined;
         const consumeExtra: IConsumeBridgeInExtraInputs | undefined =
           tx.type === 'consume' ? tx.extraInputs : undefined;
-        const consumedBridge = consumeExtra?.bridgeIn;
+        const consumedBridge = consumeExtra?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn;
         const earnWithdrawExtra: IEarnWithdrawExtraInputs | undefined =
           tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
         const earnDepositExtra: IEarnDepositExtraInputs | undefined =
@@ -616,26 +726,35 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           key: `completed-${tx.id}`,
           timestamp: tx.completedAt ?? tx.initiatedAt,
           message: tx.recovered
-            ? t(guardianHistoryActionKey(tx.type, tx.recovery?.reclaimed))
-            : (tx.displayMessage ?? ''),
+            ? t(
+                guardianRecoveredActionKey(tx.type, {
+                  reclaimed: tx.recovery?.reclaimed,
+                  hotKeyAdded: hotKeyExtra?.mode === 'add',
+                  revokedSignerCommitment: hotKeyExtra?.revokedSignerCommitment
+                })
+              )
+            : (tx.backupBridgeReceipt?.displayMessage ?? tx.displayMessage ?? ''),
           type: HistoryEntryType.CompletedTransaction,
           status: tx.status,
           transactionIcon: tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
           amount: earnWithdrawFields
             ? earnWithdrawFields.amount
-            : oneClickTracking?.direction === 'evm-to-miden' && /^[0-9]{1,78}$/.test(oneClickTracking.amount)
-              ? formatAmount(BigInt(oneClickTracking.amount), oneClickTracking.destinationAsset.decimals)
+            : oneClickAmount
+              ? oneClickAmount.amount
               : tx.amount !== undefined && (offeredSwapToken !== undefined || hasKnownScale(tokenMetadata))
                 ? formatAmount(tx.amount, offeredSwapToken?.decimals ?? tokenMetadata?.decimals)
                 : undefined,
           token: earnWithdrawFields
             ? earnWithdrawFields.token
-            : oneClickTracking?.direction === 'evm-to-miden'
-              ? oneClickTracking.destinationAsset.symbol
+            : oneClickAmount
+              ? oneClickAmount.token
               : (offeredSwapToken?.symbol ?? tokenMetadata?.symbol),
           earnWithdrawPhase: earnWithdrawExtra?.phase,
           earnDepositStatus: earnDepositExtra?.epochStatus,
-          secondaryAddress: tx.secondaryAccountId,
+          secondaryAddress:
+            bridge !== undefined && bridge.provider !== 'near-intents'
+              ? tx.secondaryAccountId
+              : historySecondaryAddressOf(tx),
           processingStartedAt: tx.processingStartedAt,
           txId: tx.id,
           noteType: tx.noteType,
@@ -661,6 +780,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           guardianRecovered: tx.recovered === true,
           newHotPublicKey: hotKeyExtra?.newHotPublicKey,
           rotationGuardianEndpoint: hotKeyExtra?.guardianEndpoint,
+          hotKeyAdded: hotKeyExtra?.mode === 'add',
+          revokedSignerCommitment: hotKeyExtra?.revokedSignerCommitment,
           errorMessage:
             submission !== undefined && !isUnconfirmed ? (submission.rowCopy ?? t(submission.messageKey)) : tx.error,
           rawErrorMessage: submission?.details ?? tx.rawError,
@@ -682,6 +803,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeProvider: bridge?.provider,
           bridgeDestinationAddress: bridge?.destinationAddress,
           bridgeDestinationNetwork: bridge?.destinationNetwork,
+          bridgeDestinationChain: bridge?.destinationChain,
           bridgeAgglayerRoute: bridge?.agglayerRoute,
           bridgeEpochAllocatorUrl: bridge?.epochAllocatorUrl,
           bridgeClaimStatus: bridge?.claimStatus,
@@ -722,7 +844,8 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
           bridgeInMidenNoteId:
             bridgeReceive?.midenNoteId ??
             (consumedBridge ? (consumedBridge.midenNoteId ?? tx.noteId ?? tx.noteIds?.[0]) : undefined),
-          bridgeInFromEarnWithdraw: consumedBridge?.earnWithdrawTxId !== undefined
+          bridgeInFromEarnWithdraw: consumedBridge?.earnWithdrawTxId !== undefined,
+          midenNameLabel: midenNameLabelOf(tx)
         };
 
         if (tx.type === 'swap') {
@@ -791,11 +914,6 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
     transaction?.accountId ?? account?.publicKey ?? '',
     transaction?.restoredFromBackup === true
   );
-  const { trackingEntry, orderKey, tracksOrder, recoveredOrderOpen, settlementNotes } = useHistorySwapOrderTracking(
-    readFailed,
-    orderId,
-    transaction
-  );
   const { canCancel, canRetry, earnRetryKind, acknowledgement } = actions;
   const heldByGuardian = guardianHoldUntil !== undefined;
 
@@ -833,7 +951,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   // "to" row is omitted here. A stamped user cancel keeps the bridge section too: it
   // may have landed, so it reads through the section's own unconfirmed rule like any
   // other unconfirmed bridge-out (#1250).
-  const isBridgeOut = sectionPolicy?.bridgeClaim ?? false;
+  const isBridgeOut = isOutboundBridgeHero(entry, sectionPolicy);
   const isBridgeIn = entry ? isBridgeInEntry(entry) : false;
   const isBridge = isBridgeOut || isBridgeIn;
   const isEarnWithdraw = entry?.txType === 'earn-withdraw' && earnWithdraw !== null;
@@ -842,6 +960,12 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
   const earnWithdrawChain = earnWithdraw ? earnRowChain(earnWithdraw.marketUid) : undefined;
   const earnDepositChain = earnDeposit ? earnRowChain(earnDeposit.marketUid) : undefined;
   const isGuardianSwitch = entry?.txType === 'switch-guardian';
+  // Miden Name registration record: the row is the state of record, so the
+  // Phase row reads the effective phase of the live row (`phaseOf`).
+  const registerName = transaction ? registerNameInputsOf(transaction) : undefined;
+  const nameReceiptTxId = transaction ? midenNameActivityOf(transaction).midenNameReceiptTxId : undefined;
+  const registerNamePhaseKey =
+    transaction && registerName ? midenNameStateKey(uiStateOf(phaseOf(transaction))) : undefined;
   // A settled rotation's verdict names it; an in-flight one has no verdict title and keeps its own message.
   const guardianSwitchTitleKey = entry?.guardianSwitchVerdict
     ? rotationRowTitleKey(entry.guardianSwitchVerdict)
@@ -1057,6 +1181,10 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <div className="mt-1 flex max-w-full items-baseline justify-center gap-2 text-center font-heading font-extrabold text-[2.5rem] leading-none">
                       {historyAmount !== undefined && <span className="text-ink">{historyAmount}</span>}
                       {entry.token && <span className="text-text-muted">{entry.token}</span>}
+                      {/* A name claim moves no fungible asset: show the name, not an empty amount. */}
+                      {entry.amount === undefined && !entry.token && entry.midenNameLabel && (
+                        <span className="min-w-0 truncate text-ink">{formatMidenName(entry.midenNameLabel)}</span>
+                      )}
                     </div>
                   )}
                   {approximateUsdAmount && (
@@ -1154,6 +1282,11 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                   )}
 
                   {/* A rotation's whole subject: the guardian above is unchanged, the key is what moved. */}
+                  {entry.revokedSignerCommitment && (
+                    <DetailRow label={t('deviceSignerCommitment')}>
+                      <HashChip hash={entry.revokedSignerCommitment} trimHash className="ml-2" />
+                    </DetailRow>
+                  )}
                   {isHotKeyRotation && entry.newHotPublicKey && (
                     <DetailRow label={t('newDeviceKey')} data-testid="history-detail-new-device-key">
                       <HashChip hash={entry.newHotPublicKey} trimHash className="ml-2" />
@@ -1173,11 +1306,14 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
 
                   {toAddress && (
                     <DetailRow label={t('to')} data-testid="history-detail-to">
-                      <ExternalLinkValue
-                        displayValue={
-                          <AccountDisplay address={toAddress} account={account} allAccounts={allAccounts} />
+                      <ToDetailValue
+                        isExternalDestination={
+                          entry?.bridgeProvider === 'near-intents' ||
+                          entry?.oneClickTracking?.direction === 'miden-to-evm'
                         }
-                        href={getExplorerAccountUrl(toAddress)}
+                        address={toAddress}
+                        account={account}
+                        allAccounts={allAccounts}
                       />
                     </DetailRow>
                   )}
@@ -1328,6 +1464,50 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
               </div>
             )}
 
+            {nameReceiptTxId && (
+              <div className="mt-6">
+                <DetailSection title={t('midenName')}>
+                  <DetailRow label={t('midenNameReceiptTransaction')}>
+                    <Link to={`/history-details/${nameReceiptTxId}`} className="text-accent-tint-ink">
+                      {t('view')}
+                    </Link>
+                  </DetailRow>
+                </DetailSection>
+              </div>
+            )}
+
+            {/* Miden Name registration details (name, registry, register note, phase) */}
+            {registerName && (
+              <div className="mt-6">
+                <SectionDivider color={sectionDividerColor} />
+                <div className="mt-5">
+                  <DetailSection title={t('midenName')}>
+                    <DetailRow label={t('midenNameReceiptName')}>
+                      <span className="select-text" data-testid="history-miden-name">
+                        {formatMidenName(registerName.label)}
+                      </span>
+                    </DetailRow>
+                    {entry.secondaryAddress && (
+                      <DetailRow label={t('midenNameReceiptRegistry')}>
+                        <ExternalLinkValue
+                          displayValue={<HashChip hash={entry.secondaryAddress} trimHash className="ml-2" />}
+                          href={getExplorerAccountUrl(entry.secondaryAddress)}
+                        />
+                      </DetailRow>
+                    )}
+                    <DetailRow label={t('midenNameReceiptNoteId')}>
+                      <HashChip hash={registerName.registrationNoteId} trimHash className="ml-2" />
+                    </DetailRow>
+                    {registerNamePhaseKey && (
+                      <DetailRow label={t('midenNameReceiptPhase')}>
+                        <span data-testid="history-miden-name-phase">{t(registerNamePhaseKey)}</span>
+                      </DetailRow>
+                    )}
+                  </DetailSection>
+                </div>
+              </div>
+            )}
+
             {/*
               Private-note delivery warning.
               A send can be legitimately Completed - the assets have left the account -
@@ -1436,6 +1616,21 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                     <DetailRow label={t('oneClickProviderStatus')}>
                       {oneClickProviderStatus(t, entry.oneClickTracking.providerStatus)}
                     </DetailRow>
+                    {/* A NEAR Intents send: what 1Click reports now, kept current by the app-root watcher. */}
+                    {entry.oneClickTracking.direction === 'miden-to-evm' && (
+                      <>
+                        <DetailRow label={t('nearIntentsSendDeliveryStatus')}>
+                          <span data-testid="near-intents-send-status">
+                            {nearIntentsSendStatus(t, entry.oneClickTracking.phase)}
+                          </span>
+                        </DetailRow>
+                        <DetailRow label={t('to')}>
+                          <span className="select-text break-all" data-testid="near-intents-send-recipient">
+                            {entry.oneClickTracking.request.recipient}
+                          </span>
+                        </DetailRow>
+                      </>
+                    )}
                     {entry.oneClickTracking.direction === 'evm-to-miden' &&
                       (entry.oneClickTracking.phase === 'arriving' || entry.oneClickTracking.phase === 'delivered') && (
                         <DetailRow label={t('oneClickDeliveryStatus')}>
@@ -1564,15 +1759,17 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                       )
                     )}
                   </DetailSection>
-                  {transaction && isOpenNearIntentsDeposit(entry.oneClickTracking) && (
-                    <Button
-                      data-testid="history-near-intents-deposit-button"
-                      variant={ButtonVariant.Secondary}
-                      title={t('nearIntentsOpenDeposit')}
-                      onClick={() => navigate(`/receive/near-intents/${encodeURIComponent(transaction.id)}`)}
-                      className="mt-5 w-full max-w-none"
-                    />
-                  )}
+                  {transaction &&
+                    !transaction.restoredFromBackup &&
+                    isOpenNearIntentsDeposit(entry.oneClickTracking) && (
+                      <Button
+                        data-testid="history-near-intents-deposit-button"
+                        variant={ButtonVariant.Secondary}
+                        title={t('nearIntentsOpenDeposit')}
+                        onClick={() => navigate(`/receive/near-intents/${encodeURIComponent(transaction.id)}`)}
+                        className="mt-5 w-full max-w-none"
+                      />
+                    )}
                 </div>
               </div>
             )}
@@ -1662,8 +1859,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         className="mt-4"
                       />
                     )}
-                  {/* An Epoch deposit in The Compact without an allocation: only its sponsor can recover it (#2120).
-                      `lockedDepositStateOf` leaves out a restored row. */}
+
                   {(() => {
                     const lockedState = lockedDepositStateOf(entry);
                     if (!entry.txId || !entry.bridgeInLockedDeposit || lockedState === undefined) return null;
@@ -1672,6 +1868,7 @@ export const HistoryDetails: FC<HistoryDetailsProps> = ({ transactionId }) => {
                         txId={entry.txId}
                         lock={entry.bridgeInLockedDeposit}
                         state={lockedState}
+                        readOnly={entry.restoredFromBackup}
                         amountLabel={[entry.bridgeInSourceAmount, entry.bridgeInSourceSymbol].filter(Boolean).join(' ')}
                         className="mt-4"
                       />

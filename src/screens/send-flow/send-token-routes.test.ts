@@ -2,7 +2,7 @@ import { TEST_BRIDGE_CONFIG_SNAPSHOT } from 'lib/epoch/testing/bridge-config';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
-import { canSendTokenToChain, sendTokenRoutes } from './send-token-routes';
+import { canSendTokenToChain, canSendTokenToNetwork, sendTokenRoutes } from './send-token-routes';
 
 jest.mock('lib/usdcx/withdrawal', () => ({ isUsdcxWithdrawalAvailable: jest.fn(() => false) }));
 
@@ -108,4 +108,13 @@ it('offers any asset on a chain with AggLayer withdrawals and leaves the faucet 
   expect(sendTokenRoutes(snapshot, USDT, 4663)).toEqual({ epoch: false, agglayer: true, usdcx: false });
   chain.bridges.agglayer.withdrawalEnabled = false;
   expect(canSendTokenToChain(snapshot, USDT, 4663)).toBe(false);
+});
+
+it('allows any token on NEAR-served networks while keeping bridge-only EVM filtering', () => {
+  const snapshot = robinhoodSnapshot();
+  expect(canSendTokenToNetwork(snapshot, USDT, { bridge: true, chainId: 4663 })).toBe(false);
+  expect(canSendTokenToNetwork(snapshot, ETH, { bridge: true, chainId: 4663 })).toBe(true);
+  expect(canSendTokenToNetwork(snapshot, USDT, { bridge: true, chainId: 4663, nearIntentsChainId: 'base' })).toBe(true);
+  expect(canSendTokenToNetwork(snapshot, USDT, { bridge: false, chainId: -1, nearIntentsChainId: 'sol' })).toBe(true);
+  expect(canSendTokenToNetwork(snapshot, USDT, undefined)).toBe(true);
 });

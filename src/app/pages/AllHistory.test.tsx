@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 
 import { PageActiveContext } from 'app/layouts/page-active';
 import { hapticLight, hapticSelection } from 'lib/mobile/haptics';
+import type { BackupRefreshOutcome, BackupRefreshReason } from 'lib/shared/types';
 import { navigate } from 'lib/woozie';
 
 import AllHistory from './AllHistory';
@@ -158,6 +159,12 @@ jest.mock('app/templates/history/ArcadeActivityHistory', () => ({
 jest.mock('lib/miden/front', () => ({
   useAccount: () => ({ publicKey: 'test-public-key' })
 }));
+// The page asks the backend for a backup history read when it comes on screen; the backup is off here.
+// One function for every render, as the store gives it.
+const mockRefreshBackup = jest.fn<Promise<BackupRefreshOutcome>, [BackupRefreshReason]>();
+jest.mock('lib/miden/front/client', () => ({
+  useMidenContext: () => ({ refreshBackup: mockRefreshBackup })
+}));
 
 const mockEndpoint = { rpcUrl: 'https://rpc-a.example' };
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
@@ -232,12 +239,14 @@ describe('AllHistory', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     localStorage.clear();
+    localStorage.setItem('activity_view_setting', 'list');
     mockEndpoint.rpcUrl = 'https://rpc-a.example';
     mockPendingMounts.count = 0;
     mockPendingFilterRenders.length = 0;
     mockFilterRowRenders.length = 0;
     mockReducedMotion.value = false;
     mockLocationSearch.value = '';
+    mockRefreshBackup.mockReset().mockResolvedValue('disabled');
     HTMLElement.prototype.scrollIntoView = jest.fn();
   });
 
@@ -250,6 +259,60 @@ describe('AllHistory', () => {
       <AllHistory />
     </PageActiveContext.Provider>
   );
+
+  // The tab stays mounted, so the page turning active is the event that reads the peers' history.
+  describe('the backup history read', () => {
+    it('asks for it when the page mounts on screen', () => {
+      render(onScreen(true));
+
+      expect(mockRefreshBackup).toHaveBeenCalledTimes(1);
+      expect(mockRefreshBackup).toHaveBeenCalledWith('activity-open');
+    });
+
+    it('does not ask while the page is mounted off screen', () => {
+      render(onScreen(false));
+
+      expect(mockRefreshBackup).not.toHaveBeenCalled();
+    });
+
+    it('asks again each time the page comes back on screen, and not on a re-render', () => {
+      const { rerender } = render(onScreen(false));
+      rerender(onScreen(true));
+      expect(mockRefreshBackup).toHaveBeenCalledTimes(1);
+
+      rerender(onScreen(true));
+      expect(mockRefreshBackup).toHaveBeenCalledTimes(1);
+
+      rerender(onScreen(false));
+      rerender(onScreen(true));
+      expect(mockRefreshBackup).toHaveBeenCalledTimes(2);
+    });
+
+    it('logs a failed read and keeps the page', async () => {
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      const failure = new Error('offline');
+      mockRefreshBackup.mockRejectedValueOnce(failure);
+      try {
+        render(onScreen(true));
+
+        await waitFor(() =>
+          expect(warn).toHaveBeenCalledWith('[AllHistory] the backup history refresh failed:', failure)
+        );
+        expect(getHistory()).toBeInTheDocument();
+      } finally {
+        warn.mockRestore();
+      }
+    });
+  });
+
+  it('opens Groups when the user has not saved a view', () => {
+    localStorage.removeItem('activity_view_setting');
+    render(<AllHistory />);
+
+    expect(screen.getByTestId('grouped-history')).toBeInTheDocument();
+    expect(screen.queryByTestId('history')).toBeNull();
+    expect(localStorage.getItem('activity_view_setting')).toBeNull();
+  });
 
   it('renders the activity header, filter chips and search field', () => {
     render(<AllHistory />);
@@ -582,7 +645,7 @@ describe('AllHistory', () => {
       expect(screen.getByTestId('activity-view-button')).toHaveAttribute('aria-pressed', 'true');
     });
 
-    it('offers the two views as radios, with List chosen by default', () => {
+    it('offers the two views as radios with the saved List preference selected', () => {
       render(<AllHistory />);
       openMenu();
 
@@ -893,6 +956,7 @@ describe('AllHistory — opened at a filter', () => {
   const originalScroll = HTMLElement.prototype.scrollIntoView;
   beforeEach(() => {
     localStorage.clear();
+    localStorage.setItem('activity_view_setting', 'list');
     HTMLElement.prototype.scrollIntoView = jest.fn();
   });
   afterEach(() => {
@@ -901,11 +965,13 @@ describe('AllHistory — opened at a filter', () => {
   });
 
   it('opens on the Pending filter when the link asked for it', () => {
+    localStorage.removeItem('activity_view_setting');
     mockLocationSearch.value = '?filter=pending&view=list';
     render(<AllHistory />);
 
     expect(screen.getByRole('radio', { name: 'pending' })).toBeChecked();
     expect(screen.getByTestId('history')).toHaveAttribute('data-filter', 'pending');
+    expect(localStorage.getItem('activity_view_setting')).toBeNull();
   });
 
   it('ignores a filter it does not have, rather than showing an empty list', () => {

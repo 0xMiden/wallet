@@ -153,7 +153,15 @@ const StatusIndicator: React.FC<StatusIndicatorProps> = ({ state, accent = 'bran
   );
 };
 
-export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, state, isLast, label, meta, accent }) => {
+export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({
+  step,
+  state,
+  isLast,
+  label,
+  meta,
+  accent,
+  nested = false
+}) => {
   const { t } = useTranslation();
   const rowTransition = useMotion(springs.snappy);
   const resolvedLabel = label ?? t(step.labelKey, { defaultValue: step.defaultLabel });
@@ -162,11 +170,14 @@ export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, st
     <motion.div
       key={step.id}
       className={classNames(
-        'flex items-center justify-between gap-3 px-4 py-3',
+        'flex items-center justify-between gap-3',
+        // A sub-step starts under the label of its parent step (16px gutter + 20px glyph + 12px gap).
+        nested ? 'py-2.5 pl-12 pr-4' : 'px-4 py-3',
         !isLast && 'border-b border-rule-default'
       )}
       data-transaction-step={step.id}
       data-state={state}
+      data-nested={nested ? 'true' : undefined}
       layout
       transition={rowTransition}
     >
@@ -174,7 +185,8 @@ export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, st
         <StatusIndicator state={state} accent={accent} />
         <span
           className={classNames(
-            'min-w-0 truncate font-heading text-base font-bold leading-none',
+            'min-w-0 truncate font-heading font-bold leading-none',
+            nested ? 'text-sm' : 'text-base',
             state === 'pending' ? 'text-[#8E8A84] dark:text-[#9B968D]' : 'text-[#161513] dark:text-pure-white'
           )}
         >
@@ -182,7 +194,12 @@ export const TransactionStepRow: React.FC<TransactionStepRowProps> = ({ step, st
         </span>
       </div>
       {meta && (
-        <span className="shrink-0 font-heading text-base font-medium leading-none text-[#8E8A84] dark:text-[#9B968D]">
+        <span
+          className={classNames(
+            'shrink-0 font-heading font-medium leading-none text-[#8E8A84] dark:text-[#9B968D]',
+            nested ? 'text-sm' : 'text-base'
+          )}
+        >
           {meta}
         </span>
       )}

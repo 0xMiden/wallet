@@ -15,6 +15,7 @@ import { TokenAmount } from 'components/ui/TokenAmount';
 import { useMotion } from 'lib/animation';
 import { durations } from 'lib/animation/durations';
 import { easings } from 'lib/animation/easings';
+import { balanceLowerBound } from 'lib/i18n/numbers';
 import { hapticLight } from 'lib/mobile/haptics';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
@@ -24,7 +25,7 @@ import { isUserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { truncateAddress } from 'utils/string';
 
 import { AmountShortcuts } from './AmountShortcuts';
-import { getBridgeNetwork, SendNetworkId } from './bridge-networks';
+import { getSendNetwork, SendNetworkId } from './bridge-networks';
 import { SendStepLayout } from './SendStepLayout';
 import { UIToken } from './types';
 
@@ -96,16 +97,25 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   // an unknown-scale token can't be sent (see SelectAmount).
   const scaleIsKnown = token === undefined || token.scaleIsKnown;
   const canProceed = !!token && scaleIsKnown && isValidAmount;
+  const availableBalance = token && scaleIsKnown ? balanceLowerBound(token.balance, token.decimals) : 0;
   // The missing-fee shortfall is about the account, not the typed number, so it
   // gets a notice with a way out instead of turning the amount red. An empty
   // field isn't an invalid amount yet.
   const feeShortfall = error === 'insufficientFeeAsset';
   const amountError =
     error && !feeShortfall && (amount || error !== 'invalidAmount') ? t(error, errorValues) : undefined;
+  const amountErrorDiagnostics: UiEvidenceInput | undefined =
+    error === 'invalidAmount'
+      ? { kind: 'invalid_amount', invalidAmountProducer: embedded ? 'command_send' : 'send_step' }
+      : errorDiagnostics;
   useUserVisibleError(feeShortfall ? 'insufficientFeeAsset' : null, 'notice');
-  useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline');
+  useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline', undefined, {
+    kind: 'token_scale',
+    tokenScaleProducer: 'send_amount'
+  });
 
-  const bridgeNetwork = network && network !== 'miden' ? getBridgeNetwork(network) : undefined;
+  // An EVM network or a NEAR Intents chain (Solana, Bitcoin, NEAR). `NetworkLogo` finds each mark by its id.
+  const bridgeNetwork = network && network !== 'miden' ? getSendNetwork(network) : undefined;
 
   return (
     <SendStepLayout
@@ -135,7 +145,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
         invalid={!!amountError}
         error={amountError}
         errorId={isUserErrorId(error) ? error : null}
-        errorDiagnostics={errorDiagnostics}
+        errorDiagnostics={amountErrorDiagnostics}
         showDivider={false}
         data-testid="send-amount-input"
         onValueChange={value => {
@@ -189,7 +199,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                   {scaleIsKnown ? (
                     <TokenAmount
                       key={token.id}
-                      amount={token.balance}
+                      amount={availableBalance}
                       prefix={`${t('available')} `}
                       minimumFractionDigits={4}
                       rounding="down"
@@ -200,7 +210,7 @@ export const SendAmount: React.FC<SendAmountProps> = ({
                   )}
                   {scaleIsKnown && (
                     <TokenUsdValue
-                      amount={token.balance}
+                      amount={availableBalance}
                       faucetId={token.id}
                       symbol={token.name}
                       className="block text-caption text-muted"

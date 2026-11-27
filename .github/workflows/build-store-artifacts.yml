@@ -191,6 +191,7 @@ jobs:
       APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       FEATURE_ELIGIBILITY_URL: ${{ needs.prepare.outputs.eligibility_url }}
+      COMMAND_AI_PROXY_URL: ${{ vars.COMMAND_AI_PROXY_URL }}
     steps:
       - name: Checkout trusted release automation
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -257,6 +258,7 @@ jobs:
       APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       FEATURE_ELIGIBILITY_URL: ${{ needs.prepare.outputs.eligibility_url }}
+      COMMAND_AI_PROXY_URL: ${{ vars.COMMAND_AI_PROXY_URL }}
     steps:
       - name: Checkout trusted release automation
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -338,13 +340,13 @@ jobs:
   ios:
     needs: prepare
     if: ${{ needs.prepare.outputs.build_ios == 'true' }}
-    # xcode-27 gives Xcode 27 and the iOS 27 SDK. From April 2027 App Store
-    # Connect refuses a build made with an older SDK (ITMS-90725). The compile
-    # gate in pr-compile-surfaces.yml uses the same toolchain.
-    runs-on: xcode-27
+    # Xcode 26.6 is the last verified store-signing toolchain. Restore Xcode 27
+    # before App Store Connect requires the iOS 27 SDK in April 2027.
+    runs-on: macos-26
     environment: wallet-store-signing
     timeout-minutes: 120
     env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
       VERSION: ${{ needs.prepare.outputs.version }}
       SOURCE_SHA: ${{ needs.prepare.outputs.source_sha }}
       MIDEN_NETWORK: ${{ inputs.network }}
@@ -352,6 +354,7 @@ jobs:
       APTABASE_HOST: ${{ vars.APTABASE_HOST || secrets.APTABASE_HOST }}
       SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
       FEATURE_ELIGIBILITY_URL: ${{ needs.prepare.outputs.eligibility_url }}
+      COMMAND_AI_PROXY_URL: ${{ vars.COMMAND_AI_PROXY_URL }}
     steps:
       - name: Checkout trusted release automation
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -359,6 +362,8 @@ jobs:
           ref: ${{ github.workflow_sha }}
           path: automation
           persist-credentials: false
+      - name: Test App Store signing validation
+        run: python3 -B automation/scripts/store-publishing/apple-profile.test.py
       - name: Checkout approved release source
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -425,12 +430,11 @@ jobs:
           APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
         run: |
           KEY_PATH="$RUNNER_TEMP/wallet-store-signing/AuthKey_$APP_STORE_CONNECT_KEY_ID.p8"
-          # Archive signing is automatic per target; App Store distribution signing happens during export.
+          # The intermediate archive uses ad-hoc signatures; export must use the verified Store identity.
           xcodebuild archive -project ios/App/App.xcodeproj -scheme App -configuration Release \
             -destination 'generic/platform=iOS' -jobs 2 -archivePath "$RUNNER_TEMP/Wallet.xcarchive" \
-            -allowProvisioningUpdates -authenticationKeyPath "$KEY_PATH" \
-            -authenticationKeyID "$APP_STORE_CONNECT_KEY_ID" -authenticationKeyIssuerID "$APP_STORE_CONNECT_ISSUER_ID" \
             CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM=LHU7B7J5WL \
+            CODE_SIGN_IDENTITY=- AD_HOC_CODE_SIGNING_ALLOWED=YES \
             MARKETING_VERSION="$VERSION" CURRENT_PROJECT_VERSION="$BUILD_NUMBER" \
             2>&1 | tee "$RUNNER_TEMP/ios-archive.log"
           if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/ios-archive.log"; then
@@ -455,6 +459,9 @@ jobs:
           if grep -Eiq '(^|[[:space:]])error(:|[[:space:]])|compiled with [1-9][0-9]* errors?' "$RUNNER_TEMP/ios-export.log"; then
             echo 'iOS export log contains errors' >&2; exit 1
           fi
+          python3 ../automation/scripts/store-publishing/apple-profile.py verify-ipa \
+            --directory "$RUNNER_TEMP/wallet-store-signing" --ipa-dir "$RUNNER_TEMP/wallet-ipa" \
+            --entitlements ios/App/App/App.entitlements
       - name: Remove Apple signing material and restore keychain search list
         if: ${{ always() }}
         run: |

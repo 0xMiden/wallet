@@ -38,7 +38,7 @@ import { Vault } from './vault';
 import { getBech32AddressFromAccountId } from '../sdk/helpers';
 import { getCurrentWasmLockHold, getMidenClient, withWasmClientLock, type WasmLockHold } from '../sdk/miden-client';
 import { isSyncWatchdogEviction, WASM_LOCK_SYNC_WATCHDOG_MS, WasmClientPoisonedError } from '../sdk/wasm-client-poison';
-import { localSwapOrders } from '../swap/classification';
+import { isHeldBackPeerSwapPayback, isPeerSwapPayback, localSwapOrders, swapOrderIdsOf } from '../swap/classification';
 import type { RecoveredSwapOrderRef } from '../swap/recovered-order';
 import {
   checkRefusedRecoveredOrders,
@@ -457,6 +457,7 @@ async function runSync(force: boolean): Promise<void> {
       // Loaded once per sync and threaded into classify + reconcile below —
       // localSwapOrders is an unindexed full scan of the transactions table.
       const swapOrderRows = await localSwapOrders(accountPubKey);
+      const ownSwapOrderIds = swapOrderIdsOf(swapOrderRows);
 
       // Block numbers only name blocks on the endpoint the notes are read from.
       const notesScope = getEffectiveRpcUrl();
@@ -563,6 +564,7 @@ async function runSync(force: boolean): Promise<void> {
                 noteType: note.noteType !== undefined ? toNoteTypeString(note.noteType) : 'unknown',
                 recallableAtMs: note.recallableAtMs,
                 standardPayment: note.standardPayment,
+                peerSwapPayback: isPeerSwapPayback(note, ownSwapOrderIds) ? true : undefined,
                 carriesMoreAssets: note.assets.length > 1,
                 swapOrder: swapOrders.get(noteId)
               };
@@ -710,8 +712,12 @@ async function runSync(force: boolean): Promise<void> {
             // Only a standard payment (P2ID or P2IDE) is claimed unattended. The consumable
             // list also holds other traders' public PSWAP orders on a pair tag the account
             // still tracks, and consuming one fills that order from this account's balance
-            // (#2118). A note with no flag is not claimed.
-            const candidates = nativeNotes.filter(n => !notesBeingClaimed.has(n.id) && n.standardPayment === true);
+            // (#2118). A note with no flag is not claimed. A payback of a PSWAP order that this device did not place
+            // is not claimed here: only the device that placed the order claims it unattended, so two devices of one
+            // account do not claim the same payback (the rule of `isUnattendedNativeNote` in the frontend).
+            const candidates = nativeNotes.filter(
+              n => !notesBeingClaimed.has(n.id) && n.standardPayment === true && n.peerSwapPayback !== true
+            );
             // A claim worth no more than its own fee costs the user money to collect.
             // This pass is unattended, so the wallet must not do that on their behalf;
             // while the fee is unknown it claims nothing and the notes are announced as
@@ -753,7 +759,11 @@ async function runSync(force: boolean): Promise<void> {
         ...nativeAutoConsumeNotes.map(n => n.id),
         ...heldNativeNoteIds
       ]);
-      const newIds = (await mergeAndPersistSeenNoteIds(parsedNotes.map(n => n.id))).filter(
+      // A payback of a swap that another device placed is held back from the claim list for a time
+      // (`isHeldBackPeerSwapPayback`). It is not recorded as seen while held, so it is announced only if it is still
+      // unclaimed when the hold ends.
+      const announceable = parsedNotes.filter(n => !isHeldBackPeerSwapPayback(n));
+      const newIds = (await mergeAndPersistSeenNoteIds(announceable.map(n => n.id))).filter(
         id => !managedAutoConsumeIds.has(id)
       );
 

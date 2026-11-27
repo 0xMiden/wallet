@@ -131,4 +131,48 @@ describe('deposit payment links', () => {
     expect(depositPaymentLinks(trackedAsset({ ...usdc, contractAddress: undefined }), PAYMENT_NOW)).toEqual([]);
     expect(depositPaymentLinks(trackedAsset({ ...usdc, contractAddress: 'bad' }), PAYMENT_NOW)).toEqual([]);
   });
+
+  it('accepts valid Receive-side addresses that destination rules reject and normalizes uppercase Bitcoin bech32', () => {
+    const offCurveSolanaPda = '8qbHbw2BbbTHBW1sbeqakYXVKRQM8Ne7pLK7m6CVfeR';
+    const mixedCaseEvm = '0x5aaeb6053F3E94C9b9A09f33669435E7Ef1BeAed';
+
+    expect(
+      depositPaymentLinks(
+        trackedAsset(
+          { ...usdc, blockchain: 'sol', contractAddress: offCurveSolanaPda },
+          { depositAddress: offCurveSolanaPda }
+        ),
+        PAYMENT_NOW
+      ).map(link => link.wallet)
+    ).toEqual(['trust', 'phantom']);
+
+    expect(
+      depositPaymentLinks(
+        trackedAsset({ ...usdc, contractAddress: mixedCaseEvm }, { depositAddress: mixedCaseEvm }),
+        PAYMENT_NOW
+      ).map(link => link.wallet)
+    ).toEqual(['trust', 'metamask', 'rainbow']);
+
+    expect(
+      depositPaymentLinks(
+        trackedAsset(
+          { assetId: 'near', blockchain: 'near', symbol: 'NEAR', decimals: 24 },
+          { depositAddress: 'alice' }
+        ),
+        PAYMENT_NOW
+      ).map(link => link.wallet)
+    ).toEqual(['trust']);
+
+    expect(
+      depositPaymentLinks(
+        trackedAsset(
+          { assetId: 'btc', blockchain: 'btc', symbol: 'BTC', decimals: 8 },
+          { depositAddress: 'BC1QXY2KGDYGJRSQTZQ2N0YRF2493P83KKFJHX0WLH' }
+        ),
+        PAYMENT_NOW
+      )
+    ).toEqual([
+      { wallet: 'trust', url: 'trust://send?asset=c0&address=bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh&amount=0.46' }
+    ]);
+  });
 });

@@ -1,6 +1,6 @@
 {
   "name": "miden-wallet",
-  "version": "1.18.1",
+  "version": "1.18.2",
   "private": true,
   "engines": {
     "node": ">=22.0.0"
@@ -67,7 +67,7 @@
     "test-debug": "node --inspect-brk node_modules/.bin/jest --runInBand",
     "test:coverage": "jest --coverage",
     "pretest:custom-request": "esbuild src/lib/miden/sdk/test-send-request.ts --bundle --platform=node --format=esm --alias:@miden-sdk/miden-sdk/lazy=@miden-sdk/miden-sdk --external:@miden-sdk/miden-sdk --outfile=node_modules/.cache/nightly-send-request.mjs",
-    "test:custom-request": "node --test --test-concurrency=2 test/guardian-custom-request.node.test.mjs test/dapp-custom-request.node.test.mjs test/custom-request-diagnostics.node.test.mjs scripts/dev/guardian/proposal-id-dry-run-lib.test.mjs test/guardian-account-recipe.node.test.mjs test/sign-bytes-domain.node.test.mjs test/canonical-request-bytes.node.test.mjs test/sdk018-auth.node.test.mjs test/fee-sponsorship.node.test.mjs",
+    "test:custom-request": "node --test --test-concurrency=2 test/guardian-custom-request.node.test.mjs test/dapp-custom-request.node.test.mjs test/custom-request-diagnostics.node.test.mjs scripts/dev/guardian/proposal-id-dry-run-lib.test.mjs test/guardian-account-recipe.node.test.mjs test/sign-bytes-domain.node.test.mjs test/canonical-request-bytes.node.test.mjs test/sdk018-auth.node.test.mjs test/fee-sponsorship.node.test.mjs test/miden-name-note-scripts.node.test.mjs",
     "test:oneclick-service": "node --test services/one-click/worker.test.mjs",
     "test:smoke": "jest src/lib/miden/smoke.integration.test.ts",
     "test:store-listing": "jest scripts/store-listing --runInBand",
@@ -105,6 +105,9 @@
     "test:e2e:stored-override:build": "cross-env E2E_NETWORK=localhost MIDEN_E2E_DISABLE_ENDPOINT_OVERRIDES=false yarn test:e2e:blockchain:build",
     "test:e2e:stored-override:run": "cross-env E2E_NETWORK=localhost playwright test --config playwright.stored-override.config.ts",
     "test:e2e:stored-override": "yarn test:e2e:stored-override:build && yarn test:e2e:stored-override:run",
+    "test:e2e:multi-device:build": "cross-env E2E_NETWORK=testnet MIDEN_WALLET_API_URL=http://127.0.0.1:8787 yarn test:e2e:blockchain:build",
+    "test:e2e:multi-device:run": "cross-env E2E_NETWORK=testnet playwright test --config playwright.multi-device.config.ts",
+    "test:e2e:multi-device": "yarn test:e2e:multi-device:build && yarn test:e2e:multi-device:run",
     "test:e2e:bridge:run": "playwright test --config playwright.bridge.config.ts",
     "test:e2e:bridge": "yarn test:e2e:blockchain:build && playwright test --config playwright.bridge.config.ts",
     "test:e2e:bridge:testnet": "cross-env E2E_NETWORK=testnet yarn test:e2e:bridge",
@@ -175,9 +178,9 @@
     "@floating-ui/react": "^0.27.16",
     "@hookform/resolvers": "^3.9.0",
     "@miden-sdk/bread-connect": "link:./packages/bread-connect",
-    "@miden-sdk/miden-sdk": "0.18.0",
-    "@miden-sdk/miden-wallet-adapter-base": "0.18.0",
-    "@miden-sdk/miden-wallet-adapter-miden": "0.18.0",
+    "@miden-sdk/miden-sdk": "0.18.2",
+    "@miden-sdk/miden-wallet-adapter-base": "0.18.2",
+    "@miden-sdk/miden-wallet-adapter-miden": "0.18.2",
     "@miden/dapp-browser": "link:./packages/dapp-browser",
     "@miden/hd-key": "link:./packages/hd-key",
     "@miden/native-prover": "link:./packages/native-prover",
@@ -276,9 +279,10 @@
   "devDependencies": {
     "@capacitor/cli": "8.6.2",
     "@chromatic-com/storybook": "^1.5.0",
-    "@miden-sdk/miden-wallet-adapter-react": "0.18.0",
-    "@miden-sdk/react": "0.18.0",
-    "@miden-sdk/vite-plugin": "0.18.0",
+    "@cloudflare/workers-types": "5.20261019.1",
+    "@miden-sdk/miden-wallet-adapter-react": "0.18.2",
+    "@miden-sdk/react": "0.18.2",
+    "@miden-sdk/vite-plugin": "0.18.2",
     "@playwright/test": "^1.48.2",
     "@resvg/resvg-js": "^2.6.2",
     "@serh11p/jest-webextension-mock": "4.0.0",
@@ -382,7 +386,7 @@
     ]
   },
   "resolutions": {
-    "@miden-sdk/miden-sdk": "0.18.0",
+    "@miden-sdk/miden-sdk": "0.18.2",
     "strip-ansi": "6.0.1",
     "webpack": "^5",
     "**/@types/react": "18.2.76",
@@ -445,7 +449,7 @@
     "**/postcss-modules-scope/postcss-selector-parser": "7.1.7",
     "**/@metamask/utils/uuid": "11.1.1",
     "**/@storybook/addon-actions/uuid": "11.1.1",
-    "**/@miden-sdk/miden-sdk": "0.18.0"
+    "**/@miden-sdk/miden-sdk": "0.18.2"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

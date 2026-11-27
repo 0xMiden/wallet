@@ -191,7 +191,8 @@ it("reads only the reviewed market of the quote's owner", async () => {
   expect(fetchEarnPositions).toHaveBeenCalledWith({
     accountId: 'miden',
     owners: [token],
-    markets: [q.position.marketUid]
+    markets: [q.position.marketUid],
+    retryUntil: q.expiresAt
   });
 });
 it('accepts a position in any market on a chain the document lists, and refuses one on another chain', async () => {

@@ -1,5 +1,9 @@
 # Eligibility staging binding probe
 
+## Staging topology acceptance cleanup
+
+Topology cleanup recovery selects the immediate predecessor: first the original topology run, then the latest cleanup run. Each cleanup run records that parent run and attempt, and a predecessor can be consumed only once; use the newest cleanup run's ID and attempt for the next continuation. The original source identity and cumulative request counts remain bound through each continuation, while each recovery invocation receives a fresh 120-second cleanup deadline. Recovery fails closed if workflow history is incomplete or exceeds 1,000 runs.
+
 This manual tool proves only whether two fresh rate-limit bindings actually refuse synthetic calls in the existing account and whether the isolated Worker is then absent. It does not close #1894, certify production throughput, change financial policy or deploy the eligibility service.
 
 The first live probe must wait for this tooling to merge into reviewed `main`. The existing `feature-eligibility-production` environment and its branch rules remain unchanged. Only `0xMiden/wallet`, a non-fork `workflow_dispatch` event on `refs/heads/main`, and that event's exact `github.sha` can reach the credential job. Inputs never select a source, script name, config, endpoint or threshold. The dedicated staging concurrency group queues overlapping operations rather than cancelling them.

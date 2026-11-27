@@ -1,0 +1,7 @@
+{
+  // Type-check the Worker source and its Jest tests. The tests import the Jest globals from @jest/globals,
+  // and the SQL guard tests run the production SQL on node:sqlite, so the tests also see the Node types.
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["@cloudflare/workers-types", "node"] },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}

@@ -8,7 +8,7 @@ import {
   FakeOneClickService,
   signFakeOneClickQuote
 } from './fake-one-click-service';
-import { isValidNearIntentsAddress } from '../../../src/lib/one-click/address';
+import { isValidNearIntentsRefundAddress } from '../../../src/lib/one-click/address';
 import { parseOneClickQuoteResponse } from '../../../src/lib/one-click/client';
 import { verifyOneClickQuoteSignature } from '../../../src/lib/one-click/signature';
 import type {
@@ -107,11 +107,11 @@ describe('fake 1Click deposit addresses', () => {
     ['eth', 'evm']
   ])('gives a %s deposit address in the format of that chain', (blockchain, kind) => {
     const first = fakeDepositAddress(blockchain, 1);
-    expect(isValidNearIntentsAddress(kind, first)).toBe(true);
+    expect(isValidNearIntentsRefundAddress(kind, first)).toBe(true);
     expect(fakeDepositAddress(blockchain, 1)).toBe(first);
     expect(fakeDepositAddress(blockchain, 2)).not.toBe(first);
     expect(fakeDepositAddress(blockchain, 1)).not.toBe(fakeDepositAddress(blockchain, 257));
-    expect(isValidNearIntentsAddress(kind, fakeDepositAddress(blockchain, 257))).toBe(true);
+    expect(isValidNearIntentsRefundAddress(kind, fakeDepositAddress(blockchain, 257))).toBe(true);
   });
 });
 
@@ -158,7 +158,7 @@ describe('fake 1Click deposit flow without a deposit submission', () => {
       const quote = parseOneClickQuoteResponse(quoted.body);
       const depositAddress = quote.quote.depositAddress;
       if (!depositAddress) throw new Error('The fake wet quote has no deposit address');
-      expect(isValidNearIntentsAddress('solana', depositAddress)).toBe(true);
+      expect(isValidNearIntentsRefundAddress('solana', depositAddress)).toBe(true);
       expect(service.latestDeposit()).toEqual({ depositAddress, request: quote.quoteRequest });
       expect(quote.quote.amountOut).toBe('1500000');
 

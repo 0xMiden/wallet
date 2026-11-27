@@ -18,6 +18,8 @@ import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-a
 import { type TokenPrices } from 'lib/prices/binance';
 import {
   ApplyUserEndpointOutcome,
+  BackupRefreshOutcome,
+  BackupRefreshReason,
   GuardianSyncStatus,
   ImportedAccountBackup,
   GuardianRecoveryAction,
@@ -53,6 +55,7 @@ export interface BalancesSlice {
   balances: Record<string, TokenBalanceData[]>;
   balancesLoading: Record<string, boolean>;
   balanceReadFailed: Record<string, boolean>;
+  balanceRefreshFailed: Record<string, boolean>;
   balanceReadInFlight: Record<string, boolean>;
   balancesLastFetched: Record<string, number>;
   /**
@@ -211,7 +214,7 @@ export interface WalletActions {
 
   // Signing actions
   signTransaction: (publicKey: string, signingInputs: string) => Promise<Uint8Array>;
-  signWord: (publicKey: string, wordHex: string, transactionId?: string) => Promise<string>;
+  signWord: (publicKey: string, wordHex: string, transactionId?: string, rotationProposal?: true) => Promise<string>;
   signEvm: (accountPublicKey: string, operation: SignEvmOperation) => Promise<`0x${string}`>;
   persistNewHotKey: (newHotPubKey: string, newHotCiphertext: string) => Promise<void>;
   swapHotKey: (accountPublicKey: string, newHotPubKey: string, expectedHotPubKey?: string | null) => Promise<void>;
@@ -241,6 +244,13 @@ export interface WalletActions {
    * flag the account for the rotation `HotKeyRotationGate` runs.
    */
   retireRotatedOutHotKey: (accountPublicKey: string, expectedHotPubKey: string) => Promise<void>;
+  /**
+   * Ask the backend for the encrypted-backup refresh of one event. The backend
+   * holds the keys; this only names the event and returns what it did.
+   */
+  refreshBackup: (reason: BackupRefreshReason) => Promise<BackupRefreshOutcome>;
+  /** Delete the encrypted-backup profile on the server and the local backup records. */
+  deleteBackup: () => Promise<BackupRefreshOutcome>;
   checkGuardianDrift: (accountPublicKey: string) => Promise<GuardianSyncStatus>;
   applyUserGuardianEndpoint: (accountPublicKey: string, guardianEndpoint: string) => Promise<ApplyUserEndpointOutcome>;
   startGuardianRecovery: (accountPublicKey: string) => Promise<boolean>;
@@ -288,8 +298,8 @@ export interface BalanceActions {
   fetchBalances: (accountAddress: string, tokenMetadatas: Record<string, AssetMetadata>) => Promise<void>;
   setBalancesLoading: (accountAddress: string, isLoading: boolean) => void;
   /**
-   * Drops every address's balances, loading flag, last fetch, balanceReadFailed and balanceReadInFlight,
-   * so each reader waits for a new read.
+   * Drops every address's balances, loading flag, last fetch, balanceReadFailed, balanceRefreshFailed and
+   * balanceReadInFlight, so each reader waits for a new read.
    */
   clearBalances: () => void;
 }

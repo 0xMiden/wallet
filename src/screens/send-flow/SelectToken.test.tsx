@@ -695,10 +695,31 @@ it('filters assets by destination and updates the list when the destination chan
     }
   };
   setBalances([ETH, BTC, XYZ]);
-  const { onSelect, onOpenChange, rerender } = renderDrawer({ destinationChainId: 4663 });
+  const { onSelect, onOpenChange, rerender } = renderDrawer({
+    destinationNetwork: { id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 4663, bridge: true }
+  });
   expect(screen.getByTestId('send-token-ETH')).toBeEnabled();
   expect(screen.queryByTestId('send-token-BTC')).not.toBeInTheDocument();
   expect(screen.queryByTestId('send-token-XYZ')).not.toBeInTheDocument();
+
+  rerender(
+    <SelectTokenDrawer
+      open
+      onSelect={onSelect}
+      onOpenChange={onOpenChange}
+      destinationNetwork={{
+        id: 'robinhood',
+        name: 'Robinhood',
+        kind: 'evm',
+        chainId: 4663,
+        bridge: true,
+        nearIntentsChainId: 'robin'
+      }}
+    />
+  );
+  expect(screen.getByTestId('send-token-ETH')).toBeEnabled();
+  expect(screen.getByTestId('send-token-BTC')).toBeEnabled();
+  expect(screen.getByTestId('send-token-XYZ')).toBeEnabled();
 
   rerender(<SelectTokenDrawer open onSelect={onSelect} onOpenChange={onOpenChange} />);
   expect(screen.getByTestId('send-token-BTC')).toBeInTheDocument();

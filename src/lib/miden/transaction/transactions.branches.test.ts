@@ -82,7 +82,14 @@ jest.mock('lib/miden/repo', () => {
       _table: unknown,
       indexName: string,
       reverse: boolean,
-      bound?: { lower?: number; lowerOpen?: boolean; upper?: number; upperOpen?: boolean }
+      bound?: {
+        lower?: number;
+        lowerOpen?: boolean;
+        upper?: number;
+        upperOpen?: boolean;
+        resumeAt?: { key: number; primaryKey: string };
+        resumeAfter?: { key: number; primaryKey: string };
+      }
     ) => {
       const keyOf = (tx: ITransaction): number | undefined => {
         const value =
@@ -103,6 +110,21 @@ jest.mock('lib/miden/repo', () => {
       indexed.sort((a, b) => a.key - b.key || (a.tx.id < b.tx.id ? -1 : a.tx.id > b.tx.id ? 1 : 0));
       const rows = indexed.map(entry => entry.tx);
       if (reverse) rows.reverse();
+      const target = bound?.resumeAfter ?? bound?.resumeAt;
+      if (target !== undefined) {
+        const inclusive = bound?.resumeAfter === undefined;
+        const cmpEntry = (tx: ITransaction): number => {
+          const key = keyOf(tx) ?? 0;
+          if (key !== target.key) return key < target.key ? -1 : 1;
+          return tx.id < target.primaryKey ? -1 : tx.id > target.primaryKey ? 1 : 0;
+        };
+        const firstIdx = rows.findIndex(tx => {
+          const order = reverse ? -cmpEntry(tx) : cmpEntry(tx);
+          return inclusive ? order >= 0 : order > 0;
+        });
+        if (firstIdx === -1) return null;
+        rows.splice(0, firstIdx);
+      }
       if (rows.length === 0) return null;
       let index = 0;
       transactionQueryMetrics.rowsVisited += 1;
@@ -1308,6 +1330,47 @@ describe('getSwapSettlementNotes', () => {
     expect(notes.settledTransactions.map(tx => tx.id)).toEqual(['c-1']);
     expect(notes.settledTransactions.flatMap(tx => tx.noteIds)).toEqual(['n-1', 'n-2']);
     expect(notes.reclaimedTransactions[0]?.id).toBe('c-3');
+  });
+
+  it('sums the recorded payback amounts only when each note of the claim has one', async () => {
+    txStore.push(
+      {
+        id: 'c-1',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-1', 'n-2'],
+        amount: 1000n,
+        completedAt: 1_700_000_000,
+        extraInputs: {
+          swapOrderTxId: 'swap-1',
+          swapSettleKind: 'settle',
+          swapPaybackAmounts: { 'n-1': '400', 'n-2': '600' }
+        }
+      },
+      {
+        id: 'c-2',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        // A claim that also took a note that settlement did not record: its sum can count another source.
+        noteIds: ['n-3', 'n-4'],
+        amount: 900n,
+        completedAt: 1_700_000_050,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'settle', swapPaybackAmounts: { 'n-3': '500' } }
+      },
+      {
+        id: 'c-3',
+        type: 'consume',
+        status: ITransactionStatus.Completed,
+        noteIds: ['n-5'],
+        completedAt: 1_700_000_100,
+        extraInputs: { swapOrderTxId: 'swap-1', swapSettleKind: 'reclaim', swapPaybackAmounts: { 'n-5': '700' } }
+      }
+    );
+
+    const notes = await getSwapSettlementNotes('swap-1');
+
+    expect(notes.settledTransactions.map(tx => tx.paybackAmount)).toEqual([1000n, undefined]);
+    expect(notes.reclaimedTransactions[0]?.paybackAmount).toBeUndefined();
   });
 
   it('attributes an overlapping note to the earlier consume only', async () => {

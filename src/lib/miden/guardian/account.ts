@@ -13,6 +13,7 @@ import {
 import { getNetworkGuardians } from 'lib/miden-chain/guardian-registry';
 import { isExtension } from 'lib/platform';
 import * as secureHotKey from 'lib/secure-hot-key';
+import { commitmentFromPublicKeyHex, sameCommitment } from 'lib/secure-hot-key/commitment';
 import { sameGuardianEndpoint } from 'lib/settings/helpers';
 import { u8ToB64 } from 'lib/shared/helpers';
 import type { GuardianProvider } from 'lib/shared/types';
@@ -24,6 +25,7 @@ import { isGuardianKeyCommitment } from './key-commitment';
 import { withGuardianProbe } from './native-http';
 import { guardianRegisterBackoffMs, withGuardianRateLimitRetry } from './serialize';
 import type { AssertLive } from '../sdk/miden-client-interface';
+import { rethrowTrapOrKill } from '../sdk/sdk-error-code';
 import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
 export { GUARDIAN_ACCOUNT_SEED_DOMAIN, deriveGuardianAccountSeed } from './account-recipe';
@@ -183,9 +185,15 @@ const stripHexPrefix = (hex: string): string => (hex.startsWith('0x') ? hex.slic
 const isEmptyWordHex = (unprefixed: string): boolean => /^0*$/.test(unprefixed);
 
 /**
- * Read a signer's commitment from a Guardian account: the hot signer at index 0,
- * or with `getCold` the cold signer at index 1 (`[hot, cold]`, the order
- * `createGuardianAccount` registers them in).
+ * Read a signer's commitment from a Guardian account by POSITION: index 0, or
+ * with `getCold` index 1 (`[hot, cold]`, the order `createGuardianAccount`
+ * registers them in).
+ *
+ * The slot order is only a creation convention. It breaks after a membership
+ * change: a device that adds a hot key appends it at the end, and a removal
+ * re-packs the slots. Use this function only as a fallback for a caller that
+ * holds no public key. A caller that knows a public key must use
+ * `findOwnSignerCommitment`, which checks membership.
  */
 export async function getSignerDetailsFromAccount(account: Account, getCold = false): Promise<{ commitment: string }> {
   const noSigner = new Error('No signer commitment found in account storage');
@@ -208,13 +216,56 @@ export async function getSignerDetailsFromAccount(account: Account, getCold = fa
   return { commitment };
 }
 
-/** Every signer commitment the account holds on chain, in storage order, or none when they cannot be read. */
-export function getSignerCommitmentsFromAccount(account: Account): string[] {
+/** The account's signer commitments in storage order, else undefined when they cannot be read. A trap or a kill leaves as itself. */
+function readSignerCommitments(account: Account): string[] | undefined {
   try {
     return AccountInspector.getSignerPublicKeyCommitments(account).map(String);
-  } catch {
-    return [];
+  } catch (error) {
+    rethrowTrapOrKill(error);
+    return undefined;
   }
+}
+
+/**
+ * Every signer commitment the account holds on chain, in storage order, or none
+ * when they cannot be read. A WebAssembly trap or a pipeline kill is not "cannot
+ * be read": it leaves as itself, so the lock around the caller retires the client.
+ */
+export function getSignerCommitmentsFromAccount(account: Account): string[] {
+  return readSignerCommitments(account) ?? [];
+}
+
+/**
+ * The on-chain signer commitment that the given public key commits to, as the
+ * account stores it (hex), else undefined.
+ *
+ * This checks MEMBERSHIP, not position: the signer set can hold more than one
+ * hot key (`[hot_dev1, cold, hot_dev2, ...]`), and a membership change moves
+ * slots. A device identifies its own signer only with this function. A key that
+ * does not decode, or an account whose signers cannot be read, gives undefined.
+ */
+export async function findOwnSignerCommitment(account: Account, publicKeyHex: string): Promise<string | undefined> {
+  const onChain = getSignerCommitmentsFromAccount(account);
+  if (onChain.length === 0) return undefined;
+  let own: string;
+  try {
+    own = await commitmentFromPublicKeyHex(publicKeyHex);
+  } catch (error) {
+    rethrowTrapOrKill(error);
+    return undefined;
+  }
+  return onChain.find(commitment => !isEmptyWordHex(stripHexPrefix(commitment)) && sameCommitment(commitment, own));
+}
+
+/**
+ * True when the account's signer set holds the given commitment, in any slot.
+ * Throws when the set cannot be read: that is not "not a member", and a caller
+ * that answered it as one would tell the user a key or phrase is wrong.
+ */
+export function hasSignerCommitment(account: Account, commitmentHex: string): boolean {
+  const onChain = readSignerCommitments(account);
+  if (onChain === undefined) throw new Error('The account signer set cannot be read');
+  return onChain.some(commitment => sameCommitment(commitment, commitmentHex));
 }
 
 /**
@@ -447,9 +498,13 @@ export async function createGuardianAccount(
     assertLive('before the account build');
     // Signs the deploy here and the registration after the hold, a standalone key that needs no client.
     const coldSigner = new EcdsaSigner(coldSk);
-    // The order guardianAccountConfig builds the account with; /configure receives the same list.
+    // The account starts with the signers in the order [hot, cold], the order
+    // guardianAccountConfig builds it with; /configure receives the same list.
+    // Downstream code must not rely on this order: a device that adds a hot key
+    // appends it at the end, and a removal re-packs the slots. Find a signer by
+    // membership (`findOwnSignerCommitment`), not by its index. A seed recovery
+    // rebuilds a not-yet-deployed account from this same config to check it.
     const signerCommitments = [hot.commitmentHex, coldCommitmentHex];
-    // A seed recovery rebuilds a not-yet-deployed account from this same config to check it.
     const multisig = await client.create(
       guardianAccountConfig({
         hotCommitment: hot.commitmentHex,

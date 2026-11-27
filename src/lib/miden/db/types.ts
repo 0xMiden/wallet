@@ -24,7 +24,7 @@ import type { UsdcxSourceChain } from 'lib/usdcx/constant';
 import type { UsdcxPayout } from 'lib/usdcx/payout-proof';
 
 import type { GuardianHistoryRecovery } from '../guardian/history';
-import { ConsumableNote, NoteType } from '../types';
+import { ConsumableNote, NoteType, NoteTypeEnum } from '../types';
 
 export interface IInputNote {
   noteId: string;
@@ -157,7 +157,8 @@ export type ITransactionType =
   | 'switch-guardian'
   | 'replace-hot-key'
   | 'swap'
-  | 'update-procedure-threshold';
+  | 'update-procedure-threshold'
+  | 'register-name';
 
 /** Each type's own display icon, as its class constructor below sets it: what a row shows when it is not failed. */
 export const ICON_BY_TYPE: Readonly<Record<ITransactionType, ITransactionIcon>> = {
@@ -171,7 +172,8 @@ export const ICON_BY_TYPE: Readonly<Record<ITransactionType, ITransactionIcon>> 
   'switch-guardian': 'DEFAULT',
   'replace-hot-key': 'DEFAULT',
   swap: 'SWAP',
-  'update-procedure-threshold': 'DEFAULT'
+  'update-procedure-threshold': 'DEFAULT',
+  'register-name': 'SEND'
 };
 
 /**
@@ -234,8 +236,15 @@ export interface ISendExtraInputs {
   recallBlocks?: number;
   /** Exact ISO date approved by Command Send; authoritative for the first request build. */
   calendarRecallTarget?: string;
+  /** Written only by older builds: a NEAR Intents send is now a `bridged-send` row with `provider: 'near-intents'`. */
   oneClick?: IOneClickTrackingData;
 }
+
+/**
+ * `destinationNetwork` of a near-intents `bridged-send` whose chain has no EVM chain id that the wallet knows (Solana,
+ * Bitcoin, NEAR). A negative number is never a chain id or an agglayer network id, so no reader takes it for one.
+ */
+export const NEAR_INTENTS_NO_EVM_CHAIN_ID = -1;
 
 /** Lifecycle of a tracking-only EVM → Miden bridge row. */
 export type IBridgedReceivePhase = 'submitting' | 'delivering' | 'ready' | 'received' | 'failed';
@@ -385,6 +394,8 @@ export interface IUsdcxCctpLeg {
   /** The attested CCTP message and Circle's signature, kept once Iris reports them. */
   message?: string;
   attestation?: string;
+  /** The backup receipt records the attestation step without its proof. */
+  receiptBurnAttested?: boolean;
   /** The Arc transaction that executed the message, which is the xReserve deposit Circle attests. */
   executeTxHash?: string;
   /** Unix seconds the current `executeTxHash` was saved, from either side. */
@@ -592,10 +603,25 @@ export interface IBridgedSendExtraInputs {
   epochAllocatorUrl?: string;
   provider: IBridgeProvider;
   usdcxBurn?: IUsdcxBurn;
-  /** 0x EVM recipient. */
+  /**
+   * The recipient on the destination chain. A 0x EVM address on the agglayer, epoch and usdcx routes. On the
+   * near-intents route it is the address that the user typed on any configured chain (EVM, Solana, Bitcoin or NEAR),
+   * never the 1Click deposit address, which is the Miden note recipient in `secondaryAccountId`.
+   */
   destinationAddress: string;
-  /** EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch). */
+  /**
+   * EVM destination network: the L1 bridge's `networkID()` at creation (agglayer) or chain id (epoch, usdcx). On the
+   * near-intents route, the EVM chain id when the wallet knows the chain, else `NEAR_INTENTS_NO_EVM_CHAIN_ID`, which is
+   * no chain: read `destinationChain` for the name.
+   */
   destinationNetwork: number;
+  /** near-intents: the 1Click chain of the recipient (`eth`, `sol`, `btc`, `near`) and its display name. */
+  destinationChain?: { id: string; name: string };
+  /**
+   * near-intents: the signed 1Click quote and its tracking state. `reconcileOneClickSwaps` submits the Miden
+   * transaction id to 1Click and follows the swap until it is delivered, refunded, failed or expired.
+   */
+  oneClick?: IOneClickTrackingData;
   /** Miden faucet the bridged asset was sourced from. */
   sourceFaucetId: string;
   claimStatus: IBridgeClaimStatus;
@@ -695,6 +721,77 @@ export interface IEarnDepositExtraInputs {
   protocol?: '1delta' | 'dummy-lending';
   /** Chain of the Earn market. Absent on a legacy row. */
   chainId?: number;
+}
+
+/**
+ * Phase of a Miden Name registration. The order is
+ * `requested → submitted → issued → claiming → owned`. `failed` is terminal.
+ *   - requested : the row is queued; the register note is not on chain yet
+ *   - submitted : the transaction with the register note is committed
+ *   - issued    : the registry consumed the note and issued the name
+ *   - claiming  : a consume row for the delivery note is queued
+ *   - owned     : the consume of the delivery note is complete
+ *   - failed    : see `MidenNameFailure`
+ */
+export type MidenNamePhase = 'requested' | 'submitted' | 'issued' | 'claiming' | 'owned' | 'failed';
+
+/**
+ * Cause of a `failed` Miden Name registration.
+ *   - tx-failed    : the register transaction failed
+ *   - discarded    : the registry discarded the register note
+ *   - taken        : an other account got the name first
+ *   - expired      : the chain passed the reclaim height and the registry did not consume the note
+ *   - claim-failed : the consume of the delivery note failed
+ */
+export type MidenNameFailure = 'tx-failed' | 'discarded' | 'taken' | 'expired' | 'claim-failed';
+
+/**
+ * `extraInputs` shape for a `RegisterNameTransaction`. This row is the record of
+ * the registration: the tracker patches `phase` monotonically through
+ * `patchRegisterNameExtraInputs` (complete.ts).
+ */
+export interface IRegisterNameExtraInputs {
+  /** The label without the `.miden` suffix. */
+  label: string;
+  /** Network name (`MIDEN_NETWORK_NAME` value) at the time of the build. */
+  network: string;
+  /** Id (hex) of the public register note in `requestBytes`. */
+  registrationNoteId: string;
+  /** Block after which the payer can reclaim the register note. */
+  reclaimHeight: number;
+  /** Chain tip at the time of the build. */
+  builtAtBlock: number;
+  /** Price of the name in base units of the payment token (a decimal string). */
+  priceBaseUnits: string;
+  /** Network (sponsorship) fee in base units (a decimal string). */
+  networkFeeBaseUnits: string;
+  phase: MidenNamePhase;
+  failure?: MidenNameFailure;
+  lastError?: string;
+  /** Id (hex) of the note that delivers the name to the account. */
+  deliveryNoteId?: string;
+  /** Id of the consume row that claims the delivery note. */
+  claimTxId?: string;
+  /** How many failed claim attempts this registration has made. */
+  claimAttempts?: number;
+  /** First block of the next delivery scan. */
+  deliveryScanFrom?: number;
+  /** Wall-clock time (ms since epoch) of the last phase change. */
+  phaseUpdatedAt: number;
+}
+
+/** Link from a consume row (or one of its batched notes) to a `register-name` row. */
+export interface IMidenNameClaimLink {
+  label: string;
+  /** Id of the `register-name` row. */
+  registerTxId: string;
+}
+
+/** `extraInputs` shape for a consume row that claims a Miden Name delivery note. */
+export interface IConsumeMidenNameExtraInputs {
+  midenNameClaim?: IMidenNameClaimLink;
+  /** Per-note claim links for batch consume rows (`noteIds`), keyed by lowercased note id. */
+  midenNameClaims?: Record<string, IMidenNameClaimLink>;
 }
 
 /**
@@ -860,7 +957,8 @@ export interface IConsumeGcPurchaseExtraInputs {
 
 export type IConsumeExtraInputs = Partial<IConsumeBridgeInExtraInputs> &
   Partial<IConsumeSwapSettleExtraInputs> &
-  Partial<IConsumeGcPurchaseExtraInputs>;
+  Partial<IConsumeGcPurchaseExtraInputs> &
+  Partial<IConsumeMidenNameExtraInputs>;
 
 /**
  * Sub-phase of a transaction while `status === GeneratingTransaction` (or
@@ -971,6 +1069,8 @@ export interface IRequeueStreak {
 }
 
 export interface ITransaction {
+  /** Display-only recipient name verified when this send was created. */
+  recipientName?: string;
   /** Origin network stamped at queue time for private badge evidence. Legacy/imported rows cannot earn credit. */
   badgeNetwork?: string;
   /** Network used when recovered history was freshly read through canonical endpoints. */
@@ -987,6 +1087,8 @@ export interface ITransaction {
    * row, and the delivery sweep to receipt checks.
    */
   recovered?: boolean;
+  /** The original device's outcome for a read-only backup receipt. */
+  restoredOutcomeUnconfirmed?: boolean;
   recovery?: GuardianHistoryRecovery;
   id: string;
   type: ITransactionType;
@@ -1137,6 +1239,8 @@ export interface ITransaction {
    * carry nor restore it.
    */
   dappOrigins?: string[];
+  /** Local Activity attribution to the approved origin that created this row. */
+  initiatingDappOrigin?: string;
   outputNoteIds?: string[];
   /** The private output notes a custom row owes the relay, all of which its `noteDelivery` covers; see `relayNoteIdsOf`. */
   relayNoteIds?: string[];
@@ -1168,6 +1272,16 @@ export interface ITransaction {
    * `Failed`; this flag is what keeps them there.
    */
   restoredFromBackup?: boolean;
+  /** Bridge details from a peer for a claim this device already recorded. */
+  backupBridgeReceipt?: { bridgeIn: IBridgeInInfo; displayMessage?: string };
+  /**
+   * The account commitment after this transaction: the final account header of its result, as the device that made
+   * it read it. Only for a Completed row with no notes (a rotation, a Guardian switch, a threshold update): the
+   * encrypted backup reads it from `resultBytes` before the reaper releases them (`recordFinalAccountCommitments`)
+   * and carries it in the receipt (`fc`). The Guardian history pass ties its record of the transaction to such a
+   * receipt by it, since nothing else that both carry names the transaction. A record only, never an input.
+   */
+  finalAccountCommitment?: string;
   resultBytes?: Uint8Array;
   /**
    * Whole seconds at which the reaper (`transaction/trim-result-bytes.ts`) released `resultBytes`. A Completed row
@@ -1229,6 +1343,14 @@ export interface ITransaction {
    * control. Absent ⇒ not yet retried for this reason (backward compatible).
    */
   unauthorizedRetryUntil?: number;
+  /**
+   * Whole seconds until which a claim whose note the chain shows consumed stays in the queue for the Guardian's
+   * history to name that note (multi-device). The claim of another device lands on the chain some seconds before
+   * the Guardian makes its delta canonical, and only the canonical delta shows that this account holds the note.
+   * Past this time the claim fails with its own error. An absolute time for the reason `unauthorizedRetryUntil`
+   * gives. Absent: the claim did not wait for this.
+   */
+  claimedElsewhereCheckUntil?: number;
   /**
    * The backing-off arm that last requeued this row, and how many times in a row it has (#1223). Each repeat doubles
    * that arm's cooldown, up to a cap: the loop takes the oldest eligible row, so a guardian or node that fails every
@@ -1354,6 +1476,8 @@ export interface ITransaction {
   cancelledInFlightAt?: number;
   /** One entry per attempt that may have crossed its submit, kept across Retry (#1081). See `ISubmitEvidence`. */
   submitEvidence?: ISubmitEvidence[];
+  /** True when the row failed on a confirmed pre-submit pipeline kill (#2325). */
+  preSubmitKill?: true;
   /** Unix seconds at which the node proved no recorded attempt can ever commit: the safe-to-retry marker (#1081). */
   neverCommittedAt?: number;
   /** The attempt in flight: written with `processingStartedAt` at pickup and cleared wherever it is (#1081). */
@@ -1413,6 +1537,7 @@ export class Transaction implements ITransaction {
   heldNoteIds?: string[];
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
+  initiatingDappOrigin?: string;
   outputNoteIds?: string[];
   /** Per-faucet value leaving the account. See `ITransaction.spentAssetTotals`. */
   spentAssetTotals?: IConsumedAssetTotal[];
@@ -1460,6 +1585,7 @@ export class Transaction implements ITransaction {
 }
 
 export class SendTransaction implements ITransaction {
+  recipientName?: string;
   id: string;
   type: ITransactionType;
   accountId: string;
@@ -1479,6 +1605,7 @@ export class SendTransaction implements ITransaction {
   delegateTransaction?: boolean;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
+  initiatingDappOrigin?: string;
   extraInputs: ISendExtraInputs = {
     recallBlocks: undefined
   };
@@ -1551,6 +1678,7 @@ export class ConsumeTransaction implements ITransaction {
   feeAdmission?: ClaimFeeAdmission;
   /** See `ITransaction.dappOrigins`. */
   dappOrigins?: string[];
+  initiatingDappOrigin?: string;
   transactionId?: string;
   status: ITransactionStatus;
   initiatedAt: number;
@@ -1897,6 +2025,27 @@ export class BridgedSendTransaction implements ITransaction {
 }
 
 /**
+ * The 1Click tracking of a NEAR Intents send from Miden: a `bridged-send` row with `provider: 'near-intents'`, or a
+ * `send` row that an older build wrote. Undefined for every other row, a NEAR Intents receive included.
+ */
+export const nearIntentsSendTrackingOf = (
+  tx: Pick<ITransaction, 'type' | 'extraInputs'>
+): IOneClickTrackingData | undefined => {
+  switch (tx.type) {
+    case 'send': {
+      const inputs: ISendExtraInputs | undefined = tx.extraInputs;
+      return inputs?.oneClick;
+    }
+    case 'bridged-send': {
+      const inputs: IBridgedSendExtraInputs | undefined = tx.extraInputs;
+      return inputs?.provider === 'near-intents' ? inputs.oneClick : undefined;
+    }
+    default:
+      return undefined;
+  }
+};
+
+/**
  * Open an Epoch lending position: a recallable P2IDE note to the solver's allocator
  * account, built once at initiate into `requestBytes` with its mandate-binding
  * attachment. On non-Guardian accounts those bytes run through `newTransaction`. On
@@ -1968,6 +2117,88 @@ export class EarnDepositTransaction implements ITransaction {
       epochStatus: 'pending',
       ...(protocol ? { protocol } : {}),
       ...(chainId !== undefined ? { chainId } : {})
+    };
+  }
+}
+
+/** Arguments of a `RegisterNameTransaction`. */
+export interface RegisterNameTransactionArgs {
+  accountId: string;
+  label: string;
+  network: string;
+  /** Payment faucet (native MIDEN), bech32. */
+  paymentFaucetId: string;
+  /** Registry account, bech32. */
+  registryAccountId: string;
+  priceBaseUnits: bigint;
+  networkFeeBaseUnits: bigint;
+  /** Serialized request with the register note. Built one time; all attempts use the same bytes. */
+  requestBytes: Uint8Array;
+  registrationNoteId: string;
+  reclaimHeight: number;
+  builtAtBlock: number;
+  delegateTransaction?: boolean;
+}
+
+/**
+ * Register a `.miden` name: one PUBLIC register note to the Miden Name registry
+ * that holds the price in native MIDEN. The note is pre-built into
+ * `requestBytes` (`buildRegisterNameRequest`); the pipeline submits these bytes
+ * as they are, on both the standard leaf and the guardian custom proposal.
+ * `amount` is the price only. The auth fee payment of the sender adds the
+ * sponsorship note.
+ */
+export class RegisterNameTransaction implements ITransaction {
+  id: string;
+  type: ITransactionType;
+  accountId: string;
+  amount: bigint;
+  faucetId: string;
+  /** Registry account that receives the register note. */
+  secondaryAccountId: string;
+  noteType: NoteType;
+  transactionId?: string;
+  outputNoteIds?: string[];
+  requestBytes: Uint8Array;
+  /** The one note `requestBytes` create. See `ITransaction.approvedOutputNoteIds`. */
+  approvedOutputNoteIds: string[];
+  status: ITransactionStatus;
+  initiatedAt: number;
+  /** Tie-break for `initiatedAt`, which is whole seconds. See `ITransaction.queuedSeq`. */
+  queuedSeq?: number;
+  processingStartedAt?: number;
+  completedAt?: number;
+  displayMessage?: string;
+  displayIcon: ITransactionIcon;
+  delegateTransaction?: boolean;
+  extraInputs: IRegisterNameExtraInputs;
+
+  constructor(args: RegisterNameTransactionArgs) {
+    this.id = uuid();
+    this.type = 'register-name';
+    this.accountId = args.accountId;
+    this.amount = args.priceBaseUnits;
+    this.faucetId = args.paymentFaucetId;
+    this.secondaryAccountId = args.registryAccountId;
+    this.noteType = NoteTypeEnum.Public;
+    this.requestBytes = args.requestBytes;
+    this.approvedOutputNoteIds = [args.registrationNoteId];
+    this.status = ITransactionStatus.Queued;
+    this.initiatedAt = Math.floor(Date.now() / 1000); // seconds
+    this.queuedSeq = nextQueuedSeq();
+    this.displayIcon = 'SEND';
+    this.displayMessage = 'Registering name';
+    this.delegateTransaction = args.delegateTransaction;
+    this.extraInputs = {
+      label: args.label,
+      network: args.network,
+      registrationNoteId: args.registrationNoteId,
+      reclaimHeight: args.reclaimHeight,
+      builtAtBlock: args.builtAtBlock,
+      priceBaseUnits: args.priceBaseUnits.toString(),
+      networkFeeBaseUnits: args.networkFeeBaseUnits.toString(),
+      phase: 'requested',
+      phaseUpdatedAt: Date.now()
     };
   }
 }
@@ -2122,13 +2353,30 @@ export class SwitchGuardianTransaction implements ITransaction {
 }
 
 /**
- * Proactive hot-key rotation for a Guardian account. Cold-signed (recovery key);
- * the on-chain proposal swaps the hot signer commitment in-place via
- * `update_signers`. extraInputs.newHotPublicKey is stamped by
+ * How a hot-key activation changes the on-chain signer set.
+ * - `replace`: the target set is `[newHot, cold]`. The old hot key and every
+ *   other device key stop working.
+ * - `add`: the target set is the current set plus `newHot`. The other device
+ *   keys continue to work.
+ */
+export type HotKeyActivationMode = 'add' | 'replace';
+
+/**
+ * Hot-key activation for a Guardian account. Cold-signed (recovery key), via
+ * `update_signers`. `extraInputs.mode` selects the target signer set (see
+ * `HotKeyActivationMode`). When it is absent, the mode is `replace`, so a row
+ * from before the field existed keeps its meaning. extraInputs.newHotPublicKey is stamped by
  * `generateGuardianTransaction` once the minted key is persisted (a later run of
  * the row reuses it), and consumed by `completeReplaceHotKeyTransaction` to swap
  * the WalletAccount pointer.
  */
+export const isCurrentRotationRequest = (
+  rotationRequest: string | undefined,
+  account: { requiresHotKeyRotation?: boolean; hotKeyRotationRequest?: string }
+): boolean =>
+  rotationRequest === account.hotKeyRotationRequest &&
+  (rotationRequest === undefined || account.requiresHotKeyRotation === true);
+
 export class ReplaceHotKeyTransaction implements ITransaction {
   id: string;
   type: ITransactionType;
@@ -2151,7 +2399,12 @@ export class ReplaceHotKeyTransaction implements ITransaction {
   // history row keeps naming it after a later guardian switch. Absent on rows from before it existed.
   // `proposalNonce` / `proposalId`: the landed reconcile abandons this proposal's candidate when the node
   // discards the write.
+  // `mode`: the activation mode the row was queued with. Absent means `replace`.
   extraInputs: {
+    mode?: HotKeyActivationMode;
+    rotationRequest?: string;
+    /** Remove only this commitment. No new device key is created or installed. */
+    revokedSignerCommitment?: string;
     newHotPublicKey?: string;
     reRegisterFailed?: boolean;
     guardianEndpoint?: string;

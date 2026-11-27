@@ -2,7 +2,7 @@ import { formatUnits } from 'viem';
 
 import type { IOneClickTrackingData } from 'lib/miden/db/types';
 
-import { isValidNearIntentsAddress } from './address';
+import { isValidNearIntentsRefundAddress, normalizeNearIntentsAddress } from './address';
 
 export type PaymentWalletId = 'trust' | 'metamask' | 'rainbow' | 'phantom';
 
@@ -54,9 +54,9 @@ export function depositPaymentLinks(tracking: IOneClickTrackingData, now = Date.
   const token = origin.contractAddress;
   const chain = evmChain(origin.blockchain);
   if (chain) {
-    if (!isValidNearIntentsAddress('evm', address)) return [];
+    if (!isValidNearIntentsRefundAddress('evm', address)) return [];
     if (origin.chainId !== undefined && origin.chainId !== chain.chainId) return [];
-    if (token !== undefined && !isValidNearIntentsAddress('evm', token)) return [];
+    if (token !== undefined && !isValidNearIntentsRefundAddress('evm', token)) return [];
     // An asset with no contract must be the native coin, not a token with missing metadata.
     if (token === undefined && (origin.symbol !== 'ETH' || origin.decimals !== 18)) return [];
     const trust = trustLink(token ? `c${chain.trustCoin}_t${token}` : `c${chain.trustCoin}`, address, amount, memo);
@@ -71,12 +71,16 @@ export function depositPaymentLinks(tracking: IOneClickTrackingData, now = Date.
     ];
   }
   switch (origin.blockchain) {
-    case 'btc':
+    case 'btc': {
       if (token !== undefined || origin.symbol !== 'BTC' || origin.decimals !== 8 || memo) return [];
-      return isValidNearIntentsAddress('bitcoin', address) ? [trustLink('c0', address, amount)] : [];
+      const bitcoinAddress = normalizeNearIntentsAddress('bitcoin', address);
+      return isValidNearIntentsRefundAddress('bitcoin', bitcoinAddress)
+        ? [trustLink('c0', bitcoinAddress, amount)]
+        : [];
+    }
     case 'sol': {
-      if (!isValidNearIntentsAddress('solana', address)) return [];
-      if (token !== undefined && !isValidNearIntentsAddress('solana', token)) return [];
+      if (!isValidNearIntentsRefundAddress('solana', address)) return [];
+      if (token !== undefined && !isValidNearIntentsRefundAddress('solana', token)) return [];
       if (token === undefined && (origin.symbol !== 'SOL' || origin.decimals !== 9)) return [];
       const query = new URLSearchParams({ amount });
       if (token) query.set('spl-token', token);
@@ -88,7 +92,7 @@ export function depositPaymentLinks(tracking: IOneClickTrackingData, now = Date.
     }
     case 'near':
       if (token !== undefined || origin.symbol !== 'NEAR' || origin.decimals !== 24) return [];
-      return isValidNearIntentsAddress('near', address) ? [trustLink('c397', address, amount, memo)] : [];
+      return isValidNearIntentsRefundAddress('near', address) ? [trustLink('c397', address, amount, memo)] : [];
     default:
       return [];
   }

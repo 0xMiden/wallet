@@ -49,8 +49,10 @@ import {
   swapQuoteRefusal
 } from '../../helpers/mainnet-swap-ui';
 import { exportPublicInputNote } from '../../helpers/swap';
+import { AUDITED_HELD_SWAP, closeSwapHeldDust } from '../../helpers/mainnet-swap-held';
 import { getEnvironmentConfig } from '../../config/environments';
 import {
+  assertRecoveryOfferMeetsWalletMinimum,
   authorizeMainnetSwapRecoveryReturn,
   authorizeMainnetSwapReturnReplacement,
   prepareMainnetSwapClaimRecovery,
@@ -168,13 +170,15 @@ async function registry(wallet: GuardianAwareWalletPage) {
             })
         );
         try {
-          accepted = cachedSolverRegistry(stored.config, stored.derived, stored.tokenLists);
+          const registry = cachedSolverRegistry(stored.config, stored.derived, stored.tokenLists);
+          if (!registry.tokenListLoaded) return false;
+          accepted = registry;
           return true;
         } catch {
           return false;
         }
       },
-      { timeout: 90_000, intervals: [1_000], message: 'The accepted mainnet solver registry did not hydrate' }
+      { timeout: 90_000, intervals: [1_000], message: 'The mainnet solver registry and token list did not hydrate' }
     )
     .toBe(true);
   if (!accepted) throw new Error('No accepted mainnet solver registry');
@@ -191,7 +195,10 @@ async function registry(wallet: GuardianAwareWalletPage) {
     const asset = priceAssets.get(faucetId.split('_')[0]!) ?? token.binanceAsset;
     const priceId = asset ? PRICE_IDS[asset] : undefined;
     const usdMicros = priceId ? prices.usdMicrosById[priceId] : undefined;
-    if (!usdMicros) continue;
+    if (!usdMicros) {
+      console.log(`Swap token ${token.ticker} skipped: no USD price`);
+      continue;
+    }
     tokens.push({
       faucetId,
       hex: token.faucetId,
@@ -225,7 +232,9 @@ async function prepare(
       const offer = live.tokens.find(token => token.hex === direction[0]);
       const request = live.tokens.find(token => token.hex === direction[1]);
       if (!offer || !request || BigInt(offer.balance) === 0n) continue;
-      for (const amount of swapSearchAmounts(holding(offer))) {
+      const amounts = swapSearchAmounts(holding(offer));
+      if (!amounts.length) console.log(`Swap ${offer.symbol}/${request.symbol} skipped: no search amount fits`);
+      for (const amount of amounts) {
         attempts++;
         try {
           const forward = await readLiveSwapLeg(live.service, offer, request, amount);
@@ -250,8 +259,10 @@ async function prepare(
             swapValue(holding(offer), amount) +
               swapValue(holding(live.native), 6n * SWAP_TX_FEE_MULTIPLE * live.baseFee) >
               allowance
-          )
+          ) {
+            console.log(`Swap candidate ${offer.symbol}/${request.symbol} ${amount} skipped: over the allowance`);
             continue;
+          }
           candidates.push({ plan, offer, request });
           break;
         } catch (error) {
@@ -332,6 +343,49 @@ async function evidence(
     });
   }
   return { rows, orders };
+}
+
+/** Read-only: closes the audited unfillable first return as held, never quoting, signing or submitting. */
+async function closeHeldDust(wallet: GuardianAwareWalletPage, state: MainnetSwapCheckpoint, runId: string) {
+  const authority = state.forwardRequestAuthority;
+  if (
+    state.phase !== 'reverse-authorized' ||
+    state.sourceRunId !== AUDITED_HELD_SWAP.sourceRunId ||
+    state.recoveryReturnAuthorizedAt === undefined ||
+    !authority
+  )
+    return false;
+  const payback = await readMainnetSwapPayback(getEnvironmentConfig().rpcUrl, {
+    kind: 'swap',
+    accountId: Address.fromBech32(state.account).accountId().toString(),
+    faucetId: state.offer.hex,
+    amount: state.principal,
+    requestedFaucetId: state.request.hex,
+    requestedAmount: authority.minimumReceive,
+    noteId: authority.noteId,
+    orderId: authority.orderId
+  });
+  const { rows, orders } = await evidence(wallet);
+  const closed = closeSwapHeldDust(state, {
+    runId,
+    now: Date.now(),
+    balances: await balances(wallet, state),
+    payback,
+    orders,
+    pendingWalletRows: rows.filter(
+      row =>
+        row.status === TxStatus.Queued ||
+        row.status === TxStatus.GeneratingTransaction ||
+        row.status === TxStatus.Unconfirmed
+    ).length
+  });
+  if (!closed) return false;
+  persist(state);
+  observeSwap('reverse', state)(
+    { recoveryEffect: 'read_only' },
+    { key: 'cleanup', status: 'passed', origin: 'wallet_assertion' }
+  );
+  return true;
 }
 
 async function authorizeReturn(
@@ -769,6 +823,9 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
       BigInt(state.reverseRequestAuthority.minimumReceive) > BigInt(state.reverseMinimum)
         ? state.reverseRequestAuthority.minimumReceive
         : state.reverseMinimum;
+    const liveRequest = live.tokens.find(token => token.faucetId === original.request.faucetId);
+    if (!liveRequest) throw new Error('The recovery offer token has no live price');
+    assertRecoveryOfferMeetsWalletMinimum(holding(liveRequest), proof.amount);
     const allowedMinimum = replacement ? BigInt(floor) : minimumFirstSwapRecoveryReturn(state);
     if (quoted.minimumReceive < allowedMinimum) throw new Error('Recovery return quote exceeds the allowed shortfall');
     if (replacement) {
@@ -889,6 +946,7 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
   if (mainnetSwapNextAction(state) === 'stop')
     throw new Error('The checkpoint requires operator recovery before another spend');
   if (mode === 'recover') {
+    if (await closeHeldDust(walletB, state, runId)) return;
     if (process.env.MAINNET_SWAP_PRIOR_FORWARD_UNSPENT === 'true') {
       if (
         state.sourceRunId !== '45118679621' ||
@@ -899,10 +957,14 @@ test('real Guardian mainnet solver swaps out and back with recycled principal', 
         state.reverseRequestAuthority ||
         state.forwardOrderId ||
         state.reverseOrderId
-      ) throw new Error('Audited cancelled Swap checkpoint no longer matches');
+      )
+        throw new Error('Audited cancelled Swap checkpoint no longer matches');
       const live = await balances(walletB, state);
-      if (live.offer !== BigInt(state.offer.balance) || live.request !== BigInt(state.request.balance) ||
-          live.native !== BigInt(state.native.balance))
+      if (
+        live.offer !== BigInt(state.offer.balance) ||
+        live.request !== BigInt(state.request.balance) ||
+        live.native !== BigInt(state.native.balance)
+      )
         throw new Error('Audited cancelled Swap custody changed');
       state.phase = 'unspent';
       persist(state);

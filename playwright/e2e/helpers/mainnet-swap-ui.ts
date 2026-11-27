@@ -178,7 +178,7 @@ export function cachedSolverRegistry(
   config: unknown,
   derived: unknown,
   tokenLists: unknown[] = []
-): { service: string; pairs: SwapPairs; priceAssets: Map<string, string> } {
+): { service: string; pairs: SwapPairs; priceAssets: Map<string, string>; tokenListLoaded: boolean } {
   if (!record(config) || !record(config.body) || !record(derived)) throw new Error('Mainnet config has not hydrated');
   const body = config.body;
   const swap = record(body.swap) ? body.swap : undefined;
@@ -199,15 +199,19 @@ export function cachedSolverRegistry(
   if (url.protocol !== 'https:' || url.username || url.password || url.search || url.hash)
     throw new Error('The accepted solver endpoint is not a public HTTPS API');
   let priceAssets = new Map<string, string>();
+  // Only the token list prices a solver token the wallet's price feed does not quote (USDT, SOL, NEAR, PAXG), so a
+  // registry read before the list is cached would silently drop those routes.
+  let tokenListLoaded = false;
   for (const entry of tokenLists) {
     const cached = readTimestampedEntry(entry);
     const list = cached ? parseTokenList(cached.body, 'mainnet') : null;
     if (list) {
       priceAssets = list.priceAssets;
+      tokenListLoaded = true;
       break;
     }
   }
-  return { service: url.href.replace(/\/+$/, ''), pairs, priceAssets };
+  return { service: url.href.replace(/\/+$/, ''), pairs, priceAssets, tokenListLoaded };
 }
 
 export function swapDisplayAmount(amount: bigint, decimals: number): string {

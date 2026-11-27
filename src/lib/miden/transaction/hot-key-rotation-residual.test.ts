@@ -27,11 +27,15 @@ jest.mock('lib/miden/repo', () => ({
       }
     }),
     where: (query: { id: string }) => ({
-      modify: async (fn: (row: MockRow) => void) => {
-        mockRows.filter(row => row.id === query.id).forEach(fn);
-      }
+      // Dexie counts a row as modified unless the callback returns `false`.
+      modify: async (fn: (row: MockRow) => boolean | undefined) =>
+        mockRows.filter(row => row.id === query.id).filter(row => fn(row) !== false).length
     })
   }
+}));
+const mockSignalTransactionCompleted = jest.fn();
+jest.mock('lib/backup/adopt-signal', () => ({
+  signalTransactionCompleted: () => mockSignalTransactionCompleted()
 }));
 jest.mock('../sdk/helpers', () => ({
   sameWalletAccountId: (a: string, b: string) => (a.split('_')[0] ?? a) === (b.split('_')[0] ?? b)
@@ -49,6 +53,7 @@ const rotationRow = (id: string, initiatedAt: number, overrides: Partial<MockRow
 
 beforeEach(() => {
   mockRows.length = 0;
+  mockSignalTransactionCompleted.mockClear();
 });
 
 describe('findFailedHotKeyRotations (#1233)', () => {
@@ -100,6 +105,25 @@ describe('markRotationCompleted (#1233)', () => {
     expect(row.completedAt).toEqual(expect.any(Number));
     expect(row).not.toHaveProperty('error');
     expect(row).not.toHaveProperty('rawError');
+  });
+
+  it('writes "Device added" for a rotation that ran in add mode', async () => {
+    mockRows.push(rotationRow('add', 100, { extraInputs: { newHotPublicKey: 'key-add', mode: 'add' } }));
+
+    await markRotationCompleted('add');
+
+    expect(mockRows[0]!.displayMessage).toBe('Device added');
+  });
+
+  it('signals the encrypted backup once for the row it completed, and not for an untouched row', async () => {
+    mockRows.push(rotationRow('rot', 100), rotationRow('done', 100, { status: ITransactionStatus.Completed }));
+
+    await markRotationCompleted('rot');
+    expect(mockSignalTransactionCompleted).toHaveBeenCalledTimes(1);
+
+    await markRotationCompleted('done');
+    await markRotationCompleted('missing');
+    expect(mockSignalTransactionCompleted).toHaveBeenCalledTimes(1);
   });
 
   it('leaves a Completed rotation and a switch row with those ids untouched', async () => {

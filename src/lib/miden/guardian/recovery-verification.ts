@@ -43,7 +43,10 @@ function readSlot(read: () => unknown): string | undefined {
   return /^0*$/.test(commitment) ? undefined : commitment;
 }
 
-/** Signers are stored `[hot, cold]`, the order account creation registers them in. */
+/**
+ * Signers are stored `[hot, cold]` when the account is created. Only the facts that rebuild an undeployed account in
+ * that creation layout read them by slot; a deployed account's set is re-packed by a revoke.
+ */
 const signerSlot = (acc: Account, cold: boolean) =>
   readSlot(() => AccountInspector.getSignerPublicKeyCommitments(acc)[cold ? 1 : 0]);
 
@@ -76,10 +79,28 @@ async function refusal(
   return new GuardianRecoveryVerificationError(code, getMessage(key));
 }
 
-/** Refuses an account whose recovery signer is not the key the phrase derives at this index. */
+/** Every readable signer commitment, normalized; all-zero words dropped. A trap is rethrown, as by readSlot. */
+function signerCommitments(acc: Account): string[] {
+  let raw: unknown;
+  try {
+    raw = AccountInspector.getSignerPublicKeyCommitments(acc);
+  } catch (error) {
+    if (error instanceof WebAssembly.RuntimeError) throw error;
+    return [];
+  }
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map(normalize)
+    .filter(commitment => !/^0*$/.test(commitment));
+}
+
+/**
+ * Refuses an account whose signers do not include the key the phrase derives at this index. Found by membership:
+ * a revoke re-packs the set and an add appends to it, so the recovery key is not always in slot 1.
+ */
 export async function assertRecoverySignerMatches(acc: Account, coldCommitment: string): Promise<void> {
-  const served = signerSlot(acc, true);
-  if (served !== undefined && sameCommitment(served, coldCommitment)) return;
+  if (signerCommitments(acc).some(served => sameCommitment(served, coldCommitment))) return;
   throw await refusal(GUARDIAN_RECOVERY_UNVERIFIED, 'guardianRecoveryUnverified');
 }
 

@@ -5,7 +5,7 @@ import type { ConsumableNote, SwapOrderNoteMetadata } from '../types';
 
 type NoteFixture = Pick<
   ConsumableNote,
-  'id' | 'faucetId' | 'amount' | 'isBeingClaimed' | 'swapOrder' | 'fromCache' | 'standardPayment'
+  'id' | 'faucetId' | 'amount' | 'isBeingClaimed' | 'swapOrder' | 'fromCache' | 'standardPayment' | 'peerSwapPayback'
 >;
 
 let mockFaucetId: string | null = 'faucet-native';
@@ -91,6 +91,15 @@ describe('selectAutoConsumeBatch', () => {
     expect(selectAutoConsumeBatch([native, nativeForeignOrder, nativeUnflagged], 'faucet-native', FEE)).toEqual([
       native
     ]);
+  });
+
+  it('never takes the payback of a swap order that another device of the account placed', () => {
+    // The payback is a native standard payment with the attachment of an order this device did not place.
+    const peerPayback = note('peer-payback', 'faucet-native', '1000000', { peerSwapPayback: true });
+    expect(selectAutoConsumeBatch([native, peerPayback], 'faucet-native', FEE)).toEqual([native]);
+    expect(selectAutoConsumeBatch([peerPayback], 'faucet-native', FEE)).toEqual([]);
+    // It stays in the list the user accepts by hand.
+    expect(excludeAutoManagedNotes([native, peerPayback], 'faucet-native', true, FEE)).toEqual([peerPayback]);
   });
 
   it('judges the batch total, so notes worth too little alone still go together', () => {

@@ -32,9 +32,8 @@ describe('activity view setting', () => {
   });
 
   describe('getActivityView', () => {
-    it('opens Activity in the list view until the user says otherwise', () => {
-      expect(getActivityView()).toBe('list');
-      expect(DEFAULT_ACTIVITY_VIEW).toBe('list');
+    it('opens Activity in Groups when the user has not saved a view', () => {
+      expect(getActivityView()).toBe('groups');
     });
 
     it('returns each stored view', () => {
@@ -66,6 +65,7 @@ describe('activity view setting', () => {
     });
 
     it('switches the view when storage refuses the write, then reads storage again once a write succeeds', () => {
+      localStorage.setItem(ACTIVITY_VIEW_STORAGE_KEY, 'list');
       const { result } = renderHook(() => useActivityView());
       const spy = jest.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
         throw new Error('Storage full');
@@ -73,7 +73,7 @@ describe('activity view setting', () => {
       expect(() => act(() => setActivityView('groups'))).not.toThrow();
       spy.mockRestore();
 
-      expect(localStorage.getItem(ACTIVITY_VIEW_STORAGE_KEY)).toBeNull();
+      expect(localStorage.getItem(ACTIVITY_VIEW_STORAGE_KEY)).toBe('list');
       expect(getActivityView()).toBe('groups');
       expect(result.current).toBe('groups');
 
@@ -93,6 +93,7 @@ describe('activity view setting', () => {
     });
 
     it('re-renders every mounted Activity surface when the switcher changes it', () => {
+      localStorage.setItem(ACTIVITY_VIEW_STORAGE_KEY, 'list');
       const first = renderHook(() => useActivityView());
       const second = renderHook(() => useActivityView());
       expect(first.result.current).toBe('list');

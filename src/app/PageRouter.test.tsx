@@ -295,10 +295,17 @@ jest.mock('./pages/ForgotPassword/ForgotPasswordInfo', () => ({
   default: () => <div data-testid="forgot-password-info" />
 }));
 jest.mock('./pages/ResetRequired', () => ({ __esModule: true, default: () => <div data-testid="reset-required" /> }));
-jest.mock('./pages/TokenDetail', () => ({
-  __esModule: true,
-  default: ({ tokenId }: { tokenId?: string }) => <div data-testid="token-detail" data-token-id={tokenId} />
-}));
+jest.mock('./pages/TokenDetail', () => {
+  const ReactActual = jest.requireActual('react') as typeof import('react');
+  const MockTokenDetail = ({ tokenId }: { tokenId?: string }) => {
+    const [initialTokenId] = ReactActual.useState(tokenId);
+    return <div data-testid="token-detail" data-token-id={tokenId} data-initial-token-id={initialTokenId} />;
+  };
+  return {
+    __esModule: true,
+    default: MockTokenDetail
+  };
+});
 jest.mock('./templates/history/HistoryDetails', () => ({
   HistoryDetails: ({ transactionId }: { transactionId?: string }) => (
     <div data-testid="history-details" data-transaction-id={transactionId} />
@@ -907,11 +914,18 @@ describe('app/PageRouter — ready tab & full-screen routes', () => {
     expect(el).toHaveAttribute('data-transaction-id', 'tx-42');
   });
 
-  it('/token-detail/:tokenId passes the id into TokenDetail', () => {
-    renderAt('/token-detail/tok-9', ready);
-    const el = screen.getByTestId('token-detail');
+  it('/token-detail/:tokenId passes the id into TokenDetail and remounts on token change', () => {
+    const { rerender } = renderAt('/token-detail/tok-9', ready);
+    let el = screen.getByTestId('token-detail');
     expect(screen.getByTestId('full-screen-page')).toContainElement(el);
     expect(el).toHaveAttribute('data-token-id', 'tok-9');
+    expect(el).toHaveAttribute('data-initial-token-id', 'tok-9');
+
+    mockLocation.pathname = '/token-detail/tok-10';
+    rerender(<PageRouter />);
+    el = screen.getByTestId('token-detail');
+    expect(el).toHaveAttribute('data-token-id', 'tok-10');
+    expect(el).toHaveAttribute('data-initial-token-id', 'tok-10');
   });
 
   it('/send/review renders ReviewTransaction inside FullScreenPage', () => {
@@ -1105,6 +1119,13 @@ describe('app/PageRouter - encoded route parameters', () => {
     const page = screen.getByTestId('activity-group');
     expect(page).toHaveAttribute('data-kind', 'address');
     expect(page).not.toHaveAttribute('data-id');
+  });
+
+  it('decodes a dApp group origin without dropping its scheme or port', () => {
+    renderAt('/activity/group/dapp/https%3A%2F%2Fexample.test%3A8443', ready);
+    const page = screen.getByTestId('activity-group');
+    expect(page).toHaveAttribute('data-kind', 'dapp');
+    expect(page).toHaveAttribute('data-id', 'https://example.test:8443');
   });
 
   it('redirects a contact whose address will not decode to the address book', () => {

@@ -90,7 +90,9 @@ jest.mock('lib/miden-chain/constants', () => ({
 const mockShowDevEndpoints = { value: false };
 const mockIsEndpointOverrideActive = jest.fn(() => Promise.resolve(mockShowDevEndpoints.value));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
-  isEndpointOverrideActive: () => mockIsEndpointOverrideActive()
+  isEndpointOverrideActive: () => mockIsEndpointOverrideActive(),
+  getEffectiveNetworkName: () => 'testnet',
+  subscribeEffectiveEndpoints: () => () => undefined
 }));
 
 jest.mock('lib/store', () => ({
@@ -254,6 +256,10 @@ jest.mock('app/templates/EditMidenFaucetId', () => ({
   __esModule: true,
   default: mockLayoutPage('edit-faucet')
 }));
+jest.mock('app/templates/DeviceSettings', () => ({
+  __esModule: true,
+  default: mockLayoutPage('device-settings-body')
+}));
 jest.mock('app/templates/GuardianSettings', () => ({
   __esModule: true,
   default: mockLayoutPage('guardian-settings-body')
@@ -265,6 +271,15 @@ jest.mock('app/templates/KeysSettings', () => ({
 jest.mock('app/templates/LanguageSettings', () => ({
   __esModule: true,
   default: mockLayoutPage('language-settings')
+}));
+jest.mock('app/templates/MidenNameSettings', () => ({
+  __esModule: true,
+  default: mockLayoutPage('miden-name-settings')
+}));
+// Off by default: the Miden Name tests turn the deployment on.
+let mockMidenNameSupported = false;
+jest.mock('lib/miden/name/config', () => ({
+  isMidenNameSupported: () => mockMidenNameSupported
 }));
 jest.mock('app/templates/SpendingLimits', () => ({
   __esModule: true,
@@ -331,6 +346,7 @@ beforeEach(() => {
   mockHistoryPosition = 1;
   mockReduceMotion = false;
   mockShowDevEndpoints.value = false;
+  mockMidenNameSupported = false;
   mockPlatformState = { available: false, hasPassword: false, credential: null };
   mockPlatformLoading = false;
   mockWalletState.seedPhraseStatus = 'stored';
@@ -825,6 +841,38 @@ describe('Settings page - root menu (non-guardian)', () => {
 
     expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
     expect(screen.queryByTestId('nav-title')).not.toBeInTheDocument();
+  });
+});
+
+describe('Settings page — Miden Name', () => {
+  it('hides the row and bounces the route on a network with no Miden Name deployment', () => {
+    render(<Settings tabSlug={null} />);
+    expect(screen.queryByTestId('row-midenName')).not.toBeInTheDocument();
+  });
+
+  it('bounces the miden-name slug when the network has no deployment', () => {
+    render(<Settings tabSlug="miden-name" />);
+
+    expect(mockNavigate).toHaveBeenCalledWith('/me', 'replace');
+    expect(screen.queryByTestId('miden-name-settings')).not.toBeInTheDocument();
+  });
+
+  it('links the Miden Name row to its routed page in the preferences group when supported', () => {
+    mockMidenNameSupported = true;
+    render(<Settings tabSlug={null} />);
+
+    const row = screen.getByTestId('row-midenName');
+    expect(row).toHaveAttribute('data-slug', '/settings/miden-name');
+    expect(row).toHaveAttribute('data-selector', 'Settings/MidenNameButton');
+  });
+
+  it('renders the Miden Name page under its title when supported', () => {
+    mockMidenNameSupported = true;
+    render(<Settings tabSlug="miden-name" />);
+
+    expect(screen.getByTestId('nav-title')).toHaveTextContent('midenName');
+    expect(screen.getByTestId('miden-name-settings')).toBeInTheDocument();
+    expect(mockNavigate).not.toHaveBeenCalledWith('/me', 'replace');
   });
 });
 

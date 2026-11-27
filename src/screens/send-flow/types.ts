@@ -2,8 +2,11 @@ import type { AddressChain } from 'utils/miden';
 
 import { BridgeNetworkId } from './bridge-networks';
 
-/** Cross-chain route. Fast = Epoch (any token → USDC, fee), Slow = Agglayer (bridgeable token only, no fee). */
-export type BridgeRoute = 'epoch' | 'agglayer' | 'usdcx';
+/**
+ * Cross-chain route. Fast = Epoch (any token → USDC, fee), Slow = Agglayer (bridgeable token only, no fee),
+ * USDCx = a Circle burn, NEAR Intents = a 1Click swap to another chain (the only route to Solana, Bitcoin and NEAR).
+ */
+export type BridgeRoute = 'epoch' | 'agglayer' | 'usdcx' | 'near-intents';
 
 export enum SendFlowStep {
   SelectRecipient = 'SelectRecipient',
@@ -16,9 +19,9 @@ export type SendFlowForm = {
   amount: string;
   recipientAddress: string;
   token?: UIToken;
-  /** Destination network, only meaningful when the recipient is a 0x (Ethereum) address. */
+  /** Destination network (a `SendNetwork` id), only meaningful when the recipient is not a Miden address. */
   bridgeNetwork?: BridgeNetworkId;
-  /** Cross-chain route, only meaningful when the recipient is a 0x (Ethereum) address. */
+  /** Cross-chain route, only meaningful when the recipient is not a Miden address. */
   bridgeRoute?: BridgeRoute;
 };
 
@@ -71,7 +74,7 @@ export type RecentRecipient = {
   name?: string;
   /** Chain the address belongs to, from `detectAddressChain`. */
   chain: AddressChain;
-  /** Destination network display name for a cross-chain (0x) recipient. */
+  /** Destination network display name for a cross-chain recipient. */
   networkName?: string;
 };
 

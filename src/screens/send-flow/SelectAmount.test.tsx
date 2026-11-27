@@ -658,7 +658,7 @@ describe('SelectAmount', () => {
       expect(screen.getByText('selectAToken')).toBeInTheDocument();
 
       const circle = screen.getByText('$').parentElement as HTMLElement;
-      expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
+      expect(circle.style.backgroundColor).toBe(PRIMARY_HEX);
       expect(circle.className).not.toContain('bg-primary-500');
     });
 
@@ -667,7 +667,7 @@ describe('SelectAmount', () => {
 
       const globeIcon = screen.getByTestId('ai-token-selector').querySelector('[data-name="Globe"]');
       const circle = globeIcon?.parentElement as HTMLElement;
-      expect(circle.style.backgroundColor).toBe(asRgb(PRIMARY_HEX));
+      expect(circle.style.backgroundColor).toBe(PRIMARY_HEX);
       expect(circle.className).not.toContain('bg-primary-500');
       expect(globeIcon).toHaveClass('text-accent-brand-on');
       expect(globeIcon).not.toHaveClass('text-pure-white');
@@ -679,6 +679,23 @@ describe('SelectAmount', () => {
     it('trims trailing zeros on an ordinary balance', () => {
       renderComponent({ token: baseToken({ balance: 12.5 }) });
       expect(screen.getByTestId('ai-helper')).toHaveTextContent('available 12.5 USDC');
+    });
+
+    it('shows a spendable balance and its fiat estimate without changing Max at the precision limit', () => {
+      const onAmountChange = jest.fn();
+      renderComponent({
+        showAmountShortcuts: true,
+        token: baseToken({ balance: 10000.3, decimals: 12, fiatPrice: 0.05 }),
+        onAmountChange
+      });
+
+      fireEvent.click(screen.getByTestId('amount-shortcut-max'));
+      expect(onAmountChange).toHaveBeenCalledWith('10000.29999999999');
+
+      const helper = screen.getByTestId('ai-helper');
+      expect(helper).toHaveTextContent('available 10000.2999 USDC');
+      expect(screen.getByTitle('available 10000.29999999999 USDC')).toBeVisible();
+      expect(helper).toHaveTextContent('approxFiatValue:$500.01');
     });
 
     it('expands past 4dp rather than rounding a dust balance to zero', () => {
@@ -821,7 +838,9 @@ describe('SelectAmount user-visible errors', () => {
     await act(async () => jest.advanceTimersByTimeAsync(999));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     await act(async () => jest.advanceTimersByTimeAsync(1));
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([['unknownTokenScale', 'inline']]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+      ['unknownTokenScale', 'inline', { kind: 'token_scale', tokenScaleProducer: 'select_amount' }]
+    ]);
     await act(async () => jest.advanceTimersByTimeAsync(1000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   });

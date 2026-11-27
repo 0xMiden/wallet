@@ -1,4 +1,77 @@
 {
+  "refresh": {
+    "message": "更新",
+    "englishSource": "Refresh"
+  },
+  "deviceRevokedBody": {
+    "message": "このデバイスはアカウントの署名者リストから削除され、取引への署名ができなくなりました。リカバリーフレーズを使用して、このデバイスを再びメインデバイスにするか、このデバイスからウォレットを削除してください。",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Use the recovery phrase to make it the main device again, or remove the wallet from this device."
+  },
+  "deviceRevokedBodyNoRecoveryKey": {
+    "message": "このデバイスはアカウントの署名者リストから削除され、取引への署名ができなくなりました。このデバイスからウォレットを削除してください。リカバリーフレーズを使用すれば、アクセスを復元できます。",
+    "englishSource": "This device was removed from the account’s signers and can no longer sign transactions. Remove the wallet from this device. You can restore access with the recovery phrase."
+  },
+  "deviceRevokeAuthentication": {
+    "message": "このデバイスを無効化するには、認証を行ってください。",
+    "englishSource": "Authenticate to revoke this device."
+  },
+  "deviceSignerCommitment": {
+    "message": "署名者のコミットメントの取り消し",
+    "englishSource": "Revoked signer commitment"
+  },
+  "walletDevices": {
+    "message": "デバイス",
+    "englishSource": "Devices"
+  },
+  "currentDevice": {
+    "message": "このデバイス",
+    "englishSource": "This device"
+  },
+  "revokeDevice": {
+    "message": "デバイスの無効化",
+    "englishSource": "Revoke device"
+  },
+  "revokeDeviceDescription": {
+    "message": "このデバイスは、今後トランザクションに署名できなくなります。リカバリーフレーズがあれば、アクセスを回復することができます。",
+    "englishSource": "This device will no longer be able to sign transactions. It can regain access if it has the recovery phrase."
+  },
+  "deviceSignersDescription": {
+    "message": "このアカウントの署名用に登録されたデバイス。復旧キーは表示されません。",
+    "englishSource": "Devices registered to sign for this account. The recovery key is not shown."
+  },
+  "deviceRecoveryStored": {
+    "message": "このデバイスに保存されているリカバリーフレーズにより、失効が承認されます。",
+    "englishSource": "The recovery phrase stored on this device will approve revocation."
+  },
+  "deviceRecoveryRequired": {
+    "message": "復元フレーズを入力して、失効を承認してください。このフレーズは本デバイスには保存されません。",
+    "englishSource": "Enter the recovery phrase to approve revocation. It will not be saved on this device."
+  },
+  "deviceSignersUnavailable": {
+    "message": "デバイス一覧を読み取れません。ウォレットの同期が完了してから、もう一度お試しください。",
+    "englishSource": "Cannot read the device list. Try again after the wallet syncs."
+  },
+  "deviceSignerNumber": {
+    "message": "デバイス $number$",
+    "englishSource": "Device $number$",
+    "placeholders": {
+      "number": {
+        "content": "$1"
+      }
+    }
+  },
+  "deviceRevoked": {
+    "message": "デバイスの無効化",
+    "englishSource": "Device revoked"
+  },
+  "thisDeviceRevoked": {
+    "message": "このデバイスは無効化されました",
+    "englishSource": "This device was revoked"
+  },
+  "deviceRevocationTransaction": {
+    "message": "失効取引",
+    "englishSource": "Revocation transaction"
+  },
   "passkeyUnlock": {
     "message": "パスキーによるロック解除",
     "englishSource": "Passkey unlock"
@@ -119,6 +192,159 @@
   "bridgeRouteAgglayer": {
     "message": "Slow · Agglayer",
     "englishSource": "Slow · Agglayer"
+  },
+  "bridgeRouteNearIntents": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
+  "nearIntentsSendArrivalSeconds": {
+    "message": "~$seconds$秒",
+    "englishSource": "~$seconds$ sec",
+    "placeholders": {
+      "seconds": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendArrivalMinutes": {
+    "message": "~$minutes$分",
+    "englishSource": "~$minutes$ mins",
+    "placeholders": {
+      "minutes": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendYouReceive": {
+    "message": "$amount$の$symbol$を受け取ります",
+    "englishSource": "You receive $amount$ $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "nearIntentsSendUnsupported": {
+    "message": "NEAR Intentsは、このネットワーク上でこのトークンを提供していません。",
+    "englishSource": "NEAR Intents does not offer this token on this network."
+  },
+  "nearIntentsSendNoLiquidity": {
+    "message": "この金額はNEAR Intentsには少なすぎます。より大きな金額を入力してください。",
+    "englishSource": "This amount is too small for NEAR Intents. Enter a larger amount."
+  },
+  "nearIntentsSendInvalidRecipient": {
+    "message": "NEAR Intentsはこのアドレスへの配信を行うことができません。アドレスとネットワークを確認してください。",
+    "englishSource": "NEAR Intents cannot deliver to this address. Check the address and the network."
+  },
+  "nearIntentsSendQuoteChanged": {
+    "message": "見積もりが変更され、確認した内容よりも少ない金額が表示されています。新しい見積もりを確認した上で、再度承認してください。",
+    "englishSource": "The quote changed and now gives less than you reviewed. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendQuoteExpired": {
+    "message": "支払いが開始される前に、見積もりの有効期限が切れました。新しい見積もりを確認してから、再度確定してください。",
+    "englishSource": "The quote expired before the payment started. Review the new quote, then confirm again."
+  },
+  "nearIntentsSendRefundNote": {
+    "message": "スワップが失敗した場合、NEAR IntentsはこのMidenアカウントに金額を返金します。",
+    "englishSource": "If the swap fails, NEAR Intents refunds the amount to this Miden account."
+  },
+  "transactionStepNearIntentsDepositAddress": {
+    "message": "生成された入金アドレス",
+    "englishSource": "Deposit address generated"
+  },
+  "transactionStepNearIntentsSend": {
+    "message": "預入アドレスへの送金",
+    "englishSource": "Sending to deposit address"
+  },
+  "nearIntentsSendStartNew": {
+    "message": "新しい送金を開始する",
+    "englishSource": "Start a new send"
+  },
+  "nearIntentsSendNotSentDescription": {
+    "message": "入金先アドレスへの支払いが失敗したため、資金は移動しませんでした。新しい入金先アドレスを取得するには、送金をやり直してください。",
+    "englishSource": "The payment to the deposit address failed, so no funds moved. Start a new send to get a new deposit address."
+  },
+  "nearIntentsSendGeneratingDepositAddress": {
+    "message": "入金アドレスの生成",
+    "englishSource": "Generating deposit address"
+  },
+  "nearIntentsSendSentDescription": {
+    "message": "資金はNEAR Intentsに送金されます。$network$への送金は継続中です。「アクティビティ」でそのステータスを確認してください。",
+    "englishSource": "The funds are sent to NEAR Intents. The delivery to $network$ continues. Follow its status in Activity.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendDeliveredDescription": {
+    "message": "NEAR Intentsは$network$上で支払いを完了しました。",
+    "englishSource": "NEAR Intents delivered the payment on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "nearIntentsSendExpectedAmount": {
+    "message": "受取人は（概算）を受け取ります",
+    "englishSource": "Recipient gets (estimate)"
+  },
+  "nearIntentsSendDeliveryStatus": {
+    "message": "受渡状況",
+    "englishSource": "Delivery status"
+  },
+  "nearIntentsSendStatusSending": {
+    "message": "NEAR Intentsへの送信",
+    "englishSource": "Sending to NEAR Intents"
+  },
+  "nearIntentsSendStatusDelivered": {
+    "message": "受取人に配達済み",
+    "englishSource": "Delivered to the recipient"
+  },
+  "nearIntentsSendStatusExpired": {
+    "message": "期限切れ",
+    "englishSource": "Expired"
+  },
+  "nearIntentsSendRefundedTitle": {
+    "message": "支払いの返金",
+    "englishSource": "Payment refunded"
+  },
+  "nearIntentsSendRefundedDescription": {
+    "message": "NEAR Intentsはスワップを完了できず、その金額をあなたのMidenアカウントに返金しました。",
+    "englishSource": "NEAR Intents could not complete the swap and refunded the amount to your Miden account."
+  },
+  "nearIntentsSendFailedTitle": {
+    "message": "デリバリーに失敗しました",
+    "englishSource": "Delivery failed"
+  },
+  "nearIntentsSendFailedDescription": {
+    "message": "NEAR Intentsはこの支払いを処理できませんでした。詳細についてはアクティビティを開いてご確認ください。",
+    "englishSource": "NEAR Intents could not deliver this payment. Open Activity for the details."
+  },
+  "nearIntentsSendExpiredTitle": {
+    "message": "受渡期限切れ",
+    "englishSource": "Delivery expired"
+  },
+  "nearIntentsSendExpiredDescription": {
+    "message": "NEAR Intentsはこの支払いを時間内に処理できませんでした。詳細についてはアクティビティを開いてご確認ください。",
+    "englishSource": "NEAR Intents did not process this payment in time. Open Activity for the details."
+  },
+  "nearIntentsYouReceived": {
+    "message": "受取人は受け取りました",
+    "englishSource": "Recipient got"
+  },
+  "nearIntentsViewOnExplorer": {
+    "message": "$network$エクスプローラーで表示",
+    "englishSource": "View on the $network$ explorer",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
   },
   "bridgeRouteUnavailableBody": {
     "message": "この送金には、この経路は利用できません。利用可能な別の経路で続行してください。この画面からは取引が送信されていません。",
@@ -295,6 +521,10 @@
   "guardianHistoryDeviceReplaced": {
     "message": "デバイスキーが更新されました",
     "englishSource": "Device key rotated"
+  },
+  "guardianHistoryDeviceAdded": {
+    "message": "デバイスが追加されました",
+    "englishSource": "Device added"
   },
   "guardianHistoryAccountSecured": {
     "message": "アカウントは安全に保護されています",
@@ -593,6 +823,163 @@
         "content": "$1"
       }
     }
+  },
+  "seeAll": {
+    "message": "すべて表示",
+    "englishSource": "See all"
+  },
+  "tokenDetailToClaim": {
+    "message": "+$amount$ $symbol$ を請求する",
+    "englishSource": "+$amount$ $symbol$ to claim",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailClaiming": {
+    "message": "+$amount$ $symbol$ の請求",
+    "englishSource": "+$amount$ $symbol$ claiming",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailBalanceUpdating": {
+    "message": "残高の更新",
+    "englishSource": "Updating balance"
+  },
+  "tokenDetailBalanceUnavailable": {
+    "message": "負荷分散できませんでした。",
+    "englishSource": "Could not load balance."
+  },
+  "tokenDetailBalanceRefreshFailed": {
+    "message": "残高を更新できませんでした。最後に確認された残高を表示しています。",
+    "englishSource": "Could not refresh balance. Showing last confirmed balance."
+  },
+  "tokenDetailFixedQuoteContext": {
+    "message": "$network$上の$symbol$のレートを1.00 USDに固定しました。",
+    "englishSource": "Fixed 1.00 USD rate for $symbol$ on $network$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailMarketQuoteContext": {
+    "message": "$symbol$の価格は、$provider$から$network$で取得され、$retrievedAt$に更新されました。",
+    "englishSource": "$symbol$ price from $provider$ on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailBasketQuoteContext": {
+    "message": "$network$上のVault USDの価値、$retrievedAt$に更新。",
+    "englishSource": "Vault USD value on $network$, updated $retrievedAt$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleTitle": {
+    "message": "USD価格は最新ではありません",
+    "englishSource": "USD price is out of date"
+  },
+  "tokenDetailQuoteStaleMarketBody": {
+    "message": "$network$上の$provider$からの$symbol$の直近の価格（$retrievedAt$）は10分以上経過しており、合計値からは除外されています。",
+    "englishSource": "Last $symbol$ price from $provider$ on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "symbol": {
+        "content": "$1"
+      },
+      "provider": {
+        "content": "$2"
+      },
+      "network": {
+        "content": "$3"
+      },
+      "retrievedat": {
+        "content": "$4"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBasketBody": {
+    "message": "$network$上の最後の金庫のUSD価値（$retrievedAt$）は10分以上前のものであり、合計額からは除外されています。",
+    "englishSource": "Last vault USD value on $network$ ($retrievedAt$) is older than 10 minutes and hidden from totals.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      },
+      "retrievedat": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailQuoteStaleBody": {
+    "message": "直近の米ドル価格は10分以上前のものであり、合計額からは除外されています。",
+    "englishSource": "The last USD price is older than 10 minutes and hidden from totals."
+  },
+  "tokenDetailQuoteUnavailableTitle": {
+    "message": "USD価格：利用不可",
+    "englishSource": "USD price unavailable"
+  },
+  "tokenDetailQuoteUnavailableBody": {
+    "message": "$network$ では、検証済みの米ドル価格は利用できません。",
+    "englishSource": "No verified USD price is available on $network$.",
+    "placeholders": {
+      "network": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailQuoteLoadError": {
+    "message": "USD価格を読み込めませんでした。更新されるまで、残高合計にはUSDの価値は含まれません。",
+    "englishSource": "Could not load the USD price. Balance totals exclude USD value until it refreshes."
+  },
+  "tokenDetailSendRetired": {
+    "message": "このトークンはテストネット上で廃止されており、送信することはできません。",
+    "englishSource": "This token is retired on Testnet and cannot be sent."
+  },
+  "tokenDetailSendUnknownScale": {
+    "message": "送信前に、「トークン情報」でトークンの小数点以下の桁数を設定してください。",
+    "englishSource": "Set token decimals in Token info before sending."
+  },
+  "tokenDetailSendNoBalance": {
+    "message": "送金可能な残高がありません。",
+    "englishSource": "No available balance to send."
+  },
+  "tokenDetailSendPendingOnly": {
+    "message": "まだ送金可能な残高がありません。まず保留中の送金を受け入れてください。",
+    "englishSource": "No available balance to send yet. Accept pending transfers first."
+  },
+  "tokenDetailSendBalanceUnavailable": {
+    "message": "負荷分散に失敗しました。送信する前に再試行してください。",
+    "englishSource": "Could not load balance. Try again before sending."
   },
   "historyDetailsIdLabel": {
     "message": "ID：$id$",
@@ -2221,8 +2608,8 @@
     "englishSource": "Delegate Proof Generation"
   },
   "delegateProofSettingsDescription": {
-    "message": "オン状態の場合、トランザクションの証明はリモートサーバー上で生成されます。これにより処理が高速化され、デバイスへの大容量のダウンロードも不要で、鍵がデバイスから外部に流出することもありません。オフ状態の場合、またはサービスが利用できない場合は、ウォレットがローカルで証明を行います。これによりプライバシーは高まりますが、処理速度は遅くなり、一度だけ大容量のダウンロードが必要となります。",
-    "englishSource": "When on, transaction proofs are generated on remote servers — faster, with no large download to your device, and your keys never leave it. When off, or if the service is unavailable, the wallet proves locally: more private, but slower and needs a large one-time download."
+    "message": "デフォルトではオンになっています。オンになっている場合、ウォレットは取引の詳細をリモートサービスに送信してプルーフを生成します。オフになっている場合、ウォレットはデバイス上でローカルに取引のプルーフを生成しますが、ブリッジによる出金および「Earn」への入金については、引き続きリモートサービスを利用します。サービスが利用できない場合でも、ローカルでのプルーフ生成が可能です。",
+    "englishSource": "On by default. When on, the wallet sends transaction details to a remote service to generate proofs. When off, the wallet proves transactions locally on your device, except bridge withdrawals and Earn deposits, which still try that remote service. If the service is unavailable, local proving is available."
   },
   "transfer": {
     "message": "移籍",
@@ -2336,8 +2723,24 @@
     "englishSource": "Send to"
   },
   "sendRecipientPlaceholder": {
-    "message": "Miden または Ethereum のアドレスを入力",
-    "englishSource": "Enter Miden or Ethereum Address"
+    "message": "アドレスを入力してください",
+    "englishSource": "Enter the address"
+  },
+  "recipientNetworkUnsupported": {
+    "message": "このウォレットからは、このアドレスへ送金できません",
+    "englishSource": "This wallet cannot send to this address"
+  },
+  "networkSolana": {
+    "message": "Solana",
+    "englishSource": "Solana"
+  },
+  "networkBitcoin": {
+    "message": "ビットコイン",
+    "englishSource": "Bitcoin"
+  },
+  "networkNear": {
+    "message": "NEAR",
+    "englishSource": "NEAR"
   },
   "selectAmount": {
     "message": "金額を選択してください",
@@ -3272,8 +3675,8 @@
     "englishSource": "Embedded wallet infrastructure"
   },
   "guardianInfoDescription": {
-    "message": "Guardianは、<b>あなたのウォレットからのすべての取引</b>を承認する独立したサービスであり、自己管理を放棄することなくセーフティネットを提供します。",
-    "englishSource": "A Guardian is an independent service that <b>acknowledges every transaction</b> from your wallet, adding a safety net without giving up self-custody."
+    "message": "Guardianとは、<b>取引の承認を支援する</b>独立したサービスです。Guardianは、あなたのアカウントおよび支払いの詳細を確認することができます。",
+    "englishSource": "A Guardian is an independent service that <b>helps authorize your transactions</b>. Your Guardian can see your account and payment details."
   },
   "guardianInfoWhatItDoesTitle": {
     "message": "機能の説明",
@@ -3288,8 +3691,8 @@
     "englishSource": "What it cannot do"
   },
   "guardianInfoWhatItCannotDoDescription": {
-    "message": "ご自身の資金を自由に移動できます。ご自身のプライベートステータスにアクセスできます。共有設定をしていない限り、残高を確認できます。",
-    "englishSource": "Move your funds on its own. Access your private state. See your balances unless you share them."
+    "message": "ご自身で資金を移動してください。",
+    "englishSource": "Move your funds on its own."
   },
   "guardianInfoSwitchingIsEasyTitle": {
     "message": "切り替えは簡単です",
@@ -3423,10 +3826,6 @@
     "message": "Midenネットワーク",
     "englishSource": "Miden network"
   },
-  "commandBridgeChangeNetwork": {
-    "message": "ネットワークの変更",
-    "englishSource": "Change network"
-  },
   "commandBridgeProvider": {
     "message": "プロバイダー",
     "englishSource": "Provider"
@@ -3450,6 +3849,19 @@
   "commandBridgeTo": {
     "message": "To",
     "englishSource": "To"
+  },
+  "commandBridgeVia": {
+    "message": "$provider$経由",
+    "englishSource": "via $provider$",
+    "placeholders": {
+      "provider": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandBridgeNoTokens": {
+    "message": "トークンが見つかりません",
+    "englishSource": "No tokens found"
   },
   "commandBridgeRoute": {
     "message": "資産、ネットワーク、プロバイダー",
@@ -3791,8 +4203,8 @@
     "englishSource": "If you've forgotten your password, you need to sign out and re-import your account. After that, you can create a new password."
   },
   "forgotPasswordSecondDescription": {
-    "message": "12語のリカバリーフレーズを知っているか、暗号化されたバックアップファイルを持っている場合を除き、ログアウトしないでください。",
-    "englishSource": "Do not sign out unless you know your 12-word recovery phrase or have an encrypted backup file."
+    "message": "現在のウォレットは、置き換えを確定するまでこのデバイスに保持されます。続行する前に、12語のリカバリーフレーズ、Guardian キー、または暗号化されたバックアップファイルをご準備ください。",
+    "englishSource": "Your current wallet stays on this device until you confirm a replacement. Have your 12-word recovery phrase, Guardian key, or encrypted backup file ready before continuing."
   },
   "biometricUnlockRequired": {
     "message": "生体認証によるロック解除が必要です",
@@ -4078,6 +4490,14 @@
     "message": "日常的に使用している鍵がローテーションされています。これは、復元されたアカウントが同期を行い、取引を行えるようにするために必要な手順です。",
     "englishSource": "Your everyday key is being rotated. This is required when setting up a recovered account so it can sync and make transactions."
   },
+  "hotKeyAddOverlayTitle": {
+    "message": "このデバイスの追加",
+    "englishSource": "Adding this device"
+  },
+  "hotKeyAddOverlayBody": {
+    "message": "このデバイスには、同期や取引を行うための専用の日常用キーが割り当てられます。",
+    "englishSource": "This device is getting its own everyday key so it can sync and make transactions."
+  },
   "hotKeyRotationFailedTitle": {
     "message": "毎日の鍵のローテーションに失敗しました",
     "englishSource": "Everyday key rotation failed"
@@ -4125,6 +4545,55 @@
   "hotKeyRotatedOutRemove": {
     "message": "このデバイスからウォレットを削除する",
     "englishSource": "Remove wallet from this device"
+  },
+  "chooseDeviceRoleTitle": {
+    "message": "このデバイスは、どのようにしてあなたのウォレットに追加すればよいでしょうか？",
+    "englishSource": "How should this device join your wallet?"
+  },
+  "chooseDeviceRoleDescription": {
+    "message": "このデバイスには、専用の日常用キーが割り当てられます。アカウントから少額のネットワーク手数料が支払われます。",
+    "englishSource": "This device gets its own everyday key. A small network fee is paid from the account."
+  },
+  "chooseDeviceRoleDevices": {
+    "message": "このウォレットにはすでに$count$台のデバイスがあります",
+    "englishSource": "You already have $count$ devices with this wallet",
+    "placeholders": {
+      "count": {
+        "content": "$1"
+      }
+    }
+  },
+  "chooseDeviceRoleDevice": {
+    "message": "このウォレットにはすでに1つのデバイスが登録されています",
+    "englishSource": "You already have 1 device with this wallet"
+  },
+  "chooseDeviceRoleAdd": {
+    "message": "このデバイスを追加する",
+    "englishSource": "Add this device"
+  },
+  "chooseDeviceRoleMain": {
+    "message": "このデバイスをメインにする",
+    "englishSource": "Make this device the main one"
+  },
+  "chooseDeviceRoleMainSubtitle": {
+    "message": "このウォレットからは、その他のすべてのデバイスが削除されます",
+    "englishSource": "Every other device is removed from this wallet"
+  },
+  "keepRecoveryPhraseTitle": {
+    "message": "このデバイスにリカバリーフレーズを保存しますか？",
+    "englishSource": "Keep the recovery phrase on this device?"
+  },
+  "keepRecoveryPhraseBody": {
+    "message": "このデバイスでは、リカバリーフレーズがなくても日常的な取引は可能です。ただし、Guardianの変更や日常的なキーの交換を行う際には、リカバリーフレーズの入力が求められます。取り外す前に、必ず書き留めておいてください。",
+    "englishSource": "Daily transactions work without the recovery phrase on this device. Guardian changes and everyday key replacement will ask you to enter it. Write it down before you remove it."
+  },
+  "keepRecoveryPhraseRemove": {
+    "message": "リカバリーフレーズを削除する",
+    "englishSource": "Remove recovery phrase"
+  },
+  "keepRecoveryPhraseKeep": {
+    "message": "このデバイスに保管してください",
+    "englishSource": "Keep it on this device"
   },
   "hotKeyRotationUnconfirmedTitle": {
     "message": "毎日の鍵のローテーションは確認されていません",
@@ -4573,6 +5042,10 @@
   "bridgeRouteViaAgglayer": {
     "message": "Agglayer経由",
     "englishSource": "Via Agglayer"
+  },
+  "bridgeRouteViaOneClick": {
+    "message": "1Click経由",
+    "englishSource": "Via 1Click"
   },
   "bridgeSpeedFast": {
     "message": "速い",
@@ -6929,6 +7402,10 @@
     "message": "オンボーディングで「保護者なし」オプションを許可する",
     "englishSource": "Allow 'No guardian' option in onboarding"
   },
+  "devShowFullscreenButton": {
+    "message": "全画面表示ボタン",
+    "englishSource": "Show fullscreen button"
+  },
   "devNominalUnquotedPrice": {
     "message": "引用符で囲まれていないトークンの価値を$1とみなす（テストネットワークのみ）",
     "englishSource": "Value unquoted tokens at $1 (test networks only)"
@@ -7133,8 +7610,8 @@
     "englishSource": "Help improve Wallet"
   },
   "helpImproveWalletDescription": {
-    "message": "ウォレットのどの部分を使用しているか、どこで問題が発生したか、大まかなエラーの分類、アプリのバージョン、およびご利用のプラットフォームを共有してください。そうすることで、不具合を修正できます。鍵、リカバリーフレーズ、パスワード、アドレス、残高、金額、または取引内容は絶対に共有しないでください。 他のアプリやサイトでの追跡は一切行わず、広告目的での利用も一切ありません。また、データブローカーへの販売や共有も一切行いません。クラッシュレポートは、エラー内容とコード内の発生箇所を、機密データを削除し、ユーザーやデバイスの識別子を一切含まない状態で送信されます。この設定はいつでも変更可能です。",
-    "englishSource": "Shares which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
+    "message": "どの画面を開いたか、各画面がどのくらいの時間表示されていたか、その画面にどのように到達したか、どの機能コントロールが表示または選択されたか、どのウィンドウを使用したか、どこで行き詰まったか、大まかなエラーの分類、アプリのバージョン、およびご利用のプラットフォームなどをお知らせください。そうすることで、不具合の原因を特定し修正することができます。 鍵、リカバリーフレーズ、パスワード、アドレス、残高、金額、取引内容などは一切収集しません。 他のアプリやサイトでの追跡は一切行わず、広告目的での利用も一切ありません。また、データブローカーへの販売や共有も一切行いません。クラッシュレポートは、エラー内容とコード内の発生箇所を、機密データを削除し、ユーザーやデバイスの識別情報を含まない状態で送信されます。この設定はいつでも変更可能です。",
+    "englishSource": "Shares which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform, so we can fix what's breaking. Never your keys, recovery phrase, password, addresses, balances, amounts, or transaction contents. No tracking across other apps or sites, nothing used for advertising, and nothing sold or shared with data brokers. Crash reports are sent either way: the error and where it happened in the code, scrubbed to remove sensitive data, with no identifier for you or your device. You can change this any time."
   },
   "helpImproveWalletAccept": {
     "message": "利用状況データの共有",
@@ -7153,8 +7630,8 @@
     "englishSource": "Only what helps us fix bugs"
   },
   "helpImproveWalletSharedDescription": {
-    "message": "ウォレットのどの機能を使用しているか、どこで問題が発生しているか、エラーの大まかな分類、アプリのバージョン、およびご利用のプラットフォーム。",
-    "englishSource": "Which parts of Wallet you use, where you get stuck, broad error categories, the app version, and your platform."
+    "message": "どの画面を開いたか、各画面がどのくらいの時間表示されていたか、その画面にどのように到達したか、どの機能コントロールが表示されたかまたは選択されたか、どのウィンドウを使用したか、どこで行き詰まったか、大まかなエラーの分類、アプリのバージョン、および使用しているプラットフォーム。",
+    "englishSource": "Which screens you open and how long each is visible, how you got there, which feature controls you see or select, which window you use, where you get stuck, broad error categories, the app version, and your platform."
   },
   "helpImproveWalletPrivateTitle": {
     "message": "Your wallet stays private",
@@ -7841,6 +8318,14 @@
   "activityAcceptingTransfer": {
     "message": "受け取り中…",
     "englishSource": "Accepting…"
+  },
+  "activityClaimQueued": {
+    "message": "クレイムがキューに入れられました",
+    "englishSource": "Claim queued"
+  },
+  "activityClaimQueuedRetry": {
+    "message": "リクエストがキューに入れられました。ウォレットは自動的に再試行します。",
+    "englishSource": "Claim queued. The wallet will retry automatically."
   },
   "transfersSection": {
     "message": "送金",
@@ -9892,5 +10377,749 @@
   "loginSignatureTitle": {
     "message": "これは単にログインするだけです",
     "englishSource": "This only signs you in"
+  },
+  "commandAiBarLabel": {
+    "message": "コマンドアシスタント",
+    "englishSource": "Command assistant"
+  },
+  "commandAiPlaceholder": {
+    "message": "ウォレットの送金、スワップ、ブリッジ、収益化、またはウォレットに関する質問……",
+    "englishSource": "Send, swap, bridge, earn, or ask about your wallet..."
+  },
+  "commandAiSendButton": {
+    "message": "実行",
+    "englishSource": "Run"
+  },
+  "commandAiWorking": {
+    "message": "考え中...",
+    "englishSource": "Thinking..."
+  },
+  "commandAiExpand": {
+    "message": "複数行に展開",
+    "englishSource": "Expand to multi-line"
+  },
+  "commandAiCollapse": {
+    "message": "1行に折りたたむ",
+    "englishSource": "Collapse to single line"
+  },
+  "commandAiRedactedBadge": {
+    "message": "保護済み：$kinds$",
+    "englishSource": "Protected: $kinds$",
+    "placeholders": {
+      "kinds": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiOpenNativeForm": {
+    "message": "オープンフォーム",
+    "englishSource": "Open form"
+  },
+  "commandAiChooseBridge": {
+    "message": "どのブリッジルートを使用しますか？",
+    "englishSource": "Which bridge route do you want to use?"
+  },
+  "commandAiChooseRecipient": {
+    "message": "誰に送信したいですか？",
+    "englishSource": "Who do you want to send to?"
+  },
+  "commandAiDisambiguateContact": {
+    "message": "その名前と一致する連絡先が複数あります。どれですか？",
+    "englishSource": "Multiple contacts match that name. Which one?"
+  },
+  "commandAiIncompleteAddressMatches": {
+    "message": "$prefix$は不完全です。保存済みの連絡先の一つを指していましたか？",
+    "englishSource": "$prefix$ is incomplete. Did you mean one of your saved contacts?",
+    "placeholders": {
+      "prefix": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiIncompleteAddress": {
+    "message": "$address$は不完全なアドレスです。完全なアドレスを入力するか、連絡先を選択してください。",
+    "englishSource": "$address$ is an incomplete address. Enter a full address or pick a contact.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiEnsUnsupported": {
+    "message": "$name$ のような ENS 名はここではサポートされていません。完全なアドレスを入力するか、連絡先を選択してください。",
+    "englishSource": "ENS names like $name$ are not supported here. Enter a full address or pick a contact.",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiWrongNetworkAddress": {
+    "message": "そのアドレスは、別のMidenネットワークに属しています。",
+    "englishSource": "That address belongs to a different Miden network."
+  },
+  "commandAiInvalidAddress": {
+    "message": "有効なMidenまたは宛先アドレスを入力してください。",
+    "englishSource": "Enter a valid Miden or destination address."
+  },
+  "commandAiMissingRecipient": {
+    "message": "受取人のアドレスまたは連絡先名を指定してください。",
+    "englishSource": "Specify a recipient address or contact name."
+  },
+  "commandAiAssetNotFound": {
+    "message": "ウォレット内の資産$asset$と一致しませんでした。",
+    "englishSource": "Could not match asset $asset$ in your wallet.",
+    "placeholders": {
+      "asset": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiChooseAsset": {
+    "message": "どの資産を使用しますか？",
+    "englishSource": "Which asset do you want to use?"
+  },
+  "commandAiChooseAmount": {
+    "message": "いくら送金しますか？",
+    "englishSource": "How much do you want to send?"
+  },
+  "commandAiChooseSwapTarget": {
+    "message": "どのトークンを受け取りたいですか？",
+    "englishSource": "Which token do you want to receive?"
+  },
+  "commandAiChooseEarnVault": {
+    "message": "どのEarn金庫に預け入れたいですか？",
+    "englishSource": "Which Earn vault do you want to deposit into?"
+  },
+  "commandAiChooseEarnPosition": {
+    "message": "どのEarnポジションから出金しますか？",
+    "englishSource": "Which Earn position do you want to withdraw from?"
+  },
+  "commandAiBridgeUnavailable": {
+    "message": "現在、対応するブリッジルートは利用できません。",
+    "englishSource": "No matching bridge route is available right now."
+  },
+  "commandAiBridgeNoRoute": {
+    "message": "そのルートは存在しません。他のルートから1つを選択してください：",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
+  "commandAiSwapUnavailable": {
+    "message": "現在、そのペアではスワップが利用できません。",
+    "englishSource": "Swap is unavailable for that pair right now."
+  },
+  "commandAiEarnUnavailable": {
+    "message": "現在、Earnの保管庫やポジションは利用できません。",
+    "englishSource": "No Earn vaults or positions are available right now."
+  },
+  "commandAiFiatPriceUnavailable": {
+    "message": "そのトークンのリアルタイムUSD価格は利用できません。トークンの数量を入力してください。",
+    "englishSource": "Live USD price is unavailable for that token. Enter a token amount."
+  },
+  "commandAiInvalidModelOutput": {
+    "message": "そのリクエストを安全に検証できませんでした。表現を変更するか、以下のフォームをご利用ください。",
+    "englishSource": "Could not verify that request safely. Try rephrasing or use a form below."
+  },
+  "commandAiUnsupported": {
+    "message": "その操作はここではサポートされていません。「送金」、「スワップ」、「ブリッジ」、「エーン」、またはウォレットに関する質問をお試しください。",
+    "englishSource": "That action is not supported here. Try Send, Swap, Bridge, Earn, or a wallet question."
+  },
+  "commandAiNoActiveDraft": {
+    "message": "更新すべきアクティブな項目はありません。完全なコマンドを入力してください。",
+    "englishSource": "Nothing active to update. Enter a full command."
+  },
+  "commandAiUnconfigured": {
+    "message": "AIプロキシは設定されていません。エンドポイントを設定するか、下のアクションバーを使用してください。",
+    "englishSource": "AI proxy is not configured. Set an endpoint or use the action bar below."
+  },
+  "commandAiServiceUnavailable": {
+    "message": "AIサービスは一時的にご利用いただけません。しばらくしてから再度お試しいただくか、以下のフォームをご利用ください。",
+    "englishSource": "AI service is temporarily unavailable. Try again or use a form below."
+  },
+  "commandAiRateLimited": {
+    "message": "AIサービスのレート制限に達しました。しばらくしてから再度お試しください。",
+    "englishSource": "AI service rate limit reached. Try again shortly."
+  },
+  "commandAiQueryBalanceTitle": {
+    "message": "ウォレットの残高",
+    "englishSource": "Wallet balance"
+  },
+  "commandAiQueryTotalTitle": {
+    "message": "マッチング総額",
+    "englishSource": "Matching total"
+  },
+  "commandAiQueryHistoryTitle": {
+    "message": "マッチング活動",
+    "englishSource": "Matching activity"
+  },
+  "commandAiQueryEmpty": {
+    "message": "一致する項目は見つかりませんでした。",
+    "englishSource": "No matching entries found."
+  },
+  "commandAiLocalOnlyNote": {
+    "message": "このデバイス上で非公開に計算されました",
+    "englishSource": "Computed privately on this device"
+  },
+  "commandAiRecentTurns": {
+    "message": "会話",
+    "englishSource": "Conversation"
+  },
+  "commandAiAssistantName": {
+    "message": "Bread Assistant",
+    "englishSource": "Bread Assistant"
+  },
+  "commandAiHelpBrowse": {
+    "message": "Breadに関する質問",
+    "englishSource": "Questions about Bread"
+  },
+  "commandAiHelpSource": {
+    "message": "続きを読む",
+    "englishSource": "Read more"
+  },
+  "commandAiHelpMidenTitle": {
+    "message": "Midenはどのように機能するのですか？",
+    "englishSource": "How does Miden work?"
+  },
+  "commandAiHelpPrivacyTitle": {
+    "message": "プライバシーはどの程度確保されていますか？",
+    "englishSource": "How private is it?"
+  },
+  "commandAiHelpVerifyTitle": {
+    "message": "何が非公開情報かを確認するにはどうすればよいですか？",
+    "englishSource": "How can I check what’s private?"
+  },
+  "commandAiHelpBridgeTitle": {
+    "message": "ブリッジングとは何ですか？",
+    "englishSource": "What is bridging?"
+  },
+  "commandAiHelpNotesTitle": {
+    "message": "notesとは何ですか？",
+    "englishSource": "What are notes?"
+  },
+  "commandAiHelpAcceptTitle": {
+    "message": "なぜ送金を受け入れなければならないのですか？",
+    "englishSource": "Why do I have to accept transfers?"
+  },
+  "commandAiHelpPendingTitle": {
+    "message": "なぜ送金がまだ保留中なのですか？",
+    "englishSource": "Why is a transfer still pending?"
+  },
+  "commandAiHelpDeclineTitle": {
+    "message": "送金を拒否した場合はどうなりますか？",
+    "englishSource": "What happens if I decline a transfer?"
+  },
+  "commandAiHelpFeesTitle": {
+    "message": "なぜ手数料の支払いにUSDCXが必要なのですか？",
+    "englishSource": "Why do I need USDCX for fees?"
+  },
+  "commandAiHelpRecoveryTitle": {
+    "message": "デバイスを紛失した場合はどうなりますか？",
+    "englishSource": "What if I lose my device?"
+  },
+  "commandAiHelpNetworkTitle": {
+    "message": "メインネットとテストネットの違いは何ですか？",
+    "englishSource": "What’s the difference between mainnet and testnet?"
+  },
+  "commandAiHelpAssistantTitle": {
+    "message": "Bread Assistantには何が表示されますか？",
+    "englishSource": "What does Bread Assistant see?"
+  },
+  "commandAiHelpSafetyTitle": {
+    "message": "安全を確保するにはどうすればよいですか？",
+    "englishSource": "How do I stay safe?"
+  },
+  "commandAiHelpWalletTitle": {
+    "message": "Breadでは何ができるのですか？",
+    "englishSource": "What can I do in Bread?"
+  },
+  "commandAiHelpDisclosure": {
+    "message": "Breadは、一部の詳細情報を削除した上で、あなたの質問をAIサービスに送信します。チャットにはパスワードやリカバリーフレーズを含めないでください。",
+    "englishSource": "Bread sends your question to its AI service after removing some details. Keep passwords and recovery phrases out of chat."
+  },
+  "commandAiHelpSecret": {
+    "message": "パスワード、秘密鍵、リカバリーフレーズはチャットで共有しないでください。",
+    "englishSource": "Keep passwords, private keys and recovery phrases out of chat."
+  },
+  "commandAiInputTooLong": {
+    "message": "メッセージを$limit$文字以下に短縮してください。",
+    "englishSource": "Shorten your message to $limit$ characters or fewer.",
+    "placeholders": {
+      "limit": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiHelpBridgeSource": {
+    "message": "Bridgeのプライバシーポリシー",
+    "englishSource": "Bridge privacy policy"
+  },
+  "commandAiPlanTitle": {
+    "message": "行動計画",
+    "englishSource": "Action plan"
+  },
+  "commandAiPlanProgress": {
+    "message": "$total$ステップ中の$current$",
+    "englishSource": "Step $current$ of $total$",
+    "placeholders": {
+      "current": {
+        "content": "$1"
+      },
+      "total": {
+        "content": "$2"
+      }
+    }
+  },
+  "commandAiPlanStepLabel": {
+    "message": "ステップ$num$",
+    "englishSource": "Step $num$",
+    "placeholders": {
+      "num": {
+        "content": "$1"
+      }
+    }
+  },
+  "commandAiPlanStatusActive": {
+    "message": "アクティブ",
+    "englishSource": "Active"
+  },
+  "commandAiPlanStatusPending": {
+    "message": "次は",
+    "englishSource": "Up next"
+  },
+  "commandAiPlanStatusDone": {
+    "message": "完了",
+    "englishSource": "Done"
+  },
+  "commandAiPlanConfirmStep": {
+    "message": "以下のダイアログでこの手順を確認し、次に進んでください。",
+    "englishSource": "Confirm this step in the dialog below, then advance."
+  },
+  "commandAiPlanStepSubmitted": {
+    "message": "ステップの送信が完了しました！次のステップに進む準備が整いました。",
+    "englishSource": "Step submitted! Ready for the next step."
+  },
+  "commandAiPlanCompletedTitle": {
+    "message": "すべての手順が完了しました",
+    "englishSource": "All steps completed"
+  },
+  "commandAiPlanNextStep": {
+    "message": "次のステップ",
+    "englishSource": "Next step"
+  },
+  "commandAiPlanContinue": {
+    "message": "続く",
+    "englishSource": "Continue"
+  },
+  "commandAiPlanFinish": {
+    "message": "計画の完了",
+    "englishSource": "Finish plan"
+  },
+  "commandAiPlanStop": {
+    "message": "ストップ",
+    "englishSource": "Stop"
+  },
+  "commandAiPlanMaxAmount": {
+    "message": "Max",
+    "englishSource": "Max"
+  },
+  "commandAiPlanPreviousOutput": {
+    "message": "前の出力",
+    "englishSource": "Previous output"
+  },
+  "commandAiSamplePrompt1": {
+    "message": "Johnに10 USDCxを送金する",
+    "englishSource": "Send 10 USDCx to John"
+  },
+  "commandAiSamplePrompt2": {
+    "message": "1 ETHをブリッジし、USDCxにスワップする",
+    "englishSource": "Bridge in 1 ETH and swap it to USDCx"
+  },
+  "commandAiSamplePrompt3": {
+    "message": "先週の活動を要約してください",
+    "englishSource": "Summarize my last week activity"
+  },
+  "commandAiSamplePrompt4": {
+    "message": "10 USDCxを最も効率的な方法で運用する",
+    "englishSource": "Make 10 USDCx earn in the most efficient way"
+  },
+  "commandAiSamplePrompt5": {
+    "message": "1 ETHをブリッジし、USDCxにスワップして、最高利回りのヴォールトに預け入れる",
+    "englishSource": "Bridge in 1 ETH, swap to USDCx and put in top earn vault"
+  },
+  "commandAiSamplePrompt6": {
+    "message": "今月、USDCxをいくら送金しましたか？",
+    "englishSource": "How much USDCx did I send this month?"
+  },
+  "midenNameUnsupportedNetwork": {
+    "message": "このネットワークではミドルネームは利用できません。",
+    "englishSource": "Miden Name is not available on this network."
+  },
+  "contactAddressOrMidenName": {
+    "message": "住所またはミドルネーム",
+    "englishSource": "Address or Miden Name"
+  },
+  "contactAddressOrMidenNamePlaceholder": {
+    "message": "アドレスまたは名前を入力してください。miden",
+    "englishSource": "Enter an address or name.miden"
+  },
+  "contactResolvedAddress": {
+    "message": "解決済みアドレス：$address$",
+    "englishSource": "Resolved address: $address$",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameReceiptTransaction": {
+    "message": "受領トランザクションの名称",
+    "englishSource": "Name receipt transaction"
+  },
+  "midenNameResolving": {
+    "message": "この名前を調べてみると…",
+    "englishSource": "Looking up this name…"
+  },
+  "midenNameNotFound": {
+    "message": "この名前を使用しているアカウントはありません",
+    "englishSource": "No account uses this name"
+  },
+  "midenNameResolveFailed": {
+    "message": "この名前は検索できませんでした。もう一度試してください。",
+    "englishSource": "Couldn't look up this name. Try again."
+  },
+  "midenName": {
+    "message": "ミデン・ネーム",
+    "englishSource": "Miden Name"
+  },
+  "midenNameClaimCta": {
+    "message": "名前の取得",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimCtaSubtitle": {
+    "message": "あなただけの$suffix$のユーザー名を取得しましょう。それは永遠にあなたのものです。",
+    "englishSource": "Get your own $suffix$ name, yours forever",
+    "placeholders": {
+      "suffix": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimTitle": {
+    "message": "名前の取得",
+    "englishSource": "Claim a name"
+  },
+  "midenNameClaimSlotPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameClaimSlotSubtitle": {
+    "message": "人々が送信できる名前を請求する",
+    "englishSource": "Claim a name people can send to"
+  },
+  "midenNameClaimSlotDismiss": {
+    "message": "非表示",
+    "englishSource": "Hide"
+  },
+  "midenNameClaimAnyTime": {
+    "message": "いつでも名前を登録できます",
+    "englishSource": "Claim a name any time"
+  },
+  "midenNameSearchPlaceholder": {
+    "message": "yourname",
+    "englishSource": "yourname"
+  },
+  "midenNameRules": {
+    "message": "1～21文字・a～zおよび0～9のみ",
+    "englishSource": "1–21 characters · a–z and 0–9 only"
+  },
+  "midenNameAvailable": {
+    "message": "$name$ が利用可能です",
+    "englishSource": "$name$ is available",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameTaken": {
+    "message": "$name$ はすでに使用されています",
+    "englishSource": "$name$ is already taken",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameInvalidEmpty": {
+    "message": "名前を入力してください",
+    "englishSource": "Enter a name"
+  },
+  "midenNameInvalidTooLong": {
+    "message": "21文字以内で記述してください",
+    "englishSource": "Use 21 characters or fewer"
+  },
+  "midenNameInvalidChars": {
+    "message": "a–z および 0–9 のみを使用してください",
+    "englishSource": "Use only a–z and 0–9"
+  },
+  "midenNameChecking": {
+    "message": "確認中…",
+    "englishSource": "Checking…"
+  },
+  "midenNameServiceUnavailable": {
+    "message": "この名前を確認できませんでした。もう一度試してください。",
+    "englishSource": "Couldn't check this name. Try again."
+  },
+  "midenNameRegistryUnavailable": {
+    "message": "Miden Nameは現在、新しい名称の登録を受け付けていません",
+    "englishSource": "Miden Name does not accept new names right now"
+  },
+  "midenNamePriceChanged": {
+    "message": "価格が変更されました。新しい価格を確認して、もう一度お試しください。",
+    "englishSource": "The price changed. Check the new price and try again."
+  },
+  "midenNamePrice": {
+    "message": "価格・長さ $length$",
+    "englishSource": "Price · length $length$",
+    "placeholders": {
+      "length": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameNetworkFee": {
+    "message": "ネットワーク手数料",
+    "englishSource": "Network fee"
+  },
+  "midenNameTxFee": {
+    "message": "最大取引手数料",
+    "englishSource": "Max transaction fee"
+  },
+  "midenNameTotal": {
+    "message": "合計",
+    "englishSource": "Total"
+  },
+  "midenNameGoesTo": {
+    "message": "参照先：",
+    "englishSource": "Goes to"
+  },
+  "midenNameBalanceAfter": {
+    "message": "残高は",
+    "englishSource": "Balance after"
+  },
+  "midenNamePermanentNote": {
+    "message": "登録は永久的なものです。名前はこのアカウントに紐付けられ、代金は返金されません。",
+    "englishSource": "Registration is permanent. The name goes to this account and the price is not refunded."
+  },
+  "midenNameInsufficientBalance": {
+    "message": "MIDENだけでは不十分です。「$amount$」が必要です。",
+    "englishSource": "Not enough MIDEN. You need $amount$.",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameClaimName": {
+    "message": "請求 $name$ · $price$",
+    "englishSource": "Claim $name$ · $price$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "price": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStatusSubtitle": {
+    "message": "$amount$ · $account$",
+    "englishSource": "$amount$ · $account$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "account": {
+        "content": "$2"
+      }
+    }
+  },
+  "midenNameStepRequestSent": {
+    "message": "リクエストを送信しました",
+    "englishSource": "Request sent"
+  },
+  "midenNameStepIssued": {
+    "message": "発行・公開元：Miden Name",
+    "englishSource": "Name issued and published by Miden Name"
+  },
+  "midenNameStepAdding": {
+    "message": "アカウントへの追加",
+    "englishSource": "Adding it to your account"
+  },
+  "midenNameFailedTaken": {
+    "message": "この名称はすでに他者が先に使用していました。",
+    "englishSource": "Someone else got this name first."
+  },
+  "midenNameFailedExpired": {
+    "message": "レジストリはリクエストを期限内に処理しませんでした。",
+    "englishSource": "The registry did not process the request in time."
+  },
+  "midenNameFailedDiscarded": {
+    "message": "レジストリはリクエストを処理できませんでした。",
+    "englishSource": "The registry could not process the request."
+  },
+  "midenNameFailedTx": {
+    "message": "リクエストされたトランザクションは失敗しました。登録された名前がありませんでした。",
+    "englishSource": "The request transaction failed. No name was registered."
+  },
+  "midenNameFailedClaim": {
+    "message": "名称は発行されましたが、アカウントへの追加に失敗しました。",
+    "englishSource": "The name was issued, but adding it to your account failed."
+  },
+  "midenNameRetryClaim": {
+    "message": "請求を再試行",
+    "englishSource": "Retry claim"
+  },
+  "midenNameClaiming": {
+    "message": "$name$の請求…",
+    "englishSource": "Claiming $name$…",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameDone": {
+    "message": "完了",
+    "englishSource": "Done"
+  },
+  "midenNameStateOwned": {
+    "message": "所有",
+    "englishSource": "Owned"
+  },
+  "midenNameStateClaiming": {
+    "message": "クレームの請求",
+    "englishSource": "Claiming"
+  },
+  "midenNameStateFailed": {
+    "message": "失敗",
+    "englishSource": "Failed"
+  },
+  "midenNameNotYetResolvable": {
+    "message": "まだレジストリに登録されていません",
+    "englishSource": "Not in the registry yet"
+  },
+  "midenNameResolvesHere": {
+    "message": "このアカウントに解決されます",
+    "englishSource": "Resolves to this account"
+  },
+  "midenNameEmpty": {
+    "message": "まだミドルネームがありません",
+    "englishSource": "You have no Miden Name yet"
+  },
+  "midenNameClaimAnother": {
+    "message": "別の名称を請求する",
+    "englishSource": "Claim another name"
+  },
+  "midenNamePrimaryName": {
+    "message": "主要名称",
+    "englishSource": "Primary name"
+  },
+  "midenNameYourNames": {
+    "message": "皆様のお名前",
+    "englishSource": "Your names"
+  },
+  "midenNameCheckingRecord": {
+    "message": "レジストリを確認中……",
+    "englishSource": "Checking the registry…"
+  },
+  "midenNameResolvesElsewhere": {
+    "message": "別のアカウントに解決される",
+    "englishSource": "Resolves to another account"
+  },
+  "transactionStageRegisteringName": {
+    "message": "名称の登録",
+    "englishSource": "Registering name"
+  },
+  "transactionTitleRegisterName": {
+    "message": "名称の登録",
+    "englishSource": "Registering Name"
+  },
+  "historyRegisteredName": {
+    "message": "登録済み $name$",
+    "englishSource": "Registered $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "historyReceivedName": {
+    "message": "$name$を受信しました",
+    "englishSource": "Received $name$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      }
+    }
+  },
+  "midenNameViewStatus": {
+    "message": "ステータスを確認する",
+    "englishSource": "View status"
+  },
+  "midenNameReceiptName": {
+    "message": "名前",
+    "englishSource": "Name"
+  },
+  "midenNameReceiptRegistry": {
+    "message": "レジストリ",
+    "englishSource": "Registry"
+  },
+  "midenNameReceiptNoteId": {
+    "message": "登録 note",
+    "englishSource": "Registration note"
+  },
+  "midenNameReceiptPhase": {
+    "message": "フェーズ",
+    "englishSource": "Phase"
+  },
+  "balanceCardAccountWithName": {
+    "message": "$name$ · $number$",
+    "englishSource": "$name$ · $number$",
+    "placeholders": {
+      "name": {
+        "content": "$1"
+      },
+      "number": {
+        "content": "$2"
+      }
+    }
+  },
+  "replaceWalletConfirmTitle": {
+    "message": "既存のウォレットを置き換えますか？",
+    "englishSource": "Replace your existing wallet?"
+  },
+  "replaceWalletCreateSubtitle": {
+    "message": "この操作により、現在のウォレットはこのデバイスから完全に消去され、先ほど設定したパスワードで新しいウォレットが作成されます。",
+    "englishSource": "This will permanently erase your current wallet from this device and create a new one with the password you just set."
+  },
+  "replaceWalletRestoreSubtitle": {
+    "message": "この操作により、現在のウォレットはこのデバイスから完全に消去され、先ほど設定したパスワードで復元されたウォレットが復元されます。",
+    "englishSource": "This will permanently erase your current wallet from this device and restore the recovered wallet with the password you just set."
+  },
+  "replaceWalletEraseWarning": {
+    "message": "現在のウォレットが引き続き必要な場合は、リカバリーフレーズまたはバックアップを保管していることを確認してください。この操作は取り消せません。",
+    "englishSource": "Make sure you have your current recovery phrase or backup if you still need it. This cannot be undone."
+  },
+  "eraseAndRestoreWallet": {
+    "message": "消去してウォレットを復元",
+    "englishSource": "Erase and restore wallet"
+  },
+  "eraseAndCreateWallet": {
+    "message": "消去してウォレットを作成",
+    "englishSource": "Erase and create wallet"
+  },
+  "backToUnlock": {
+    "message": "サインインに戻る",
+    "englishSource": "Back to sign in"
   }
 }

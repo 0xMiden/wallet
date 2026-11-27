@@ -46,7 +46,8 @@ export type NetworkFaultTarget =
   | 'agglayer' // AggLayer bridge indexer (env-repointed host)
   | 'binance' // Binance price API (env-repointed host)
   | 'faucetMiden' // official Miden faucet REST
-  | 'faucetForkchoice'; // forkchoice faucet HTTP
+  | 'faucetForkchoice' // forkchoice faucet HTTP
+  | 'walletApi'; // wallet-api backup Worker (services/wallet-api), from the extension service worker
 
 /**
  * Maps each target to the origin its requests come from. On the localhost stack
@@ -71,7 +72,10 @@ export const LOCAL_NETWORK_ORIGINS: NetworkOrigins = {
   agglayer: 'http://localhost:8550',
   binance: 'http://localhost:8551',
   faucetMiden: 'http://localhost:8552',
-  faucetForkchoice: 'http://localhost:8553'
+  faucetForkchoice: 'http://localhost:8553',
+  // The local `wrangler dev` Worker. The build define `MIDEN_WALLET_API_URL` names the
+  // same origin; the fixtures replace it with `E2E_WALLET_API_URL` when that is set.
+  walletApi: 'http://127.0.0.1:8787'
 };
 
 /**
@@ -180,6 +184,13 @@ export interface NetworkFaultControls {
    * are counted in their own realms (see fetch-faults.ts).
    */
   networkFaultHits(): number;
+  /**
+   * How many requests to `target`'s origin this context has sent since install,
+   * faulted or not. Counts only what `context.route` sees (the route seam), so a
+   * fetch-layer target (node/prover/transport) reads 0. `clear` does not reset it:
+   * read it before and after an action and compare.
+   */
+  requestCount(target: NetworkFaultTarget): number;
   /**
    * Record this context's guardian pushes and state reads into `ledger`. Off until
    * called, so no other spec pays for the fetch-through; a request the armed
@@ -335,9 +346,12 @@ export function installNetworkFaults(
   let guardianHits = 0;
   let guardianHitTimes: number[] = [];
   let guardianLedger: GuardianCommitmentLedger | null = null;
+  const requestCounts = new Map<NetworkFaultTarget, number>();
 
   context.route('**/*', async (route: Route) => {
     const url = route.request().url();
+    const requestTarget = targetOfNetwork(url, origins.network);
+    if (requestTarget !== null) requestCounts.set(requestTarget, (requestCounts.get(requestTarget) ?? 0) + 1);
 
     const net = decideNetworkFault(url, networkPolicies, networkHits, origins.network);
     networkHits = net.hits;
@@ -377,6 +391,9 @@ export function installNetworkFaults(
     },
     networkFaultHits() {
       return networkHits.reduce((total, hits) => total + hits, 0);
+    },
+    requestCount(target) {
+      return requestCounts.get(target) ?? 0;
     },
     trackGuardianCommitments(ledger) {
       guardianLedger = ledger;

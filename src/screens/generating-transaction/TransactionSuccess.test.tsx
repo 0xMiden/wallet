@@ -32,6 +32,13 @@ jest.mock('components/Button', () => ({
   ButtonVariant: { Primary: 'Primary' }
 }));
 
+const mockNavigate = jest.fn();
+
+jest.mock('lib/woozie', () => ({
+  ...jest.requireActual('lib/woozie'),
+  navigate: (to: string) => mockNavigate(to)
+}));
+
 const mockMidenMeta: { symbol: string | undefined; decimals: number } = { symbol: 'MIDEN', decimals: 6 };
 
 jest.mock('lib/miden/metadata', () => ({
@@ -66,6 +73,11 @@ jest.mock('lib/shared/format', () => ({
 }));
 
 const mockState = { assetsMetadata: {} as Record<string, { symbol?: string; decimals?: number }> | undefined };
+
+const mockOpenExternalUrl = jest.fn();
+jest.mock('lib/mobile/external-browser', () => ({
+  openExternalUrl: (options: { url: string; title: string }) => mockOpenExternalUrl(options)
+}));
 
 // The guardian success view resolves provider names and renders the v2 Icon
 // barrel; both are stubbed so the dispatcher test stays lightweight.
@@ -449,6 +461,115 @@ describe('TransactionSuccess', () => {
     act(() => root.unmount());
   });
 
+  describe('NEAR Intents send receipt', () => {
+    const oneClick = (phase: string, extra: Record<string, unknown> = {}) => ({
+      direction: 'miden-to-evm',
+      phase,
+      request: { recipient: 'SoLaNaRecipient' },
+      quote: { quote: { amountIn: '962490256881558', amountOut: '19650000', minAmountOut: '19400000' } },
+      config: {
+        serviceUrl: 'https://one-click.example',
+        midenAssets: [],
+        chains: [{ id: 'sol', name: 'Solana', addressKind: 'solana', tokens: [] }]
+      },
+      originAsset: { assetId: 'miden-eth', blockchain: 'miden', symbol: 'ETH', decimals: 18, faucetId: '0xfaucet' },
+      destinationAsset: { assetId: 'sol-usdc', blockchain: 'sol', symbol: 'USDC', decimals: 6 },
+      ...extra
+    });
+    const rowOf = (shape: string, tracking: Record<string, unknown>): ITransaction =>
+      shape === 'bridged-send'
+        ? baseTransaction({
+            type: 'bridged-send',
+            amount: 962490256881558n,
+            faucetId: '0xfaucet',
+            secondaryAccountId: 'mm1depositaddress',
+            extraInputs: { provider: 'near-intents', destinationAddress: 'SoLaNaRecipient', oneClick: tracking }
+          })
+        : baseTransaction({
+            amount: 962490256881558n,
+            faucetId: '0xfaucet',
+            secondaryAccountId: 'mm1depositaddress',
+            extraInputs: { oneClick: tracking }
+          });
+    const ctaTitles = (container: HTMLElement) =>
+      Array.from(container.querySelectorAll('[data-testid="done-button"]')).map(button =>
+        button.getAttribute('data-title')
+      );
+
+    it.each(['bridged-send', 'send'])(
+      'says the funds are sent and Activity follows the delivery, with the estimate and minimum, for a %s row',
+      async shape => {
+        const { container, root } = await renderInto(
+          <TransactionSuccess transaction={rowOf(shape, oneClick('processing'))} onDoneClick={() => {}} />
+        );
+
+        expect(container.textContent).toContain('Payment Sent!');
+        expect(container.textContent).toContain('nearIntentsSendSentDescription');
+        // The sent side comes from the row quote: the wallet has no metadata for the faucet here.
+        expect(container.textContent).toContain('0.000962 ETH');
+        expect(container.textContent).not.toContain('Unknown');
+        expect(container.textContent).toContain('SoLaNaRecipient');
+        expect(container.textContent).not.toContain('mm1depositaddress');
+        expect(container.textContent).toContain('Solana');
+        expect(container.textContent).toContain('nearIntentsSendExpectedAmount');
+        expect(container.textContent).toContain('≈ 19.65 USDC');
+        expect(container.textContent).toContain('oneClickMinimumReceived');
+        expect(container.textContent).toContain('19.4 USDC');
+        expect(container.textContent).not.toContain('nearIntentsYouReceived');
+        expect(container.textContent).not.toContain('nearIntentsDestinationTransaction');
+        expect(container.textContent).not.toContain('Fast');
+        expect(ctaTitles(container)).toEqual(['viewInActivities', 'done']);
+        expect(container.querySelector('rect')?.style.fill).toBe('#777487');
+        act(() => root.unmount());
+      }
+    );
+
+    it('shows the amount received and the destination transaction once 1Click reports them', async () => {
+      mockOpenExternalUrl.mockClear();
+      const tracking = oneClick('delivered', {
+        statusResponse: {
+          swapDetails: {
+            amountOut: '19700000',
+            destinationChainTxHashes: [{ hash: '5xSolanaTxHash00000', explorerUrl: 'https://solscan.io/tx/5x' }]
+          }
+        }
+      });
+      const { container, root } = await renderInto(
+        <TransactionSuccess transaction={rowOf('bridged-send', tracking)} onDoneClick={() => {}} />
+      );
+
+      expect(container.textContent).toContain('nearIntentsSendDeliveredDescription');
+      expect(container.textContent).toContain('nearIntentsYouReceived');
+      expect(container.textContent).toContain('19.7 USDC');
+      expect(container.textContent).not.toContain('nearIntentsSendExpectedAmount');
+      const link = container.querySelector('button[aria-label="nearIntentsViewOnExplorer"]');
+      expect(link).not.toBeNull();
+      act(() => {
+        link?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      });
+      expect(mockOpenExternalUrl).toHaveBeenCalledWith({ url: 'https://solscan.io/tx/5x', title: 'Solana' });
+      act(() => root.unmount());
+    });
+
+    it.each([
+      ['refunded', 'nearIntentsSendRefundedTitle', 'nearIntentsSendRefundedDescription'],
+      ['failed', 'nearIntentsSendFailedTitle', 'nearIntentsSendFailedDescription'],
+      ['expired', 'nearIntentsSendExpiredTitle', 'nearIntentsSendExpiredDescription']
+    ])('keeps the failure title and reason of a row that 1Click already reports %s', async (phase, title, text) => {
+      const { container, root } = await renderInto(
+        <TransactionSuccess
+          transaction={rowOf('bridged-send', oneClick(phase, { error: 'Not enough liquidity' }))}
+          onDoneClick={() => {}}
+        />
+      );
+
+      expect(container.textContent).toContain(title);
+      expect(container.textContent).toContain(text);
+      expect(container.textContent).not.toContain('Payment Sent!');
+      act(() => root.unmount());
+    });
+  });
+
   it('renders a Slow route row for an agglayer bridged send', async () => {
     const { container, root } = await renderInto(
       <TransactionSuccess
@@ -461,6 +582,32 @@ describe('TransactionSuccess', () => {
     );
     expect(container.textContent).toContain('Slow');
     expect(container.textContent).toContain('Via Agglayer');
+    act(() => root.unmount());
+  });
+
+  it('renders a Fast Via 1Click route row with destinationAddress for a near-intents bridged send', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          type: 'bridged-send',
+          amount: 100n,
+          secondaryAccountId: 'mtst1depositaddr',
+          extraInputs: {
+            destinationAddress: 'So1anaRecipient11111111111111111111111111111',
+            destinationNetwork: -1,
+            destinationChain: { id: 'sol', name: 'Solana' },
+            provider: 'near-intents'
+          }
+        })}
+        onDoneClick={() => {}}
+      />
+    );
+    expect(container.textContent).toContain('Route');
+    expect(container.textContent).toContain('Fast');
+    expect(container.textContent).toContain('Via 1Click');
+    expect(container.textContent).toContain('So1anaRecipient11111111111111111111111111111');
+    expect(container.textContent).not.toContain('mtst1depositaddr');
+    expect(container.textContent).not.toContain('Via Agglayer');
     act(() => root.unmount());
   });
 
@@ -601,6 +748,41 @@ describe('TransactionSuccess', () => {
       />
     );
     expect(container.textContent).toContain('9 MIDEN');
+    act(() => root.unmount());
+  });
+
+  it('routes a register-name row to the Miden Name receipt with a "View status" action', async () => {
+    const { container, root } = await renderInto(
+      <TransactionSuccess
+        transaction={baseTransaction({
+          id: 'reg-1',
+          type: 'register-name',
+          amount: 20000000n,
+          faucetId: 'faucet-miden',
+          secondaryAccountId: 'mtst1registry',
+          extraInputs: { label: 'alice', phase: 'submitted' }
+        })}
+        txHash="0xabcdef1234567890"
+        onDoneClick={() => {}}
+      />
+    );
+
+    expect(container.textContent).toContain('midenNameStepRequestSent');
+    expect(container.textContent).toContain('midenNameReceiptName');
+    expect(container.textContent).toContain('alice.miden');
+    expect(container.textContent).toContain('20 USDCX');
+    expect(container.textContent).toContain('Transaction ID');
+    expect(container.textContent).not.toContain('Payment Sent!');
+
+    const viewStatus = Array.from(container.querySelectorAll('[data-testid="done-button"]')).find(
+      button => button.getAttribute('data-title') === 'midenNameViewStatus'
+    );
+    expect(viewStatus).toBeDefined();
+    act(() => {
+      viewStatus?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    expect(mockNavigate).toHaveBeenCalledWith('/miden-name/status/reg-1');
+
     act(() => root.unmount());
   });
 });

@@ -73,6 +73,7 @@ describe('listUnconfirmedSwitchRows', () => {
   it("returns this account's unconfirmed switch rows and nothing else", async () => {
     await Repo.transactions.bulkPut([
       rowWith({ id: 'mine', accountId: 'acc' }),
+      rowWith({ id: 'backup', accountId: 'acc', restoredFromBackup: true }),
       rowWith({ id: 'another-account', accountId: 'acc-2' }),
       rowWith({ id: 'not-a-switch', accountId: 'acc', type: 'send' }),
       rowWith({

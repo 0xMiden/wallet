@@ -7,7 +7,8 @@ import { join } from 'node:path';
 
 import {
   epochSolveFailureMetadata,
-  observeEpochSolveFailure
+  observeEpochSolveFailure,
+  unresolvedSubmissionError
 } from '../playwright/e2e/helpers/mainnet-epoch-diagnostics';
 
 jest.mock('node:crypto', () => ({
@@ -26,12 +27,15 @@ const message = (text: string, value: unknown = { name: 'APIError', status: 409 
 
 it.each([
   {
-    value: { name: 'APIError', status: 409, code: privateMarker, txHash: privateMarker },
-    want: { kind: 'api-error', httpStatus: 409 }
+    value: { name: 'APIError', status: 409, code: `not a code ${privateMarker}`, txHash: privateMarker },
+    want: { kind: 'api-error', httpStatus: 409, cause: 'APIError: ' }
   },
-  { value: { name: 'TransactionError', status: 409, txHash: privateMarker }, want: { kind: 'transaction-error' } },
-  { value: { name: 'CompactSDKError', code: privateMarker }, want: { kind: 'compact-sdk-error' } },
-  { value: { name: 'APIError', statusCode: 409 }, want: { kind: 'api-error' } },
+  {
+    value: { name: 'TransactionError', status: 409, txHash: privateMarker },
+    want: { kind: 'transaction-error', cause: 'TransactionError: ' }
+  },
+  { value: { name: 'CompactSDKError' }, want: { kind: 'compact-sdk-error', cause: 'CompactSDKError: ' } },
+  { value: { name: 'APIError', statusCode: 409 }, want: { kind: 'api-error', cause: 'APIError: ' } },
   { value: { name: privateMarker, status: 409 }, want: { kind: 'unknown' } },
   { value: Object.create({ name: 'APIError', status: 409 }), want: { kind: 'unknown' } },
   { value: null, want: { kind: 'unknown' } },
@@ -42,8 +46,22 @@ it.each([
   expect(JSON.stringify(result)).not.toContain(privateMarker);
 });
 
+it('exports the deepest cause name, first message line and a short Compact code', () => {
+  const root = { name: 'Error', message: `receipt timeout\nsecond line ${privateMarker}` };
+  const outer = { name: 'CompactSDKError', message: 'wrapper', code: 'DEPOSIT_FAILED', cause: { cause: root } };
+  expect(epochSolveFailureMetadata(outer)).toEqual({
+    kind: 'compact-sdk-error',
+    code: 'DEPOSIT_FAILED',
+    cause: 'Error: receipt timeout'
+  });
+  const long = { name: 'CompactSDKError', message: 'x'.repeat(900), code: 'not a short code!' };
+  const result = epochSolveFailureMetadata(long);
+  expect(result.code).toBeUndefined();
+  expect(result.cause?.length).toBeLessThanOrEqual(400);
+});
+
 it.each([99, 600, NaN, Infinity, '409', null, undefined])('omits non-HTTP or malformed API status %p', status => {
-  expect(epochSolveFailureMetadata({ name: 'APIError', status })).toEqual({ kind: 'api-error' });
+  expect(epochSolveFailureMetadata({ name: 'APIError', status })).toEqual({ kind: 'api-error', cause: 'APIError: ' });
 });
 
 it('does not invoke error getters or leak descriptor/proxy failures', () => {
@@ -76,6 +94,7 @@ describe('scoped first Epoch solve failure observer', () => {
     fs.writeFileSync(checkpoint, '{"original":"unchanged"}', { mode: 0o600 });
   });
   afterEach(() => {
+    delete process.env.E2E_MAINNET_TEST_SECRET;
     jest.restoreAllMocks();
     fs.rmSync(directory, { recursive: true, force: true });
   });
@@ -96,13 +115,36 @@ describe('scoped first Epoch solve failure observer', () => {
       result = JSON.parse(saved);
     expect(result.kind).toBe('api-error');
     expect(result.httpStatus).toBe(409);
-    expect(Object.keys(result).sort()).toEqual(['errorSha256', 'httpStatus', 'kind', 'observedAt', 'site']);
+    expect(Object.keys(result).sort()).toEqual(['cause', 'errorSha256', 'httpStatus', 'kind', 'observedAt', 'site']);
     expect(Number.isFinite(Date.parse(result.observedAt))).toBe(true);
     expect(saved).not.toContain(privateMarker);
     expect(fs.statSync(target).mode & 0o777).toBe(0o600);
     expect(fs.readFileSync(checkpoint, 'utf8')).toBe('{"original":"unchanged"}');
     stop();
     expect(source.listenerCount('console')).toBe(0);
+  });
+
+  it('saves a sanitized cause and logs it, never a secret, URL or key', async () => {
+    const secret = 'synthetic-rpc-credential-value';
+    process.env.E2E_MAINNET_TEST_SECRET = secret;
+    const log = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const source = new EventEmitter(),
+      stop = observeEpochSolveFailure(source, checkpoint);
+    const raw = `Error: failed at https://rpc.example/v1/${secret}?apikey=abc ${'a'.repeat(40)} ${secret}`;
+    source.emit(
+      'console',
+      message(prefix, { name: 'CompactSDKError', code: 'DEPOSIT_FAILED', cause: { name: 'Error', message: raw } })
+    );
+    await flush();
+    const saved = fs.readFileSync(target, 'utf8'),
+      result = JSON.parse(saved);
+    expect(result.kind).toBe('compact-sdk-error');
+    expect(result.code).toBe('DEPOSIT_FAILED');
+    expect(result.cause).toContain('Error: Error: failed at [url]');
+    for (const leak of [secret, 'rpc.example', 'apikey=abc', 'a'.repeat(40)]) expect(saved).not.toContain(leak);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining('Epoch solve failure cause: Error: Error: failed'));
+    expect(JSON.stringify(log.mock.calls)).not.toContain(secret);
+    stop();
   });
 
   it('ignores unrelated console sites and non-error events', () => {
@@ -208,5 +250,29 @@ describe('scoped first Epoch solve failure observer', () => {
       throw new Error(privateMarker);
     });
     expect(() => stop()).not.toThrow();
+  });
+});
+
+describe('unresolvedSubmissionError', () => {
+  afterEach(() => {
+    delete process.env.E2E_MAINNET_TEST_SECRET;
+  });
+
+  it('keeps the generic message and a sanitized one-line cause of the real failure', () => {
+    process.env.E2E_MAINNET_TEST_SECRET = 'synthetic-rpc-credential-value';
+    const raw = Object.assign(new Error('replacement transaction underpriced https://rpc.example/v1/k?x=1 synthetic-rpc-credential-value\nsecond line'), {
+      name: 'TransactionExecutionError'
+    });
+    const error = unresolvedSubmissionError(raw);
+    expect(error.message).toMatch(/^Epoch EVM submission is unresolved; reconcile the saved signed hashes/);
+    const cause = error.cause as Error;
+    expect(cause.name).toBe('TransactionExecutionError');
+    expect(cause.message).toBe('replacement transaction underpriced [url] [redacted]');
+    expect(cause.message).not.toContain('second line');
+  });
+
+  it('survives a non-error throw', () => {
+    expect((unresolvedSubmissionError('boom').cause as Error).message).toBe('boom');
+    expect((unresolvedSubmissionError(undefined).cause as Error).message).toBe('');
   });
 });

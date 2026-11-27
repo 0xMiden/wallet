@@ -9,7 +9,7 @@ import { deriveBridgeRoutes } from 'lib/bridge/catalog';
 import { sameAsset } from 'lib/bridge/core/assets';
 import type { TransferQuote } from 'lib/bridge/core/quote';
 import { assertReviewedBridge, type BridgeReviewContext, type ReviewedTransfer } from 'lib/bridge/core/review';
-import { configKey, type BridgeRoute } from 'lib/bridge/core/routes';
+import { configKey } from 'lib/bridge/core/routes';
 import { validateTransferAmount } from 'lib/bridge/core/rules';
 import { submitReviewedBridge, walletBridgeBalanceCap } from 'lib/bridge/wallet-submit';
 import { quoteBridgeTransfer } from 'lib/bridge/wallet-transport';
@@ -31,10 +31,7 @@ import { ensureNativeSessionChain } from 'lib/walletconnect/native';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 
 import { type CommandDrafts, useCommandDrafts } from '../command-drafts';
-
-function defaultBridgeRoute(routes: readonly BridgeRoute[]): BridgeRoute | undefined {
-  return routes.find(item => !(item.provider === 'epoch' && item.mode === 'receive')) ?? routes[0];
-}
+import { defaultBridgeRoute } from './bridge-selection';
 
 export function useCommandBridge() {
   const drafts = useCommandDrafts();
@@ -59,9 +56,11 @@ export function useCommandBridge() {
     if (locked) clearDraft('bridge');
   }, [locked, clearDraft]);
   const scope = configKey([account?.publicKey, getEffectiveNetworkName(), getEffectiveRpcUrl(), locked]);
+  const initialDraft = drafts.readDraft('bridge');
+  const autoReviewPending = useRef(Boolean(initialDraft?.autoReview));
   const [selection, setSelection] = useState<CommandDrafts['bridge']>(
     () =>
-      drafts.readDraft('bridge') ?? {
+      initialDraft ?? {
         direction: 'in',
         route: '',
         amount: '',
@@ -198,6 +197,7 @@ export function useCommandBridge() {
       admittedRowId.current
     )
       return;
+    autoReviewPending.current = false;
     invalidate();
     setQuote(null);
     const updated = { ...selected.current, ...next };
@@ -286,7 +286,7 @@ export function useCommandBridge() {
       /* An incomplete quote or selection is not consent. */
     }
   }
-  const reviewTransfer = () => {
+  const reviewTransfer = useCallback(() => {
     if (!canReview || !current.current || pending.current || admittedRowId.current) return;
     const captured: ReviewedTransfer = structuredClone({ ...current.current, quote: quote ?? undefined });
     try {
@@ -297,8 +297,16 @@ export function useCommandBridge() {
     }
     consent.current = captured;
     setReview(captured);
-  };
+  }, [canReview, quote]);
+
+  useEffect(() => {
+    if (!autoReviewPending.current || !canReview || review || operationId || isSubmitting) return;
+    autoReviewPending.current = false;
+    reviewTransfer();
+  }, [canReview, review, operationId, isSubmitting, reviewTransfer]);
+
   const back = useCallback(() => {
+    autoReviewPending.current = false;
     if (operationId || pending.current) {
       invalidate();
       exit();

@@ -147,6 +147,13 @@ describe('EpochLockedDepositAction', () => {
       expect(finishLockedDepositWithdrawal).not.toHaveBeenCalled();
     });
 
+    it('shows a restored deposit status without offering recovery actions', () => {
+      render(<EpochLockedDepositAction txId="row-1" lock={LOCK} state="locked" amountLabel="1 USDC" readOnly />);
+
+      expect(screen.getByTestId('epoch-deposit-locked')).toBeInTheDocument();
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+    });
+
     it('shows the withdrawn text and no actions for a withdrawn row', () => {
       render(sponsorRow({ ...LOCK, withdrawnAt: 5 }, 'withdrawn'));
 

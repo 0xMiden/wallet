@@ -461,7 +461,7 @@ describe('miden repo export/import', () => {
 
   // A backup must not record which dApps the user used, and a restored row is never waitable by one (#1416). Asserted
   // on the dump itself: import drops the field too, so a round trip passes even when the export keeps it.
-  it('leaves dappOrigins out of the dump', async () => {
+  it('leaves local dApp origins out of the dump', async () => {
     await transactions.bulkAdd([
       {
         id: 'dapp-row',
@@ -471,16 +471,18 @@ describe('miden repo export/import', () => {
         initiatedAt: 5,
         completedAt: 6,
         displayIcon: 'SEND',
-        dappOrigins: ['https://dapp.example']
+        dappOrigins: ['https://dapp.example'],
+        initiatingDappOrigin: 'https://dapp.example'
       }
     ]);
 
     const [dumped] = JSON.parse(await exportDb())[Table.Transactions];
     expect(dumped.id).toBe('dapp-row');
     expect(dumped).not.toHaveProperty('dappOrigins');
+    expect(dumped).not.toHaveProperty('initiatingDappOrigin');
   });
 
-  it('drops a dappOrigins the dump supplies', async () => {
+  it('drops dApp origins the dump supplies', async () => {
     const dump = JSON.stringify({
       [Table.Transactions]: [
         {
@@ -491,7 +493,8 @@ describe('miden repo export/import', () => {
           initiatedAt: 1,
           completedAt: 2,
           displayIcon: 'SEND',
-          dappOrigins: ['https://dapp.example']
+          dappOrigins: ['https://dapp.example'],
+          initiatingDappOrigin: 'https://dapp.example'
         }
       ]
     });
@@ -501,6 +504,7 @@ describe('miden repo export/import', () => {
     const [restored] = await transactions.toArray();
     expect(restored!.restoredFromBackup).toBe(true);
     expect(restored).not.toHaveProperty('dappOrigins');
+    expect(restored).not.toHaveProperty('initiatingDappOrigin');
   });
 
   it('keeps local badge provenance out of exports and ignores provenance supplied by a dump', async () => {
@@ -908,7 +912,7 @@ describe('portfolio observation migration', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.3);
+      expect(upgraded.verno).toBe(3.4);
       await expect(upgraded.table(Table.Transactions).get('existing-tx')).resolves.toMatchObject({ accountId: 'a' });
       await expect(upgraded.table(Table.SpendingLimits).get('a')).resolves.toMatchObject({ limit: '10' });
       expect(upgraded.table(Table.PortfolioObservations).schema.primKey.keyPath).toEqual([
@@ -937,7 +941,7 @@ describe('spending limits schema', () => {
   it('keeps spending limits keyed by account alone after the observation migration', () => {
     const schema = spendingLimits.schema;
 
-    expect(db.verno).toBe(3.3);
+    expect(db.verno).toBe(3.4);
     expect(schema.primKey.keyPath).toBe('accountId');
     expect(schema.indexes.map(index => index.name)).toEqual(expect.arrayContaining(['revision']));
   });
@@ -1115,7 +1119,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
     const upgraded = createSchemaFor(name);
 
     await expect(upgraded.open()).resolves.toBeDefined();
-    expect(upgraded.verno).toBe(3.3);
+    expect(upgraded.verno).toBe(3.4);
     expect(upgraded.table(Table.SpendingLimits).schema.primKey.keyPath).toBe('accountId');
     expect(upgraded.table(Table.Transactions).schema.indexes.map(index => index.name)).toContain('type');
     await expect(upgraded.table(Table.SpendingLimits).count()).resolves.toBe(0);
@@ -1166,7 +1170,7 @@ describe('schema migration (1.7 -> 2, 1.9 -> 2)', () => {
 
     const upgraded = createSchemaFor(name);
     await upgraded.open();
-    expect(upgraded.verno).toBe(3.3);
+    expect(upgraded.verno).toBe(3.4);
     await expect(upgraded.table(Table.SpendingLimits).get('account-a')).resolves.toMatchObject({
       revision: 'rev-1',
       limit: '100'
@@ -1213,7 +1217,7 @@ describe('writing a transaction row', () => {
     const upgraded = createSchemaFor(name);
     try {
       await upgraded.open();
-      expect(upgraded.verno).toBe(3.3);
+      expect(upgraded.verno).toBe(3.4);
       const upgradedLegacy = await upgraded.table(Table.Transactions).get(legacy.id);
       expect(upgradedLegacy).toMatchObject(legacy);
       expect(upgradedLegacy).not.toHaveProperty('badgeEvidenceRevision');
@@ -2227,7 +2231,7 @@ describe('wallet storage rejection boundaries', () => {
         target.close();
         let upgrades = 0;
         target
-          .version(3.4)
+          .version(3.5)
           .stores({ [Table.Transactions]: TRANSACTIONS_V2_STORE })
           .upgrade(async tx => {
             upgrades++;
@@ -2259,7 +2263,7 @@ describe('wallet storage rejection boundaries', () => {
       await target.open();
       target.close();
       target
-        .version(3.4)
+        .version(3.5)
         .stores({ [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE })
         .upgrade(() => {
           throw failure;

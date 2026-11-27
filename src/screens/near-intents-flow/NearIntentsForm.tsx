@@ -19,8 +19,8 @@ import { Pill } from 'components/ui/Pill';
 import { TextField } from 'components/ui/TextField';
 import { amountExceedsTokenDecimals, stringToBigInt } from 'lib/i18n/numbers';
 import { useAccount } from 'lib/miden/front';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
-import { isValidNearIntentsAddress } from 'lib/one-click/address';
+import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
+import { isValidNearIntentsRefundAddress } from 'lib/one-click/address';
 import { requestOneClickQuote } from 'lib/one-click/client';
 import { persistNearIntentsDeposit } from 'lib/one-click/tracking';
 import type {
@@ -89,8 +89,31 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
   const [submitting, setSubmitting] = useState(false);
   const [submitFailed, setSubmitFailed] = useState(false);
   const [previewDeadline, setPreviewDeadline] = useState(deadlineFromNow);
+  const activeAccount = useRef(publicKey);
+  activeAccount.current = publicKey;
+  const networkName = getEffectiveNetworkName();
+  const rpcUrl = getEffectiveRpcUrl();
   const submittingRef = useRef(false);
   const mountedRef = useRef(true);
+  const submissionGenRef = useRef(0);
+  const submissionAbort = useRef<AbortController | undefined>(undefined);
+  const beginSubmission = useCallback(() => {
+    const gen = ++submissionGenRef.current;
+    submissionAbort.current?.abort();
+    const controller = new AbortController();
+    submissionAbort.current = controller;
+    return {
+      signal: controller.signal,
+      networkName,
+      isCurrent: () =>
+        mountedRef.current &&
+        submissionGenRef.current === gen &&
+        !controller.signal.aborted &&
+        activeAccount.current === publicKey &&
+        getEffectiveNetworkName() === networkName &&
+        getEffectiveRpcUrl() === rpcUrl
+    };
+  }, [publicKey, networkName, rpcUrl]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -98,6 +121,20 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
       mountedRef.current = false;
     };
   }, []);
+
+  useEffect(() => {
+    submissionGenRef.current += 1;
+    submissionAbort.current?.abort();
+    submissionAbort.current = undefined;
+    submittingRef.current = false;
+    setSubmitting(false);
+    setSubmitFailed(false);
+    return () => {
+      submissionGenRef.current += 1;
+      submissionAbort.current?.abort();
+      submissionAbort.current = undefined;
+    };
+  }, [publicKey, networkName, rpcUrl]);
 
   const resolved = resolveSelection(catalog, selection);
   const chain = resolved?.chain;
@@ -123,7 +160,7 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
 
   const trimmedRefund = refundAddress.trim();
   const refundValid =
-    chain !== undefined && trimmedRefund !== '' && isValidNearIntentsAddress(chain.addressKind, trimmedRefund);
+    chain !== undefined && trimmedRefund !== '' && isValidNearIntentsRefundAddress(chain.addressKind, trimmedRefund);
   // A user who types a preview placeholder as the refund address is refused: the guard in `submit` cannot tell
   // that address from the placeholder.
   const refundUsable = refundValid && !isPreviewRefundAddress(trimmedRefund);
@@ -167,7 +204,8 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
   previewRequestRef.current = previewRequest;
 
   const queryPreview = useCallback(
-    (request: OneClickQuoteRequest) => requestOneClickQuote(config, request, true),
+    (request: OneClickQuoteRequest, signal: AbortSignal) =>
+      requestOneClickQuote(config, request, true, undefined, signal),
     [config]
   );
   const preview = useNearIntentsQuote(previewRequest, queryPreview, active);
@@ -186,36 +224,41 @@ export const NearIntentsForm: React.FC<NearIntentsFormProps> = ({ config, catalo
     // A deposit quote must carry the refund address of the user, never a preview placeholder.
     if (isPreviewRefundAddress(current.refundTo)) return;
     const faucetId = output.faucetId;
+    const submission = beginSubmission();
     submittingRef.current = true;
     setSubmitting(true);
     setSubmitFailed(false);
     const request: OneClickQuoteRequest = { ...current, deadline: deadlineFromNow() };
     try {
       if (!faucetId) throw new Error('The Miden output token has no faucet id');
-      const depositQuote = await requestOneClickQuote(config, request, false);
-      // The user changed the route while the quote was on its way: do not save a row for the old one.
+      const depositQuote = await requestOneClickQuote(config, request, false, undefined, submission.signal);
+      // The user changed the route, switched account/network/RPC, or left the form while the quote
+      // was on its way: do not save an orphan row for the old context.
       const latest = previewRequestRef.current;
-      if (!latest || routeKey(latest) !== routeKey(request)) return;
+      if (!submission.isCurrent() || !latest || routeKey(latest) !== routeKey(request)) return;
       const rowId = await persistNearIntentsDeposit({
         request,
         quote: depositQuote,
         config,
-        network: getEffectiveNetworkName(),
+        network: submission.networkName,
         accountId: publicKey,
         accountAddress: publicKey,
         originAsset: token.asset,
         destinationAsset: output,
         faucetId
       });
-      if (mountedRef.current) navigate(`/receive/near-intents/${encodeURIComponent(rowId)}`);
+      if (submission.isCurrent()) navigate(`/receive/near-intents/${encodeURIComponent(rowId)}`);
     } catch (error) {
+      if (!submission.isCurrent()) return;
       console.warn('[NearIntents] the deposit address request failed', error);
-      if (mountedRef.current) setSubmitFailed(true);
+      setSubmitFailed(true);
     } finally {
-      submittingRef.current = false;
-      if (mountedRef.current) setSubmitting(false);
+      if (submission.isCurrent()) {
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
     }
-  }, [config, token, output, publicKey]);
+  }, [beginSubmission, config, token, output, publicKey]);
 
   // Paste reads the native clipboard on mobile only, as the send flow does: in a WebView the
   // web clipboard read shows the platform callout, and the extension has no clipboard read

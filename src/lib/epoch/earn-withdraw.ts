@@ -12,6 +12,7 @@ import {
   markEarnWithdrawNotSent,
   markEarnWithdrawAccepted
 } from 'lib/miden/activity';
+import { readTransactionIndexChunks, typeIndexSpecs } from 'lib/miden/db/index-query';
 import {
   ITransactionStatus,
   type IBridgeInInfo,
@@ -60,6 +61,7 @@ import { withdrawalAmount } from './withdraw-amount';
 
 /** Non-terminal `earn-withdraw` phases the reconciler resumes; terminal ones are skipped. */
 const NON_TERMINAL_WITHDRAW_PHASES = new Set(['redeeming', 'delivering']);
+const WITHDRAW_BALANCE_MAX_AGE_MS = 5_000;
 
 /** Shown when a restored row is refused: its EVM owner and amount are unverified. */
 const RESTORED_WITHDRAW_UNVERIFIABLE = 'Restored from a backup - this withdrawal could not be verified.';
@@ -87,9 +89,7 @@ export interface GaslessEarnWithdrawalArgs {
   allocatorUrl?: string;
   /** Required by the amount-entry UI; legacy persisted retries retain their original execution. */
   review?: EarnWithdrawalQuote;
-  /** Fired once the tracking `earn-withdraw` row exists (before the intent work),
-   * so the caller can navigate to the generating-transaction screen, matching
-   * `openEarnPosition`'s callback. */
+  /** Called when the wallet saves the tracking row and can show the withdrawal status. */
   onRowCreated?: (txId: string) => void;
   /**
    * The protocol string a deposit hashes. Unresolved (no listing, catalogue field, or local deposit)
@@ -189,19 +189,21 @@ const positionLockKey = (owner: string, marketUid: string): string =>
 
 /** Read under the position lock: a withdrawal waits until every earlier one from its position is terminal. */
 async function withdrawalInFlight(owner: string, marketUid: string): Promise<boolean> {
-  const rows = await Repo.transactions
-    .filter(tx => {
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    typeIndexSpecs(['earn-withdraw']),
+    tx => {
       const inputs: IEarnWithdrawExtraInputs | undefined = tx.extraInputs;
       return (
-        tx.type === 'earn-withdraw' &&
         NON_TERMINAL_WITHDRAW_PHASES.has(inputs?.phase ?? '') &&
         typeof inputs?.evmOwner === 'string' &&
         inputs.evmOwner.toLowerCase() === owner.toLowerCase() &&
         typeof inputs.marketUid === 'string' &&
         inputs.marketUid.toLowerCase() === marketUid.toLowerCase()
       );
-    })
-    .toArray();
+    },
+    { limit: 1 }
+  );
   return rows.length > 0;
 }
 
@@ -272,8 +274,6 @@ async function submitEarnWithdrawal(
     ) {
       throw new Error('earnWithdrawRefresh');
     }
-    await assertWithdrawalReviewCurrent(review);
-    assertReviewedContext();
   }
   const attemptId = v4();
   const attemptStartedAt = Math.floor(Date.now() / 1000);
@@ -288,36 +288,48 @@ async function submitEarnWithdrawal(
     };
     if (await withdrawalInFlight(sponsorAddress, args.marketUid)) throw new Error('earnWithdrawInProgress');
     assertBeforeSigning();
-    const txId = await initiateRow(
-      args.midenAccountPublicKey,
-      amountAtomic,
-      sponsorAddress,
-      args.marketUid,
-      destinationFaucetId,
-      args.amount,
-      args.underlyingSymbol,
-      attemptId,
-      attemptStartedAt,
-      args.underlyingDecimals,
-      protocol,
-      executionChain.id
-    );
-    assertCurrent();
-    await Repo.transactions.where({ id: txId }).modify(row => {
-      row.extraInputs = {
-        ...row.extraInputs,
-        epochAllocatorUrl: apiBaseUrl,
-        underlyingAddress,
+    let balanceCheckedAt = -Infinity;
+    if (currentReview) {
+      await assertWithdrawalReviewCurrent(currentReview);
+      balanceCheckedAt = performance.now();
+      assertBeforeSigning();
+    }
+
+    let txId: string | undefined;
+    const createRow = async (): Promise<string> => {
+      const id = await initiateRow(
+        args.midenAccountPublicKey,
+        amountAtomic,
+        sponsorAddress,
+        args.marketUid,
+        destinationFaucetId,
+        args.amount,
+        args.underlyingSymbol,
+        attemptId,
+        attemptStartedAt,
+        args.underlyingDecimals,
         protocol,
-        chainId: executionChain.id,
-        ...(args.review ? { reviewedMinimumReceivedAtomic: args.review.minimumAtomic } : {})
-      };
-    });
-    args.onRowCreated?.(txId);
+        executionChain.id
+      );
+      txId = id;
+      assertCurrent();
+      await Repo.transactions.where({ id }).modify(row => {
+        row.extraInputs = {
+          ...row.extraInputs,
+          epochAllocatorUrl: apiBaseUrl,
+          underlyingAddress,
+          protocol,
+          chainId: executionChain.id,
+          ...(args.review ? { reviewedMinimumReceivedAtomic: args.review.minimumAtomic } : {})
+        };
+      });
+      assertCurrent();
+      return id;
+    };
     const expected: ExpectedEarnWithdrawIntent = { owner: sponsorAddress, attemptId };
     let preparedExecution: IEarnWithdrawPreparedExecution | undefined;
     let executionPermitted = false;
-    const bridgeInfo = (nonce: string): IBridgeInInfo => ({
+    const bridgeInfo = (txId: string, nonce: string): IBridgeInInfo => ({
       provider: 'epoch',
       sourceAmount: args.amount,
       sourceSymbol: args.underlyingSymbol,
@@ -328,17 +340,21 @@ async function submitEarnWithdrawal(
       epochAllocatorUrl: apiBaseUrl
     });
     const startRecovery = () => {
-      if (!context.isCurrent() || !preparedExecution) return;
+      if (!context.isCurrent() || !preparedExecution || !txId) return;
       startDeliveryPoll({
         sponsorAddress,
         nonce: preparedExecution.delivery.nonce,
         txId,
         attemptId,
         immediate: true,
-        bridgeInfo: bridgeInfo(preparedExecution.delivery.nonce)
+        bridgeInfo: bridgeInfo(txId, preparedExecution.delivery.nonce)
       });
     };
     try {
+      if (!verifyMarket || !currentReview) {
+        const rowId = await createRow();
+        args.onRowCreated?.(rowId);
+      }
       assertBeforeSigning();
       const walletClient = buildVaultEvmWalletClient(
         args.midenAccountPublicKey,
@@ -388,7 +404,9 @@ async function submitEarnWithdrawal(
           if (!selected) throw new Error('The prepared withdrawal does not match its destination.');
           const review = currentReview;
           if (review) {
-            await assertWithdrawalReviewCurrent(review);
+            if (performance.now() - balanceCheckedAt >= WITHDRAW_BALANCE_MAX_AGE_MS) {
+              await assertWithdrawalReviewCurrent(review);
+            }
             assertBeforeSigning();
             const validated = validateEarnWithdrawPreparedExecution(selected, identity);
             if (!validated) throw new Error('earnWithdrawRefresh');
@@ -398,12 +416,15 @@ async function submitEarnWithdrawal(
               selected.delivery.allocationIndex
             );
           }
+          const rowId = txId ?? (await createRow());
+          if (verifyMarket && review) args.onRowCreated?.(rowId);
+          assertBeforeSigning();
           preparedExecution = selected;
           const prepareExecution = deps.prepareExecution ?? prepareEarnWithdrawExecution;
-          if (!(await prepareExecution(txId, selected, expected, context.isCurrent)))
+          if (!(await prepareExecution(rowId, selected, expected, context.isCurrent)))
             throw new Error('The withdrawal preparation could not be saved.');
           assertBeforeSigning();
-          const fresh = await Repo.transactions.where({ id: txId }).first();
+          const fresh = await Repo.transactions.where({ id: rowId }).first();
           assertBeforeSigning();
           if (
             !fresh ||
@@ -424,14 +445,14 @@ async function submitEarnWithdrawal(
         }
       });
       assertCurrent();
-      if (!executionPermitted || !preparedExecution)
+      if (!executionPermitted || !preparedExecution || !txId)
         throw new Error('The SDK did not prepare the withdrawal before execution.');
       const markAccepted = deps.markAccepted ?? markEarnWithdrawAccepted;
       await markAccepted(txId, { ...expected, nonce: preparedExecution.delivery.nonce }, context.isCurrent).catch(
         (error: unknown) => console.warn('[earn-withdraw] acceptance patch failed', error)
       );
     } catch (error) {
-      if (!executionPermitted && context.isCurrent()) {
+      if (txId && !executionPermitted && context.isCurrent()) {
         const markNotSent = deps.markNotSent ?? markEarnWithdrawNotSent;
         const message = error instanceof Error ? error.message : String(error);
         await markNotSent(
@@ -446,7 +467,7 @@ async function submitEarnWithdrawal(
       throw error;
     }
     assertCurrent();
-    if (!preparedExecution) throw new Error('The withdrawal preparation is missing.');
+    if (!preparedExecution || !txId) throw new Error('The withdrawal preparation is missing.');
     const nonceString = preparedExecution.delivery.nonce;
     // The poll owns metadata repair independently from status checking.
     startRecovery();
@@ -812,7 +833,11 @@ export async function resumeEarnWithdrawal(txId: string, deps: ResumeDeps = {}):
 
 /** Repair stale/restored rows locally before attempting any polling ownership. */
 export async function reconcileEarnWithdrawals(deps: ResumeDeps = {}): Promise<void> {
-  const rows = await Repo.transactions.filter(tx => tx.type === 'earn-withdraw').toArray();
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    typeIndexSpecs(['earn-withdraw']),
+    hasEarnWithdrawRecoveryWork
+  );
   for (const row of rows) {
     if (!hasEarnWithdrawRecoveryWork(row)) continue;
     await resumeEarnWithdrawal(row.id, deps).catch((error: unknown) =>

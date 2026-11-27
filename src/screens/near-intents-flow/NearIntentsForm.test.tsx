@@ -34,22 +34,33 @@ jest.mock('components/TokenLogo', () => ({
   TokenLogo: ({ symbol }: { symbol: string }) => <span data-testid={`token-logo-${symbol}`} />
 }));
 
-const mockRequestQuote = jest.fn<Promise<OneClickQuoteResponse>, [NearIntentsConfig, OneClickQuoteRequest, boolean]>();
+const mockRequestQuote = jest.fn<
+  Promise<OneClickQuoteResponse>,
+  [NearIntentsConfig, OneClickQuoteRequest, boolean, typeof fetch | undefined, AbortSignal | undefined]
+>();
 const { OneClickHttpError } = jest.requireActual<typeof import('lib/one-click/client')>('lib/one-click/client');
 jest.mock('lib/one-click/client', () => ({
-  requestOneClickQuote: (config: NearIntentsConfig, request: OneClickQuoteRequest, dry: boolean) =>
-    mockRequestQuote(config, request, dry)
+  requestOneClickQuote: (
+    config: NearIntentsConfig,
+    request: OneClickQuoteRequest,
+    dry: boolean,
+    fetcher?: typeof fetch,
+    signal?: AbortSignal
+  ) => mockRequestQuote(config, request, dry, fetcher, signal)
 }));
-jest.mock('lib/one-click/address', () => ({
-  isValidNearIntentsAddress: (kind: string, value: string) =>
-    kind === 'evm' ? /^0x[0-9a-fA-F]{40}$/.test(value) : value.length > 20
-}));
+jest.mock('lib/one-click/address', () => jest.requireActual('lib/one-click/address'));
 const mockPersist = jest.fn<Promise<string>, [unknown]>();
 jest.mock('lib/one-click/tracking', () => ({
   persistNearIntentsDeposit: (input: unknown) => mockPersist(input)
 }));
-jest.mock('lib/miden/front', () => ({ useAccount: () => ({ publicKey: 'mm1account' }) }));
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => 'mainnet' }));
+let mockPublicKey = 'mm1account';
+let mockNetworkName = 'mainnet';
+let mockRpcUrl = 'https://rpc.mainnet.example';
+jest.mock('lib/miden/front', () => ({ useAccount: () => ({ publicKey: mockPublicKey }) }));
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => mockNetworkName,
+  getEffectiveRpcUrl: () => mockRpcUrl
+}));
 const mockNavigate = jest.fn();
 jest.mock('lib/woozie', () => ({
   ...jest.requireActual('lib/woozie'),
@@ -155,6 +166,9 @@ const flushQuote = async () => {
 };
 
 beforeEach(() => {
+  mockPublicKey = 'mm1account';
+  mockNetworkName = 'mainnet';
+  mockRpcUrl = 'https://rpc.mainnet.example';
   jest.useFakeTimers();
   mockRequestQuote.mockReset();
   mockRequestQuote.mockImplementation(async (_config, request, dry) => quoteFor(request, dry));
@@ -234,8 +248,9 @@ describe('NearIntentsForm', () => {
     typeAmount('46');
     await flushQuote();
     expect(mockRequestQuote).toHaveBeenCalledTimes(1);
-    const [, request, dry] = mockRequestQuote.mock.calls[0]!;
+    const [, request, dry, , signal] = mockRequestQuote.mock.calls[0]!;
     expect(dry).toBe(true);
+    expect(signal).toBeInstanceOf(AbortSignal);
     expect(request.refundTo).toBe(previewRefundAddress('evm'));
     expect(button).toBeDisabled();
 
@@ -314,17 +329,19 @@ describe('NearIntentsForm', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/receive/near-intents/row-1');
   });
 
-  it('saves the row and does not open the deposit page when the form unmounts before the quote resolves', async () => {
+  it('aborts the deposit quote and does not persist or navigate when the form unmounts before the quote resolves', async () => {
     const view = renderForm();
     typeAmount('46');
     typeRefund(REFUND);
     await flushQuote();
 
     let wetRequest: OneClickQuoteRequest | undefined;
+    let wetSignal: AbortSignal | undefined;
     let resolveWet: ((quote: OneClickQuoteResponse) => void) | undefined;
-    mockRequestQuote.mockImplementation((_config, request, dry) => {
+    mockRequestQuote.mockImplementation((_config, request, dry, _fetcher, signal) => {
       if (dry) return Promise.resolve(quoteFor(request, dry));
       wetRequest = request;
+      wetSignal = signal;
       return new Promise(resolve => {
         resolveWet = resolve;
       });
@@ -333,7 +350,11 @@ describe('NearIntentsForm', () => {
     await act(async () => {
       fireEvent.click(screen.getByTestId('near-intents-get-deposit-address'));
     });
+    expect(wetSignal).toBeInstanceOf(AbortSignal);
+    expect(wetSignal?.aborted).toBe(false);
+
     view.unmount();
+    expect(wetSignal?.aborted).toBe(true);
 
     const request = wetRequest;
     const resolveQuote = resolveWet;
@@ -345,8 +366,133 @@ describe('NearIntentsForm', () => {
       await Promise.resolve();
     });
 
-    expect(mockPersist).toHaveBeenCalledTimes(1);
+    expect(mockPersist).not.toHaveBeenCalled();
     expect(mockNavigate).not.toHaveBeenCalled();
+  });
+
+  it('aborts stale deposit quotes on account switch (including A -> B -> A) and ignores stale settlement', async () => {
+    const { rerender } = renderForm();
+    typeAmount('46');
+    typeRefund(REFUND);
+    await flushQuote();
+
+    const wetRequests: OneClickQuoteRequest[] = [];
+    const wetSignals: Array<AbortSignal | undefined> = [];
+    const resolves: Array<(quote: OneClickQuoteResponse) => void> = [];
+    mockRequestQuote.mockImplementation((_config, request, dry, _fetcher, signal) => {
+      if (dry) return Promise.resolve(quoteFor(request, dry));
+      wetRequests.push(request);
+      wetSignals.push(signal);
+      return new Promise(resolve => {
+        resolves.push(resolve);
+      });
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('near-intents-get-deposit-address'));
+    });
+    expect(wetSignals[0]?.aborted).toBe(false);
+    expect(screen.getByTestId('near-intents-get-deposit-address')).toBeDisabled();
+
+    // Switch A -> B: first submission aborts and button is immediately re-enabled once dry quote is ready.
+    mockPublicKey = 'mm1account2';
+    rerender(<NearIntentsForm config={config} catalog={catalog} />);
+    await flushQuote();
+    expect(wetSignals[0]?.aborted).toBe(true);
+    expect(screen.getByTestId('near-intents-get-deposit-address')).toBeEnabled();
+
+    // Switch back B -> A and start a second submission on account A.
+    mockPublicKey = 'mm1account';
+    rerender(<NearIntentsForm config={config} catalog={catalog} />);
+    await flushQuote();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('near-intents-get-deposit-address'));
+    });
+    expect(wetSignals[1]?.aborted).toBe(false);
+    expect(screen.getByTestId('near-intents-get-deposit-address')).toBeDisabled();
+
+    // Settle submission 1 after returning to A: must NOT persist, navigate, or unlock submission 2.
+    const wetCountBeforeStale = wetRequests.length;
+    await act(async () => {
+      resolves[0]!(quoteFor(wetRequests[0]!, false));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPersist).not.toHaveBeenCalled();
+    expect(mockNavigate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('near-intents-get-deposit-address')).toBeDisabled();
+    // Advancing timers/clicks while submission 2 is pending proves `submitting` and `submittingRef` stayed locked.
+    await flushQuote();
+    expect(screen.getByTestId('near-intents-get-deposit-address')).toBeDisabled();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('near-intents-get-deposit-address'));
+    });
+    expect(wetRequests.length).toBe(wetCountBeforeStale);
+
+    // Only submission 2 persists and navigates.
+    await act(async () => {
+      resolves[1]!(quoteFor(wetRequests[1]!, false));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockPersist).toHaveBeenCalledTimes(1);
+    expect(mockNavigate).toHaveBeenCalledWith('/receive/near-intents/row-1');
+  });
+
+  it('ignores stale persist resolution and aborted rejections across effective network/RPC switches', async () => {
+    const { rerender } = renderForm();
+    typeAmount('46');
+    typeRefund(REFUND);
+    await flushQuote();
+
+    let resolvePersist: ((rowId: string) => void) | undefined;
+    mockPersist.mockImplementation(
+      () =>
+        new Promise(resolve => {
+          resolvePersist = resolve;
+        })
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('near-intents-get-deposit-address'));
+      await Promise.resolve();
+    });
+    expect(resolvePersist).toBeDefined();
+
+    // Network switches mainnet -> testnet -> mainnet while persistNearIntentsDeposit is awaiting.
+    mockNetworkName = 'testnet';
+    rerender(<NearIntentsForm config={config} catalog={catalog} />);
+    mockNetworkName = 'mainnet';
+    rerender(<NearIntentsForm config={config} catalog={catalog} />);
+    await flushQuote();
+
+    await act(async () => {
+      resolvePersist!('row-stale');
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(mockNavigate).not.toHaveBeenCalled();
+
+    // Next check: silent RPC switch mid-quote blocks persist and aborted error stays hidden.
+    mockPersist.mockResolvedValue('row-2');
+    let rejectWet: ((err: unknown) => void) | undefined;
+    mockRequestQuote.mockImplementation((_config, request, dry) => {
+      if (dry) return Promise.resolve(quoteFor(request, dry));
+      return new Promise((_resolve, reject) => {
+        rejectWet = reject;
+      });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('near-intents-get-deposit-address'));
+    });
+    expect(rejectWet).toBeDefined();
+    mockRpcUrl = 'https://rpc.other.example';
+    rerender(<NearIntentsForm config={config} catalog={catalog} />);
+    await act(async () => {
+      rejectWet!(new DOMException('Aborted', 'AbortError'));
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('near-intents-submit-error')).not.toBeInTheDocument();
   });
 
   it('shows an inline error and stays on the form when the deposit quote fails', async () => {
@@ -380,5 +526,15 @@ describe('NearIntentsForm', () => {
 
     expect(screen.getByTestId('near-intents-quote-error')).toHaveTextContent('oneClickQuoteUnavailable');
     expect(screen.getByTestId('near-intents-get-deposit-address')).toBeDisabled();
+  });
+
+  it('accepts a valid non-checksummed mixed-case EVM refund address', async () => {
+    renderForm();
+    typeAmount('46');
+    typeRefund('0x5aaeb6053F3E94C9b9A09f33669435E7Ef1BeAed');
+    await flushQuote();
+
+    expect(screen.queryByTestId('near-intents-refund-error')).not.toBeInTheDocument();
+    expect(screen.getByTestId('near-intents-get-deposit-address')).toBeEnabled();
   });
 });

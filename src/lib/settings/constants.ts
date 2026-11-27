@@ -48,7 +48,7 @@ export const DEFAULT_CARD_COLOR: CardColor = 'slate';
 export const ACTIVITY_VIEW_STORAGE_KEY = 'activity_view_setting';
 export type ActivityView = 'list' | 'groups';
 export const ACTIVITY_VIEWS: ActivityView[] = ['list', 'groups'];
-export const DEFAULT_ACTIVITY_VIEW: ActivityView = 'list';
+export const DEFAULT_ACTIVITY_VIEW: ActivityView = 'groups';
 
 /**
  * Which activity rows the user has already looked at. A per-device display preference, like the

@@ -5,6 +5,8 @@ import type { Runtime } from 'webextension-polyfill';
 import { ACCOUNT_NAME_PATTERN } from 'app/defaults';
 import { MidenDAppErrorType, MidenDAppMessageType, MidenDAppRequest, MidenDAppResponse } from 'lib/adapter/types';
 import type { StrictAuthenticationProtectors } from 'lib/auth/strict-action-authentication';
+import { installBackupSignalHandler } from 'lib/backup/adopt-signal';
+import { deleteBackupProfile, onBackupLock, runBackupRefresh } from 'lib/backup/refresh';
 import { getMessage } from 'lib/i18n';
 import { isMainnetAccountAdmitted, redeemMainnetAccessCode } from 'lib/mainnet-access';
 import { importAllNotes, retryDeadletteredNotes as drainNoteDeadletter } from 'lib/miden/activity';
@@ -64,6 +66,8 @@ import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { PlatformUnlockCommand, PlatformUnlockResult } from 'lib/platform-auth/types';
 import {
+  BackupRefreshOutcome,
+  BackupRefreshReason,
   GetStateResponse,
   GuardianRecoveryAction,
   GuardianSyncStatus,
@@ -183,6 +187,12 @@ export async function init() {
           new Uint8Array(Buffer.from(await signTransaction(publicKey, signingInputs), 'hex'))
       )
     });
+    // The encrypted backup's keys live in this realm, so a Guardian adoption or a completed
+    // transaction seen here refreshes the history directly; a realm without this handler (the
+    // extension popup) forwards the signal here.
+    installBackupSignalHandler(reason => {
+      runBackupRefresh(reason);
+    });
     const vault = await getVault(); // wait for vault initialization
     const vaultExist = (await vault.isExist()) && (await keepsSetupPendingAdmission());
     console.log('[Actions.init] Vault exists:', vaultExist);
@@ -301,33 +311,61 @@ async function discardPendingAccessVault() {
  * returns, the marker lists every account the vault holds. Any other setup first removes a marker an earlier one left,
  * which that wipe would otherwise keep and init would read as this setup's.
  */
-async function spawnSetup(marked: boolean, spawn: () => Promise<Vault>): Promise<Vault> {
-  if (!marked) {
-    // Not swallowed: a marker this cannot read or remove would outlive the wipe.
-    const storage = getStorageProvider();
-    if ((await storage.get([PENDING_ADMISSION_STORAGE_KEY]))[PENDING_ADMISSION_STORAGE_KEY] !== undefined)
-      await storage.remove([PENDING_ADMISSION_STORAGE_KEY]);
-    return spawn();
-  }
-  await markPendingAdmission([]);
+export interface SpawnSetupHooks {
+  onBeforeCommit: () => Promise<void>;
+  checkAccountsAdmitted: (accountIds: string[]) => Promise<void>;
+}
+
+/**
+ * A setup that may need pre-commit validation (Guardian lookup, network reachability,
+ * invite-only admission check) defers writing or removing `PENDING_ADMISSION_STORAGE_KEY`
+ * until `hooks.onBeforeCommit()` fires at the commit boundary. Earlier `undo` on a
+ * pre-commit failure is skipped so any existing wallet and its admission state survive.
+ */
+async function spawnSetup(marked: boolean, spawn: (hooks: SpawnSetupHooks) => Promise<Vault>): Promise<Vault> {
+  let committed = false;
+  const onBeforeCommit = async () => {
+    committed = true;
+    if (!marked) {
+      // Not swallowed: a marker this cannot read or remove would outlive the wipe.
+      const storage = getStorageProvider();
+      if ((await storage.get([PENDING_ADMISSION_STORAGE_KEY]))[PENDING_ADMISSION_STORAGE_KEY] !== undefined)
+        await storage.remove([PENDING_ADMISSION_STORAGE_KEY]);
+      return;
+    }
+    await markPendingAdmission([]);
+  };
+  const checkAccountsAdmitted = async (accountIds: string[]) => {
+    if (isInviteOnlyNetwork() && !(await admitsEveryAccount(accountIds))) {
+      throw new PublicError(getMessage('mainnetAccountNotAdmitted'));
+    }
+  };
   let vault: Vault;
   try {
-    vault = await spawn();
+    vault = await spawn({ onBeforeCommit, checkAccountsAdmitted });
+    committed = true;
   } catch (error) {
-    // A rejected spawn has undone what it wrote, or wrote nothing, so init has no setup to undo.
-    await clearPendingAdmission();
+    // A pre-commit rejection leaves any existing wallet intact; only clear the
+    // admission marker if commit already started and wrote one.
+    if (marked && committed) await clearPendingAdmission();
     throw error;
   }
-  try {
-    await markPendingAdmission((await vault.fetchAccounts()).map(({ publicKey }) => publicKey));
-  } catch (error) {
-    await undoFailedSetup(vault, 'Actions.spawnSetup');
-    throw error;
+  if (marked) {
+    try {
+      await markPendingAdmission((await vault.fetchAccounts()).map(({ publicKey }) => publicKey));
+    } catch (error) {
+      await undoFailedSetup(vault, 'Actions.spawnSetup');
+      throw error;
+    }
   }
   return vault;
 }
 
-async function getAccessSetupVault(inputs: string, accessCode: string | undefined, spawn: () => Promise<Vault>) {
+async function getAccessSetupVault(
+  inputs: string,
+  accessCode: string | undefined,
+  spawn: (hooks: SpawnSetupHooks) => Promise<Vault>
+) {
   if (accessCode && pendingAccessVault?.inputs === inputs) return pendingAccessVault.vault;
   await discardPendingAccessVault();
   const vault = await spawnSetup(Boolean(accessCode) || isInviteOnlyNetwork(), spawn);
@@ -386,17 +424,33 @@ export function registerNewWallet(
       try {
         // A new wallet there needs a code; a seed import may bring an account the node already admits.
         if (isInviteOnlyNetwork() && !ownMnemonic && !accessCode) throw new PublicError(getMessage('noCodeBody'));
+        let admittedPrecheckedIds: Set<string> | null = null;
         vault = await getAccessSetupVault(
           JSON.stringify(['new', walletType, password, mnemonic, ownMnemonic, guardianEndpoint]),
           accessCode,
-          () => Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint)
+          ({ onBeforeCommit, checkAccountsAdmitted }) =>
+            Vault.spawn(walletType, password ?? '', mnemonic, ownMnemonic, guardianEndpoint, {
+              onBeforeCommit,
+              checkAccountsAdmitted:
+                ownMnemonic && !accessCode
+                  ? async accountIds => {
+                      await checkAccountsAdmitted(accountIds);
+                      admittedPrecheckedIds = new Set(accountIds);
+                    }
+                  : undefined
+            })
         );
         console.log('[Actions.registerNewWallet] Vault.spawn completed, initializing state...');
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
         if (accessCode) await registerSetupAccessCode(currentAccount.publicKey, accessCode);
-        if (isInviteOnlyNetwork()) await assertEveryMainnetAdmitted(accounts);
+        if (isInviteOnlyNetwork()) {
+          const unverified = admittedPrecheckedIds
+            ? accounts.filter(account => !admittedPrecheckedIds!.has(account.publicKey))
+            : accounts;
+          if (unverified.length > 0) await assertEveryMainnetAdmitted(unverified);
+        }
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -432,11 +486,25 @@ export function registerWalletFromHotKey(password?: string, keyPairPayload?: str
       try {
         if (!keyPairPayload) throw new PublicError(getMessage('importHotKeyInvalid'));
         await discardPendingAccessVault();
-        vault = await spawnSetup(inviteOnly, () => Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint));
+        let admittedPrecheckedIds: Set<string> | null = null;
+        vault = await spawnSetup(inviteOnly, ({ onBeforeCommit, checkAccountsAdmitted }) =>
+          Vault.spawnFromHotKey(password, keyPairPayload, guardianEndpoint, {
+            onBeforeCommit,
+            checkAccountsAdmitted: async accountIds => {
+              await checkAccountsAdmitted(accountIds);
+              admittedPrecheckedIds = new Set(accountIds);
+            }
+          })
+        );
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
-        if (inviteOnly) await assertEveryMainnetAdmitted(accounts);
+        if (inviteOnly) {
+          const unverified = admittedPrecheckedIds
+            ? accounts.filter(account => !admittedPrecheckedIds!.has(account.publicKey))
+            : accounts;
+          if (unverified.length > 0) await assertEveryMainnetAdmitted(unverified);
+        }
         const ownMnemonicFlag = await vault.isOwnMnemonic();
         unlocked({
           vault,
@@ -471,9 +539,10 @@ export function registerImportedWallet(
         await discardPendingAccessVault();
         // Password may be undefined for hardware-only wallets
         // spawnFromMidenClient() returns the vault directly, avoiding a second biometric prompt
-        vault = await spawnSetup(inviteOnly, () =>
-          Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts)
-        );
+        vault = await spawnSetup(inviteOnly, async ({ onBeforeCommit }) => {
+          await onBeforeCommit();
+          return Vault.spawnFromMidenClient(password ?? '', mnemonic ?? '', walletAccounts, importedAccounts);
+        });
         const accounts = await vault.fetchAccounts();
         const settings = await vault.fetchSettings();
         const currentAccount = await vault.getCurrentAccount();
@@ -512,6 +581,8 @@ export async function lockForResetInTurn() {
     const { vault } = store.getState();
     clearRecoveryAuthorizations();
     releaseGuardianRecoveriesOnLock();
+    // The backup's storage key and AES key live for one unlock only.
+    onBackupLock();
     locked();
     // Only the vault being locked gives up its insert-key sink; one an unlock in
     // flight just installed stays (#878).
@@ -737,22 +808,27 @@ export function revealPublicKey(_accPublicKey: string) {}
 // the SE/Keystore entry and cold key material outlive the deleted account.
 export function removeAccount(_accPublicKey: string, _password: string) {}
 
-export function editAccount(accPublicKey: string, name: string) {
+export async function editAccount(accPublicKey: string, name: string) {
   console.log({ accPublicKey, name });
   // Queued: renaming also reads the accounts list and writes it back, so it can
   // drop (or be dropped by) a concurrent create/import/recovery write.
-  return withUnlocked(({ vault }) =>
+  await withUnlocked(({ vault }) =>
     getAccountsWriteQueue().add(async () => {
       name = name.trim();
       if (!ACCOUNT_NAME_PATTERN.test(name)) {
         throw new Error('Invalid name. Up to 16 characters; cannot start with whitespace or hyphen.');
       }
 
-      const updatedAccounts = await vault.editAccountName(accPublicKey, name);
+      // The rename time goes with the name: the backup merges names by the time of the rename, not of the upload.
+      const updatedAccounts = await vault.editAccountName(accPublicKey, name, Date.now());
       console.log({ updatedAccounts });
       accountsUpdated(updatedAccounts);
     })
   );
+  // The new name goes to the encrypted backup at once, after the write and outside the accounts queue: a peer
+  // rename that the refresh applies waits for that queue. The refresh never throws. Not awaited, so the caller's
+  // response does not wait for the network.
+  runBackupRefresh('account-renamed');
 }
 
 export function importAccount(privateKey: string, name?: string) {
@@ -783,12 +859,16 @@ export function importFundraiserAccount(_email: string, _password: string, _mnem
 
 export function importWatchOnlyAccount(_viewKey: string) {}
 
-export function updateSettings(settings: Partial<WalletSettings>) {
-  return withUnlocked(async ({ vault }) => {
+export async function updateSettings(settings: Partial<WalletSettings>) {
+  await withUnlocked(async ({ vault }) => {
     const updatedSettings = await vault.updateSettings(settings);
     // createCustomNetworksSnapshot(updatedSettings);
     settingsUpdated(updatedSettings);
   });
+  // A changed contacts list goes to the encrypted backup at once, after the write and outside it:
+  // the refresh merges with the server copy and uploads, and it never throws. Not awaited, so the
+  // caller's response does not wait for the network.
+  if (settings.contacts !== undefined) runBackupRefresh('contacts-changed');
 }
 
 export async function getSpendingLimit(accountId: string): Promise<PersistedSpendingLimit | undefined> {
@@ -834,9 +914,9 @@ export function signTransaction(publicKey: string, signingInputs: string) {
   });
 }
 
-export function signWord(publicKey: string, wordHex: string, transactionId?: string) {
+export function signWord(publicKey: string, wordHex: string, transactionId?: string, rotationProposal?: true) {
   return withUnlocked(async ({ vault }) => {
-    return await vault.signWord(publicKey, wordHex, transactionId);
+    return await vault.signWord(publicKey, wordHex, transactionId, rotationProposal);
   });
 }
 
@@ -1241,7 +1321,7 @@ export function estimateUsdcxBurnFee(req: EstimateUsdcxBurnFeeRequest): Promise<
   });
 }
 
-const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
+const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled', 'visit', 'discovery'];
 
 // async function createCustomNetworksSnapshot(settings: WalletSettings) {
 //   try {
@@ -1253,11 +1333,17 @@ const VALID_PHASES: readonly string[] = ['started', 'ended', 'settled'];
 //   } catch {}
 // }
 
+/**
+ * Removes the recovery phrase from this device. With a `password` the vault is unlocked again first, which is the
+ * Settings flow's re-authentication. Without one the unlocked session's vault does the removal: the prompt after
+ * a recovery runs minutes after the user typed the phrase and the passcode, so it asks for neither again, and a
+ * wallet behind a passcode (no hardware protector) has no credential-free unlock to fall back to.
+ */
 export function removeSeedPhrase(password?: string) {
-  return withUnlocked(() =>
+  return withUnlocked(({ vault: unlockedVault }) =>
     getAccountsWriteQueue().add(async () => {
       try {
-        const vault = await Vault.setup(password);
+        const vault = password ? await Vault.setup(password) : unlockedVault;
         await navigator.locks.request('generate-transactions-loop', { ifAvailable: true }, async lock => {
           if (!lock) throw new PublicError(getMessage('seedRemovalBusy'));
           try {
@@ -1271,6 +1357,19 @@ export function removeSeedPhrase(password?: string) {
       }
     })
   );
+}
+
+/**
+ * Run the encrypted-backup refresh of one event (lib/backup/refresh.ts). Never
+ * throws: the outcome says what happened, and a no-op off mainnet or while locked.
+ */
+export function refreshBackup(reason: BackupRefreshReason): Promise<BackupRefreshOutcome> {
+  return runBackupRefresh(reason);
+}
+
+/** Delete the encrypted-backup profile on the server, then the local backup records. */
+export function deleteBackup(): Promise<BackupRefreshOutcome> {
+  return deleteBackupProfile();
 }
 
 export function provideRecoverySeed(transactionId: string, mnemonic: string, action: GuardianRecoveryAction) {

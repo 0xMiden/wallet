@@ -504,7 +504,7 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
             if (commitmentsDecoded) return;
             commitmentsDecoded = true;
             for (const row of local) {
-              if (!row.resultBytes || commitments.has(row.id) || row.recovery) continue;
+              if (!row.resultBytes || commitments.has(row.id) || row.recovery || row.finalAccountCommitment) continue;
               await checkCheap();
               const commitmentSession = currentHistorySession();
               try {
@@ -532,7 +532,9 @@ export async function recoverGuardianHistory(account: WalletAccount, context: Gu
               const matches = (row: ITransaction) => {
                 if (row.recovery && row.recovery.network !== network) return false;
                 if (row.id === record.id) return true;
-                const localCommitment = row.recovery?.finalCommitment ?? commitments.get(row.id);
+                // A backup receipt has no result bytes; it carries the commitment its device read from them.
+                const localCommitment =
+                  row.recovery?.finalCommitment ?? row.finalAccountCommitment ?? commitments.get(row.id);
                 if (finalCommitment && localCommitment) return finalCommitment === localCommitment;
                 const inputMatches = sameNonemptyNotes(row.inputNoteIds, record.inputNoteIds);
                 const outputMatches = sameNonemptyNotes(row.outputNoteIds, record.outputNoteIds);

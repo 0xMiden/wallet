@@ -1,3 +1,4 @@
+import { onBackupStorageCleared } from 'lib/backup/state';
 import { BADGE_STORAGE_KEY } from 'lib/badges/types';
 import { BREAD_CONNECT_QUEUE_KEY, BREAD_CONNECT_SESSION_KEYS } from 'lib/bread-connect/keys';
 import { OPEN_LINK_SESSION_KEYS } from 'lib/dapp-browser/open-link-keys';
@@ -80,6 +81,9 @@ async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<vo
       // A reader mounted after the wipe would otherwise render the previous wallet's value, and a wipe that
       // failed part way has still removed keys. The re-read never rejects, so the wipe's own error stands.
       await rereadStorageCache();
+      // The backup's cached device id went with its stored copy, and a backup session opened before the wipe
+      // belongs to the wallet that is gone: a recovery with the same phrase starts its own history stream.
+      onBackupStorageCleared();
       // No storage event fires in the document that wipes, so off the extension this announces it to every
       // onStorageChanged subscriber; the extension's browser.storage.onChanged already reports the removals.
       if (isMobile() || isDesktop()) storageCleared();
@@ -88,10 +92,12 @@ async function clearPlatformKeyValueStorage(keep: readonly string[]): Promise<vo
 }
 
 // Desktop's key-value store lives in localStorage, so its kept keys carry DesktopStorage's prefix.
-function removeLocalStorageExcept(keep: readonly string[]): void {
+function removeLocalStorageExcept(keep: readonly string[], preserveDesktopKeys = false): void {
   const kept = new Set(keep.map(key => DESKTOP_STORAGE_PREFIX + key));
   for (const key of Object.keys(localStorage)) {
-    if (!kept.has(key)) localStorage.removeItem(key);
+    if (kept.has(key)) continue;
+    if (preserveDesktopKeys && key.startsWith(DESKTOP_STORAGE_PREFIX)) continue;
+    localStorage.removeItem(key);
   }
 }
 
@@ -192,16 +198,33 @@ export async function resetStorageDestructive({
 // open-link's and Bread Connect's records, because the platform keeps reporting the launch link for the rest of the
 // app session. The badge storage turn stays held across that localStorage snapshot and removal, the
 // session-storage removal, the cache re-read and the clear announcement.
-export async function clearClientStorage(): Promise<void> {
+async function runClientStorageCleanup(preserveDesktopKeys: boolean, clearBackupCache: boolean): Promise<void> {
   await inStorageTurn(BADGE_STORAGE_KEY, async () => {
     try {
-      removeLocalStorageExcept(PRESERVED_STORAGE_KEYS);
+      removeLocalStorageExcept(PRESERVED_STORAGE_KEYS, preserveDesktopKeys);
       removeSessionStorageExcept([...OPEN_LINK_SESSION_KEYS, ...BREAD_CONNECT_SESSION_KEYS]);
     } finally {
+      if (clearBackupCache) {
+        onBackupStorageCleared();
+      }
       await rereadStorageCache();
       // localStorage was cleared in this document, which gets no storage event for it (activity-read caches it).
       storageCleared();
     }
   });
   await Repo.portfolioObservations.clear();
+}
+
+export async function clearClientStorage(): Promise<void> {
+  await runClientStorageCleanup(false, false);
+}
+
+/**
+ * Cleans client-side session caches and non-vault localStorage after a
+ * non-destructive backend restore has committed. On Desktop, KV entries live in
+ * localStorage under `miden_wallet_*` and have already been replaced by Vault;
+ * keep them so post-restore UI cleanup never deletes the new vault.
+ */
+export async function clearClientStorageAfterRestore(): Promise<void> {
+  await runClientStorageCleanup(isDesktop(), true);
 }

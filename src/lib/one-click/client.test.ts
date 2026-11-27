@@ -27,8 +27,7 @@ const input: OneClickQuoteRequest = {
     blockchain: 'eth',
     symbol: 'ETH',
     decimals: 18,
-    contractAddress: 'native',
-    chainId: 1
+    contractAddress: 'native'
   },
   destinationAsset: {
     assetId: 'miden:usdc',
@@ -75,16 +74,14 @@ function requestForFixture(quote: OneClickQuoteResponse): OneClickQuoteRequest {
       blockchain: 'eth',
       symbol: 'USDC',
       decimals: 6,
-      contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48',
-      chainId: 1
+      contractAddress: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48'
     },
     destinationAsset: {
       assetId: signed.destinationAsset,
       blockchain: 'base',
       symbol: 'ETH',
       decimals: 18,
-      contractAddress: 'native',
-      chainId: 8453
+      contractAddress: 'native'
     },
     refundTo: signed.refundTo,
     recipient: signed.recipient,
@@ -399,12 +396,16 @@ describe('1Click client', () => {
     });
   });
 
-  it('maps a no_liquidity response body onto OneClickHttpError.code', async () => {
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: 'no_liquidity' }), { status: 400 }));
+  it.each([
+    ['no_liquidity', 'no_liquidity'],
+    ['invalid_recipient', 'invalid_recipient'],
+    ['upstream_request_failed', undefined]
+  ])('reads the proxy reason code %s of a refused request', async (error, code) => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ error }), { status: 400 }));
     await expect(requestOneClickQuote(config, input)).rejects.toMatchObject({
       name: 'OneClickHttpError',
       status: 400,
-      code: 'no_liquidity'
+      code
     });
   });
 
@@ -450,5 +451,50 @@ describe('1Click client', () => {
   it('caps response bodies by UTF-8 byte length rather than decoded string length', async () => {
     fetchMock.mockResolvedValue(new Response('€'.repeat(400_000)));
     await expect(fetchOneClickStatus(config, wetDepositAddress)).rejects.toThrow('too large');
+  });
+
+  it('forwards caller AbortSignal through requestOneClickQuote to abort an in-flight fetch', async () => {
+    const controller = new AbortController();
+    let capturedSignal: AbortSignal | undefined;
+    fetchMock.mockImplementation((_url: RequestInfo | URL, init?: RequestInit) => {
+      capturedSignal = init?.signal ?? undefined;
+      return new Promise<Response>((_resolve, reject) => {
+        capturedSignal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), {
+          once: true
+        });
+      });
+    });
+
+    const pending = requestOneClickQuote(config, input, true, fetchMock, controller.signal);
+    expect(capturedSignal?.aborted).toBe(false);
+    controller.abort('superseded');
+    expect(capturedSignal?.aborted).toBe(true);
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+
+    const preAborted = new AbortController();
+    preAborted.abort('stale');
+    fetchMock.mockClear();
+    await expect(requestOneClickQuote(config, input, true, fetchMock, preAborted.signal)).rejects.toMatchObject({
+      name: 'AbortError'
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const streamController = new AbortController();
+    const removeSpy = jest.spyOn(streamController.signal, 'removeEventListener');
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        new ReadableStream({
+          start(ctrl) {
+            ctrl.enqueue(new TextEncoder().encode('{"partial":'));
+          }
+        })
+      )
+    );
+    const streaming = requestOneClickQuote(config, input, true, fetchMock, streamController.signal);
+    await Promise.resolve();
+    await Promise.resolve();
+    streamController.abort('during-stream');
+    await expect(streaming).rejects.toMatchObject({ name: 'AbortError' });
+    expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
   });
 });

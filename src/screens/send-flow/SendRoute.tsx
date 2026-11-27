@@ -1,26 +1,54 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 import { useTranslation } from 'react-i18next';
 
 import { Button, ButtonVariant } from 'components/Button';
 
-import { RouteOptions, RouteOptionsProps } from './Route';
+import { NearIntentsRouteCard, RouteOptions, RouteOptionsProps } from './Route';
 import { SendStepLayout } from './SendStepLayout';
+import type { NearIntentsSendQuote } from './useNearIntentsSendQuote';
 import type { SendRouteEligibility } from './useSendRouteEligibility';
 
 export interface SendRouteProps extends Omit<
   RouteOptionsProps,
-  'slowStatus' | 'fastAvailability' | 'slowAvailability'
+  'slowStatus' | 'fastAvailability' | 'slowAvailability' | 'nearIntentsCard' | 'bridgeRoutesAvailable'
 > {
   eligibility: SendRouteEligibility;
   embedded?: boolean;
   onBack: () => void;
   onConfirm: () => void;
+  /** Set when NEAR Intents offers the selected network. SendRoute then shows the NEAR Intents card. */
+  nearIntents?: { chainId: string; recipient: string; amount?: bigint };
+  /** The quote of the one `useNearIntentsSendQuote` that `SendManager` owns. */
+  nearIntentsQuote: NearIntentsSendQuote;
+  /** False when no bridge route (Epoch, Agglayer, USDCx) serves the selected network; SendRoute then shows only the NEAR Intents card. */
+  bridgeRoutesAvailable: boolean;
 }
 
 /** The send flow's cross-chain route step, on the shared step frame. */
-export const SendRoute: React.FC<SendRouteProps> = ({ eligibility, embedded, onBack, onConfirm, ...options }) => {
+export const SendRoute: React.FC<SendRouteProps> = ({
+  eligibility,
+  embedded,
+  onBack,
+  onConfirm,
+  nearIntents,
+  nearIntentsQuote,
+  bridgeRoutesAvailable,
+  ...options
+}) => {
   const { t } = useTranslation();
+  const { route, onRouteChange } = options;
+  const nearIntentsOffered = nearIntents !== undefined;
+
+  // With no bridge route, NEAR Intents is the only card, so it is the selected route.
+  useEffect(() => {
+    if (!bridgeRoutesAvailable && nearIntentsOffered && route !== 'near-intents') onRouteChange('near-intents');
+  }, [bridgeRoutesAvailable, nearIntentsOffered, route, onRouteChange]);
+
+  const confirmBlocked =
+    route === 'near-intents'
+      ? nearIntents === undefined || nearIntentsQuote.status !== 'ready'
+      : !bridgeRoutesAvailable || eligibility.blocked;
 
   return (
     <SendStepLayout
@@ -33,7 +61,7 @@ export const SendRoute: React.FC<SendRouteProps> = ({ eligibility, embedded, onB
           variant={ButtonVariant.Primary}
           accent="send"
           onClick={onConfirm}
-          disabled={eligibility.blocked}
+          disabled={confirmBlocked}
           data-testid="bridge-route-confirm"
           className="w-full max-w-none"
         />
@@ -50,6 +78,18 @@ export const SendRoute: React.FC<SendRouteProps> = ({ eligibility, embedded, onB
         slowFeature="bridgeOut"
         slowAvailability={eligibility.slowAvailability}
         accent="send"
+        bridgeRoutesAvailable={bridgeRoutesAvailable}
+        nearIntentsCard={
+          nearIntents !== undefined ? (
+            <NearIntentsRouteCard
+              quote={nearIntentsQuote}
+              selected={route === 'near-intents'}
+              onSelect={() => onRouteChange('near-intents')}
+              accent="send"
+              hint={options.notice}
+            />
+          ) : undefined
+        }
       />
     </SendStepLayout>
   );

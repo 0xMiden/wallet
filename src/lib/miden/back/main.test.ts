@@ -233,7 +233,9 @@ jest.mock('lib/miden/back/actions', () => ({
   applyUserGuardianEndpoint: jest.fn(),
   handleReportTelemetryEvent: jest.fn(),
   estimateUsdcxBurnFee: jest.fn(),
-  retryDeadletteredNotes: jest.fn(async () => ({ requeued: 2 }))
+  retryDeadletteredNotes: jest.fn(async () => ({ requeued: 2 })),
+  refreshBackup: jest.fn(),
+  deleteBackup: jest.fn()
 }));
 const Actions: any = jest.requireMock('lib/miden/back/actions');
 
@@ -1157,6 +1159,22 @@ describe('processRequest', () => {
     expect(res.outcome).toBe('applied');
   });
 
+  it('BackupRefreshRequest runs the refresh of the named event and answers its outcome', async () => {
+    Actions.refreshBackup.mockResolvedValueOnce('updated');
+    const res = await dispatch({ type: WalletMessageType.BackupRefreshRequest, reason: 'transaction-completed' });
+    expect(Actions.refreshBackup).toHaveBeenCalledWith('transaction-completed');
+    expect(Actions.deleteBackup).not.toHaveBeenCalled();
+    expect(res).toEqual({ type: WalletMessageType.BackupRefreshResponse, outcome: 'updated' });
+  });
+
+  it('BackupDeleteProfileRequest deletes the backup profile and answers its outcome', async () => {
+    Actions.deleteBackup.mockResolvedValueOnce('disabled');
+    const res = await dispatch({ type: WalletMessageType.BackupDeleteProfileRequest });
+    expect(Actions.deleteBackup).toHaveBeenCalledTimes(1);
+    expect(Actions.refreshBackup).not.toHaveBeenCalled();
+    expect(res).toEqual({ type: WalletMessageType.BackupDeleteProfileResponse, outcome: 'disabled' });
+  });
+
   it('DAppGetAllSessionsRequest returns the sessions map', async () => {
     Actions.getAllDAppSessions.mockResolvedValueOnce({ 'origin.xyz': [{ accountId: 'a' }] });
     const res = await dispatch({ type: MidenMessageType.DAppGetAllSessionsRequest });
@@ -1775,6 +1793,38 @@ describe('registerOffscreenSignHandler (reverse-IPC sign channel, issue #260 sli
     await flushStorage();
     expect(sendResponse).toHaveBeenCalledWith({ ok: false, error: 'IndexedDB closed' });
     expect(signListener()({ target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE' }, ownSender, jest.fn())).toBe(false);
+  });
+
+  it('routes OFFSCREEN_SUBMIT_GATE retract actions and rejects invalid gate actions (#2325)', async () => {
+    const retractReply = jest.fn();
+    expect(
+      signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: 'op-gate', action: 'retract' },
+        ownSender,
+        retractReply
+      )
+    ).toBe(true);
+    await flushStorage();
+    expect(proxyMock.handleOffscreenSubmitGate).toHaveBeenCalledWith({
+      target: 'sw',
+      type: 'OFFSCREEN_SUBMIT_GATE',
+      op_id: 'op-gate',
+      action: 'retract',
+      evidence: undefined
+    });
+    expect(retractReply).toHaveBeenCalledWith({ ok: true });
+
+    proxyMock.handleOffscreenSubmitGate.mockClear();
+    const badReply = jest.fn();
+    expect(
+      signListener()(
+        { target: 'sw', type: 'OFFSCREEN_SUBMIT_GATE', op_id: 'op-gate', action: 'bogus' },
+        ownSender,
+        badReply
+      )
+    ).toBe(true);
+    expect(badReply).toHaveBeenCalledWith({ ok: false, error: 'Invalid submit gate action' });
+    expect(proxyMock.handleOffscreenSubmitGate).not.toHaveBeenCalled();
   });
 
   it('ignores an OFFSCREEN_STAGE_EVENT missing op_id or stage (no handler call, no crash)', () => {

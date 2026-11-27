@@ -2175,7 +2175,160 @@ describe('MidenClientInterface', () => {
 
       expect(staged.prove).toHaveBeenCalledTimes(1);
       expect(outcome).toMatchObject({ name: 'WasmClientPoisonedError' });
+      const { isLockEvictedError } = await import('./sdk-error-code');
+      expect(isLockEvictedError(outcome)).toBe(true);
     });
+  });
+
+  it('marks syncState replaced-client WasmClientPoisonedError as lock-evicted (#2325)', async () => {
+    jest.dontMock('lib/miden-chain/effective-endpoints');
+    mockStagedSdk();
+    const { MidenClientInterface } = await import('./miden-client-interface');
+    const { isLockEvictedError } = await import('./sdk-error-code');
+    const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+
+    client.markPoisoned();
+    const syncErr = await client.syncState().catch((err: unknown) => err);
+
+    expect(syncErr).toMatchObject({ name: 'WasmClientPoisonedError' });
+    expect(isLockEvictedError(syncErr)).toBe(true);
+  });
+
+  it('marks worker prove and staged prove/re-prove hold-loss evictions as lock-evicted (#2325)', async () => {
+    jest.dontMock('lib/miden-chain/effective-endpoints');
+    const { isLockEvictedError } = await import('./sdk-error-code');
+
+    try {
+      // 1. proveInWorker refuses when client was poisoned before proveInWorker runs (:2823)
+      {
+        mockStagedSdk();
+        jest.doMock('./local-prove-transport', () => ({
+          getLocalProveTransport: () => ({ prewarm: jest.fn() }),
+          proveInWorker: jest.fn(),
+          recordProveTiming: jest.fn()
+        }));
+        let client!: MidenClientInterfaceType;
+        const staged = stagedExecuteRequest();
+        staged.executeRequest.mockImplementationOnce(async () => {
+          client.markPoisoned();
+          return { id: 'tx-id', result: fakeTransactionResult, prove: staged.prove };
+        });
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        client = MidenClientInterface.fromClient(
+          buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+          'testnet'
+        );
+        const err = await client
+          .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any)
+          .catch(e => e);
+        expect(isLockEvictedError(err)).toBe(true);
+      }
+
+      // 2. proveInWorkerAndSubmit refuses after proveInWorker when hold is poisoned during prove (:2279)
+      {
+        jest.resetModules();
+        mockStagedSdk();
+        const hold = { id: 'live-worker-hold' };
+        jest.doMock('./miden-client', () => ({
+          ...jest.requireActual('./miden-client'),
+          getCurrentWasmLockHold: () => hold
+        }));
+        let client!: MidenClientInterfaceType;
+        const proveInWorker = jest.fn(async () => {
+          client.markPoisoned();
+          return 'worker-proof';
+        });
+        jest.doMock('./local-prove-transport', () => ({
+          getLocalProveTransport: () => ({ prewarm: jest.fn() }),
+          proveInWorker,
+          recordProveTiming: jest.fn()
+        }));
+        try {
+          const staged = stagedExecuteRequest();
+          const { MidenClientInterface } = await import('./miden-client-interface');
+          const { isLockEvictedError: checkEvicted } = await import('./sdk-error-code');
+          client = MidenClientInterface.fromClient(
+            buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+            'testnet'
+          );
+          const err = await client
+            .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume' } as any)
+            .catch(e => e);
+          expect(proveInWorker).toHaveBeenCalledTimes(1);
+          expect((err as Error & { cause?: Error }).cause?.message).toContain('after worker prove or submit gate');
+          expect(checkEvicted(err)).toBe(true);
+        } finally {
+          jest.dontMock('./miden-client');
+        }
+      }
+
+      // 3. proveInRealmAndSubmit local prove marks eviction right after prove (:2346)
+      {
+        jest.resetModules();
+        mockStagedSdk();
+        jest.dontMock('./local-prove-transport');
+        let client!: MidenClientInterfaceType;
+        const staged = stagedExecuteRequest(() => {
+          client.markPoisoned();
+        });
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const { isLockEvictedError: checkEvicted } = await import('./sdk-error-code');
+        client = MidenClientInterface.fromClient(
+          buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+          'testnet'
+        );
+        const err = await client
+          .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: false } as any)
+          .catch(e => e);
+        expect(checkEvicted(err)).toBe(true);
+      }
+
+      // 4. proveDelegated remote re-prove guard marks eviction before passing error to proveWithFallback (:2327)
+      {
+        jest.resetModules();
+        jest.useFakeTimers();
+        const hiddenDoc = installHiddenDocument();
+        let resetBgTime: (() => void) | undefined;
+        try {
+          mockStagedSdk();
+          const reportProve = jest.fn();
+          jest.doMock('lib/telemetry/report-operation', () => ({ reportProve }));
+          let failFirst!: (err: unknown) => void;
+          const firstProve = new Promise<never>((_, reject) => {
+            failFirst = reject;
+          });
+          const staged = stagedExecuteRequest();
+          staged.prove.mockReturnValueOnce(firstProve);
+          const backgroundTime = await import('lib/mobile/background-time');
+          backgroundTime.initBackgroundTimeTracking();
+          resetBgTime = backgroundTime.__resetBackgroundTimeForTest;
+          const { MidenClientInterface } = await import('./miden-client-interface');
+          const { isLockEvictedError: checkEvicted } = await import('./sdk-error-code');
+          const client = MidenClientInterface.fromClient(
+            buildFakeMidenClient({ transactions: { executeRequest: staged.executeRequest } }) as any,
+            'testnet'
+          );
+          const pending = client
+            .consumeNoteId({ accountId: 'acc-id', noteId: 'note-1', type: 'consume', delegateTransaction: true } as any)
+            .catch(e => e);
+          await jest.advanceTimersByTimeAsync(0);
+          hiddenDoc.setHidden(true);
+          hiddenDoc.freezeFor(140_000);
+          hiddenDoc.setHidden(false);
+          client.markPoisoned();
+          failFirst(new Error('DeadlineExceeded: Request timed out'));
+          await pending;
+          expect(checkEvicted(reportProve.mock.calls[0]?.[0]?.error)).toBe(true);
+        } finally {
+          resetBgTime?.();
+          jest.dontMock('lib/telemetry/report-operation');
+          hiddenDoc.restore();
+          jest.useRealTimers();
+        }
+      }
+    } finally {
+      jest.dontMock('./local-prove-transport');
+    }
   });
 
   it('every non-Guardian write leaf builds its request with EXPIRATION_DELTA_BLOCKS itself (#1081)', async () => {
@@ -2479,7 +2632,7 @@ describe('MidenClientInterface', () => {
       }));
       jest.doMock('../guardian/account', () => ({
         createGuardianAccount,
-        getSignerDetailsFromAccount: jest.fn()
+        hasSignerCommitment: jest.fn()
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({
         addConnectivityIssue: jest.fn()
@@ -2536,7 +2689,7 @@ describe('MidenClientInterface', () => {
         fetchGuardianCreateKey,
         createGuardianAccount,
         registerGuardianAccount: jest.fn(async () => {}),
-        getSignerDetailsFromAccount: jest.fn()
+        hasSignerCommitment: jest.fn()
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({
         addConnectivityIssue: jest.fn()
@@ -2678,6 +2831,7 @@ describe('MidenClientInterface', () => {
       }));
       jest.doMock('../guardian/account', () => ({
         createGuardianAccount: jest.fn(),
+        hasSignerCommitment: jest.fn(),
         insertGuardianAccountMonotonically: adopt
       }));
       jest.doMock('../guardian/native-http');
@@ -2712,8 +2866,10 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, network);
       iface = client;
-      const recover = () =>
-        client.recoverGuardianAccountsBySeed(hdIndex => new Uint8Array(32).fill(hdIndex + 1), endpoint);
+      const recover = async () =>
+        client.adoptPreparedGuardianSeedRecovery(
+          await client.prepareGuardianRecoveryBySeed(hdIndex => new Uint8Array(32).fill(hdIndex + 1), endpoint)
+        );
       return {
         held,
         insert,
@@ -2734,7 +2890,7 @@ describe('MidenClientInterface', () => {
       };
     };
 
-    it('recoverGuardianAccountsBySeed adopts each match under the WASM lock and inserts its cold key', async () => {
+    it('prepareGuardianRecoveryBySeed + adoptPreparedGuardianSeedRecovery adopts each match under the WASM lock and inserts its cold key', async () => {
       const { held, insert, adopt, fakeMidenClient, recover, probes } = await setupRecovery();
 
       const recovered = await recover();
@@ -2959,7 +3115,7 @@ describe('MidenClientInterface', () => {
       expect(adopt).toHaveBeenCalledTimes(2);
     });
 
-    it('recoverGuardianAccountsBySeed releases an endpoint with no account for the seed, never registering it', async () => {
+    it('prepareGuardianRecoveryBySeed releases an endpoint with no account for the seed, never registering it', async () => {
       const { recover, probes } = await setupRecovery(undefined, { finds: false });
       const { NoGuardianAccountsFoundError } = await import('./guardian-recovery-errors');
 
@@ -2968,7 +3124,7 @@ describe('MidenClientInterface', () => {
       expect(probes.registerGuardianOrigin).not.toHaveBeenCalled();
     });
 
-    it('recoverGuardianAccountsBySeed: a client replaced during the lookup adopts nothing (#775)', async () => {
+    it('prepareGuardianRecoveryBySeed: a client replaced during the lookup adopts nothing (#775)', async () => {
       // The lookup parks outside the lock; the singleton is replaced under it.
       const { insert, adopt, recover } = await setupRecovery(client => client.markPoisoned());
 
@@ -2977,7 +3133,7 @@ describe('MidenClientInterface', () => {
       expect(insert).not.toHaveBeenCalled();
     });
 
-    it('recoverGuardianAccountsBySeed: an eviction during the adoption stops the cold-key insert (#775)', async () => {
+    it('adoptPreparedGuardianSeedRecovery: an eviction during the adoption stops the cold-key insert (#775)', async () => {
       const { held, insert, adopt, recover } = await setupRecovery();
       adopt.mockImplementationOnce(async () => {
         held.revoked = true;
@@ -3020,6 +3176,448 @@ describe('MidenClientInterface', () => {
       expect(adopt).toHaveBeenCalledTimes(2);
     });
 
+    it('prepareGuardianRecoveryBySeed verifies served accounts without calling adopt or keystore.insert until adoptPreparedGuardianSeedRecovery', async () => {
+      const { adopt, insert, fakeMidenClient, client, probes } = await setupRecovery();
+      const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
+      const freeSpies: jest.Mock[] = [];
+      const origDerive = (AuthSecretKey.ecdsaWithRNG as jest.Mock).getMockImplementation()!;
+      (AuthSecretKey.ecdsaWithRNG as jest.Mock).mockImplementation((seed: Uint8Array) => {
+        const free = jest.fn();
+        freeSpies.push(free);
+        return { ...origDerive(seed), free };
+      });
+
+      const prepared = await client.prepareGuardianRecoveryBySeed(
+        hdIndex => new Uint8Array(32).fill(hdIndex + 1),
+        'https://guardian.example'
+      );
+
+      expect(prepared.accountIds).toEqual(['recovered-a', 'recovered-b']);
+      expect(prepared.guardianEndpoint).toBe('https://guardian.example');
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+      expect(probes.mockProbeVerdicts).toEqual([['https://guardian.example', true]]);
+      expect(freeSpies[0]).toHaveBeenCalledTimes(0);
+
+      const recovered = await client.adoptPreparedGuardianSeedRecovery(prepared);
+
+      expect(recovered).toEqual([
+        { accountId: 'recovered-a', hdIndex: 0, coldPublicKey: 'aabb', coldSecretKeyHex: 'cc' },
+        { accountId: 'recovered-b', hdIndex: 0, coldPublicKey: 'aabb', coldSecretKeyHex: 'cc' }
+      ]);
+      expect(adopt.mock.calls.map(([c, a]) => [c, (a as any).id().toString()])).toEqual([
+        [fakeMidenClient, 'recovered-a'],
+        [fakeMidenClient, 'recovered-b']
+      ]);
+      expect(insert).toHaveBeenCalledTimes(2);
+      expect(freeSpies[0]).toHaveBeenCalledTimes(1);
+    });
+
+    it('prepareGuardianRecoveryBySeed frees prepared AuthSecretKey handles when dispose() aborts adoption and throws NoGuardianAccountsFoundError on empty', async () => {
+      const { client, adopt, insert } = await setupRecovery();
+      const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
+      const freeSpies: jest.Mock[] = [];
+      const origDerive = (AuthSecretKey.ecdsaWithRNG as jest.Mock).getMockImplementation()!;
+      (AuthSecretKey.ecdsaWithRNG as jest.Mock).mockImplementation((seed: Uint8Array) => {
+        const free = jest.fn();
+        freeSpies.push(free);
+        return { ...origDerive(seed), free };
+      });
+
+      const prepared = await client.prepareGuardianRecoveryBySeed(
+        hdIndex => new Uint8Array(32).fill(hdIndex + 1),
+        'https://guardian.example'
+      );
+      expect(freeSpies[0]).toHaveBeenCalledTimes(0);
+      prepared.dispose();
+
+      expect(freeSpies[0]).toHaveBeenCalledTimes(1);
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+
+      const empty = await setupRecovery(undefined, { finds: false });
+      const { NoGuardianAccountsFoundError } = await import('./guardian-recovery-errors');
+      await expect(
+        empty.client.prepareGuardianRecoveryBySeed(
+          hdIndex => new Uint8Array(32).fill(hdIndex + 1),
+          'https://guardian.example'
+        )
+      ).rejects.toBeInstanceOf(NoGuardianAccountsFoundError);
+      expect(empty.adopt).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['WasmClientPoisonedError (even when isDisposed is false)', 'poison', 0],
+      ['WebAssembly.RuntimeError', 'trap', 0],
+      ['ordinary RPC error', 'ordinary', 1]
+    ] as const)(
+      'prepareGuardianRecoveryBySeed cold-key disposal on %s expects %i free call(s)',
+      async (_label, kind, expectedFreeCalls) => {
+        const { client, chainStates } = await setupRecovery();
+        const { AuthSecretKey } = await import('@miden-sdk/miden-sdk/lazy');
+        const { WasmClientPoisonedError } = await import('./wasm-client-poison');
+        const freeSpies: jest.Mock[] = [];
+        const origDerive = (AuthSecretKey.ecdsaWithRNG as jest.Mock).getMockImplementation()!;
+        (AuthSecretKey.ecdsaWithRNG as jest.Mock).mockImplementation((seed: Uint8Array) => {
+          const free = jest.fn();
+          freeSpies.push(free);
+          return { ...origDerive(seed), free };
+        });
+
+        const err =
+          kind === 'poison'
+            ? new WasmClientPoisonedError('watchdog', new Error('operation abandoned'))
+            : kind === 'trap'
+              ? new WebAssembly.RuntimeError('unreachable')
+              : new Error('rpc timeout');
+        chainStates.mockRejectedValueOnce(err);
+
+        await expect(
+          client.prepareGuardianRecoveryBySeed(
+            hdIndex => new Uint8Array(32).fill(hdIndex + 1),
+            'https://guardian.example'
+          )
+        ).rejects.toBe(err);
+        expect(client.isDisposed).toBe(false);
+        expect(freeSpies[0]).toHaveBeenCalledTimes(expectedFreeCalls);
+      }
+    );
+
+    it('prepareGuardianRecoveryByHotKey stages active hot-key lookup without adopting until adoptPreparedGuardianHotKeyRecovery', async () => {
+      const { client, adopt, insert, probes, signerSlots } = await setupRecovery(undefined, {
+        endpoint: 'https://guardian.example'
+      });
+      signerSlots[0] = '0xaabb';
+      signerSlots[1] = '0xaabb';
+      const secretKeyFree = jest.fn();
+      jest.doMock('../guardian/hot-key-import', () => ({
+        deserializeHotSecretKey: jest.fn(() => ({
+          publicKey: () => ({
+            serialize: () => new Uint8Array([0, 0x11, 0x22]),
+            toCommitment: () => ({ toHex: () => '0xaabb', free: jest.fn() }),
+            free: jest.fn()
+          }),
+          free: secretKeyFree
+        }))
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const hotClient = MidenClientInterface.fromClient((client as any).client, 'testnet');
+      const mockState = {
+        bytes: new Uint8Array(),
+        accountIdHex: '0x01',
+        accountId: 'hot-acc-1',
+        nonce: 0n,
+        isNew: false,
+        commitment: 'feed'
+      };
+      jest.spyOn(hotClient as any, 'lookupServedStatesByKey').mockResolvedValueOnce([mockState]);
+
+      const prepared = await hotClient.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
+      expect(prepared.accountIds).toEqual(['hot-acc-1']);
+      expect(prepared.hotPublicKey).toBe('1122');
+      expect(adopt).not.toHaveBeenCalled();
+      expect(insert).not.toHaveBeenCalled();
+      expect(probes.mockProbeVerdicts).toContainEqual(['https://guardian.example', true]);
+
+      prepared.dispose();
+      expect(secretKeyFree).toHaveBeenCalledTimes(1);
+
+      jest.spyOn(hotClient as any, 'lookupServedStatesByKey').mockResolvedValueOnce([mockState]);
+      const preparedForAdopt = await hotClient.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
+      const adoptedSpy = jest.spyOn(hotClient as any, 'adoptServedStates').mockResolvedValueOnce(['hot-acc-1']);
+
+      const adopted = await hotClient.adoptPreparedGuardianHotKeyRecovery(preparedForAdopt);
+      expect(adopted).toEqual([{ accountId: 'hot-acc-1', hotPublicKey: '1122' }]);
+      expect(adoptedSpy).toHaveBeenCalledWith(preparedForAdopt.states, preparedForAdopt.secretKey);
+    });
+
+    it('checkNodeReachable checks blockCommitment(0) via createNodeReads and throws when node is unreachable', async () => {
+      const blockCommitment = jest.fn<Promise<string | undefined>, [number]>(async () => '0xgenesis');
+      jest.doMock('../transaction/reconcile-reads', () => ({
+        createNodeReads: jest.fn(async () => ({
+          account: jest.fn(),
+          blockCommitment
+        }))
+      }));
+      jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
+
+      await expect(client.checkNodeReachable()).resolves.toBeUndefined();
+      expect(blockCommitment).toHaveBeenCalledWith(0);
+
+      blockCommitment.mockResolvedValueOnce(undefined);
+      await expect(client.checkNodeReachable()).rejects.toThrow(/reach.*Miden network/i);
+    });
+
+    describe('prepareWalletSeedRecovery', () => {
+      const setupPrepareSeedRecovery = async ({
+        network = 'testnet',
+        commitmentHex = '0xdeadbeef',
+        blockCommitmentValue = '0xgenesis' as string | undefined
+      } = {}) => {
+        let heldCount = 0;
+        const mockTerminate = jest.fn();
+        const mockAccountsCreate = jest.fn(async () => ({ id: () => 'sdk-derived-id' }));
+        const createMock = jest.fn(async () => ({
+          accounts: { create: mockAccountsCreate },
+          terminate: mockTerminate
+        }));
+        const commitmentFree = jest.fn();
+        const proofFree = jest.fn();
+        const rpcFree = jest.fn();
+        let proofCallHeldCount: number | undefined;
+        const mockGetAccountProof = jest.fn(async () => {
+          proofCallHeldCount = heldCount;
+          return {
+            accountCommitment: () => ({ toHex: () => commitmentHex, free: commitmentFree }),
+            free: proofFree
+          };
+        });
+        const blockCommitment = jest.fn<Promise<string | undefined>, [number]>(async () => blockCommitmentValue);
+        const ensureSdkWasmReady = jest.fn(async () => undefined);
+        const getMessage = jest.fn((key: string, subs?: { reason?: string }) =>
+          subs?.reason ? `${key}:${subs.reason}` : key
+        );
+
+        jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+          ...jest.requireActual('../../../../__mocks__/wasmMock.js'),
+          MidenClient: { create: jest.fn(), createMock },
+          Endpoint: jest.fn((url: string) => ({ url })),
+          RpcClient: jest.fn(() => ({ getAccountProof: mockGetAccountProof, free: rpcFree }))
+        }));
+        jest.doMock('./miden-client', () => ({
+          withWasmClientLock: async <T>(fn: (hold: object) => Promise<T>) => {
+            heldCount++;
+            try {
+              return await fn({});
+            } finally {
+              heldCount--;
+            }
+          },
+          yieldWasmClientLock: async <T>(op: () => Promise<T>) => op(),
+          withWasmLockWatchdogPaused: async <T>(op: () => Promise<T>) => op(),
+          getCurrentWasmLockHold: () => null
+        }));
+        jest.doMock('lib/miden-chain/constants', () => ({
+          ...jest.requireActual('lib/miden-chain/constants'),
+          ensureSdkWasmReady
+        }));
+        jest.doMock('lib/miden-chain/effective-endpoints', () => ({
+          getEffectiveNetworkName: () => network,
+          getEffectiveRpcUrl: () => 'https://rpc.example',
+          getEffectiveProverUrl: () => undefined,
+          getEffectiveNoteTransportUrl: () => undefined,
+          getEffectiveFeeFaucetId: () => '0xfee'
+        }));
+        jest.doMock('./helpers', () => ({
+          getBech32AddressFromAccountId: jest.fn(() => 'mtst1derived'),
+          accountRefToSdk: jest.fn((id: string) => ({ sdkRef: id }))
+        }));
+        jest.doMock('../transaction/reconcile-reads', () => ({
+          createNodeReads: jest.fn(async () => ({
+            account: jest.fn(),
+            blockCommitment
+          }))
+        }));
+        jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
+        jest.doMock('lib/i18n', () => ({ getMessage }));
+
+        const { MidenClientInterface } = await import('./miden-client-interface');
+        const { WalletType } = await import('screens/onboarding/types');
+        const { PublicError } = await import('lib/miden/back/defaults');
+        const { WasmClientPoisonedError } = await import('./wasm-client-poison');
+        const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, network);
+
+        return {
+          client,
+          WalletType,
+          PublicError,
+          WasmClientPoisonedError,
+          createMock,
+          mockAccountsCreate,
+          mockTerminate,
+          mockGetAccountProof,
+          commitmentFree,
+          proofFree,
+          rpcFree,
+          blockCommitment,
+          ensureSdkWasmReady,
+          getMessage,
+          getProofCallHeldCount: () => proofCallHeldCount
+        };
+      };
+
+      it('OffChain derives deterministic private accountId in mock client, terminates it, verifies node reachability, and returns foundOnChain: false', async () => {
+        const {
+          client,
+          WalletType,
+          PublicError,
+          createMock,
+          mockAccountsCreate,
+          mockTerminate,
+          mockGetAccountProof,
+          blockCommitment
+        } = await setupPrepareSeedRecovery();
+        const seed = new Uint8Array(32).fill(7);
+
+        const prepared = await client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa');
+
+        expect(prepared).toEqual({
+          walletType: WalletType.OffChain,
+          accountId: 'mtst1derived',
+          foundOnChain: false
+        });
+        expect(createMock).toHaveBeenCalledTimes(1);
+        expect(mockAccountsCreate).toHaveBeenCalledWith({ storage: 'private', seed, auth: 'ecdsa' });
+        expect(mockTerminate).toHaveBeenCalledTimes(1);
+        expect(blockCommitment).toHaveBeenCalledWith(0);
+        expect(mockGetAccountProof).not.toHaveBeenCalled();
+
+        blockCommitment.mockResolvedValueOnce(undefined);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toThrow(PublicError);
+
+        blockCommitment.mockResolvedValueOnce(undefined);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toThrow(
+          /Could not reach the Miden network to look up your account.*Details: Could not reach the Miden network/
+        );
+      });
+
+      it('OffChain preserves PublicError, WASM traps, and WasmClientPoisonedError from checkNodeReachable', async () => {
+        const { client, WalletType, PublicError, WasmClientPoisonedError } = await setupPrepareSeedRecovery();
+        const seed = new Uint8Array(32).fill(7);
+
+        const pubErr = new PublicError('custom public err');
+        jest.spyOn(client, 'checkNodeReachable').mockRejectedValueOnce(pubErr);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toBe(pubErr);
+
+        const poisonErr = new WasmClientPoisonedError('watchdog', new Error('abandoned'));
+        jest.spyOn(client, 'checkNodeReachable').mockRejectedValueOnce(poisonErr);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toBe(poisonErr);
+
+        const trapErr = new WebAssembly.RuntimeError('unreachable');
+        jest.spyOn(client, 'checkNodeReachable').mockRejectedValueOnce(trapErr);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OffChain, seed, 'ecdsa')).rejects.toBe(trapErr);
+      });
+
+      it('OnChain probes read-only outside WASM lock, frees proof/rpc, and returns foundOnChain: true for non-zero commitment', async () => {
+        const {
+          client,
+          WalletType,
+          mockAccountsCreate,
+          mockTerminate,
+          mockGetAccountProof,
+          commitmentFree,
+          proofFree,
+          rpcFree,
+          ensureSdkWasmReady,
+          getProofCallHeldCount
+        } = await setupPrepareSeedRecovery({ commitmentHex: '0x1234abcd' });
+        const seed = new Uint8Array(32).fill(9);
+
+        const prepared = await client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa');
+
+        expect(prepared).toEqual({
+          walletType: WalletType.OnChain,
+          accountId: 'mtst1derived',
+          foundOnChain: true
+        });
+        expect(mockAccountsCreate).toHaveBeenCalledWith({ storage: 'public', seed, auth: 'ecdsa' });
+        expect(mockTerminate).toHaveBeenCalledTimes(1);
+        expect(ensureSdkWasmReady).toHaveBeenCalledTimes(1);
+        expect(mockGetAccountProof).toHaveBeenCalledWith({ sdkRef: 'mtst1derived' }, null, null);
+        expect(getProofCallHeldCount()).toBe(0);
+        expect(commitmentFree).toHaveBeenCalledTimes(1);
+        expect(proofFree).toHaveBeenCalledTimes(1);
+        expect(rpcFree).toHaveBeenCalledTimes(1);
+      });
+
+      it('OnChain returns foundOnChain: false on zero commitment or node not-found responses', async () => {
+        const { client, WalletType, mockGetAccountProof, commitmentFree, proofFree, rpcFree } =
+          await setupPrepareSeedRecovery({ commitmentHex: `0x${'0'.repeat(64)}` });
+        const seed = new Uint8Array(32).fill(9);
+
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).resolves.toEqual({
+          walletType: WalletType.OnChain,
+          accountId: 'mtst1derived',
+          foundOnChain: false
+        });
+        expect(commitmentFree).toHaveBeenCalledTimes(1);
+        expect(proofFree).toHaveBeenCalledTimes(1);
+        expect(rpcFree).toHaveBeenCalledTimes(1);
+
+        mockGetAccountProof.mockRejectedValueOnce(
+          Object.assign(new Error('missing'), { code: 'ACCOUNT_NOT_FOUND_ON_CHAIN' })
+        );
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).resolves.toEqual({
+          walletType: WalletType.OnChain,
+          accountId: 'mtst1derived',
+          foundOnChain: false
+        });
+
+        mockGetAccountProof.mockRejectedValueOnce(
+          new Error('RPC error: grpc request failed for get_account_proof: account 0x0e3b not found at block 42')
+        );
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).resolves.toEqual({
+          walletType: WalletType.OnChain,
+          accountId: 'mtst1derived',
+          foundOnChain: false
+        });
+      });
+
+      it('OnChain classifies network errors as connectivity PublicError and unclassified errors as restoreAccountLookupFailed', async () => {
+        const { client, WalletType, PublicError, mockGetAccountProof, rpcFree, getMessage } =
+          await setupPrepareSeedRecovery();
+        const seed = new Uint8Array(32).fill(9);
+
+        mockGetAccountProof.mockRejectedValueOnce(new Error('Failed to fetch'));
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).rejects.toThrow(
+          /Could not reach the Miden network to look up your account.*Details: Failed to fetch/
+        );
+        expect(rpcFree).toHaveBeenCalledTimes(1);
+
+        mockGetAccountProof.mockRejectedValueOnce(new Error('unexpected deserialization mismatch'));
+        const err = await client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa').catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(PublicError);
+        expect((err as Error).message).toBe('restoreAccountLookupFailed:unexpected deserialization mismatch');
+        expect(getMessage).toHaveBeenCalledWith('restoreAccountLookupFailed', {
+          reason: 'unexpected deserialization mismatch'
+        });
+        expect(rpcFree).toHaveBeenCalledTimes(2);
+      });
+
+      it('rethrows WASM traps and kills without freeing trapped mockClient, proof, or rpc handles', async () => {
+        const {
+          client,
+          WalletType,
+          WasmClientPoisonedError,
+          mockAccountsCreate,
+          mockTerminate,
+          mockGetAccountProof,
+          proofFree,
+          rpcFree
+        } = await setupPrepareSeedRecovery();
+        const seed = new Uint8Array(32).fill(9);
+
+        const createTrap = new WebAssembly.RuntimeError('unreachable');
+        mockAccountsCreate.mockRejectedValueOnce(createTrap);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).rejects.toBe(createTrap);
+        expect(mockTerminate).not.toHaveBeenCalled();
+
+        const poison = new WasmClientPoisonedError('watchdog', new Error('abandoned'));
+        mockAccountsCreate.mockRejectedValueOnce(new Error('wrapper', { cause: poison }));
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).rejects.toBe(poison);
+        expect(mockTerminate).not.toHaveBeenCalled();
+
+        const proofTrap = new WebAssembly.RuntimeError('memory access out of bounds');
+        mockGetAccountProof.mockRejectedValueOnce(proofTrap);
+        await expect(client.prepareWalletSeedRecovery(WalletType.OnChain, seed, 'ecdsa')).rejects.toBe(proofTrap);
+        expect(proofFree).not.toHaveBeenCalled();
+        expect(rpcFree).not.toHaveBeenCalled();
+      });
+    });
+
     it('refuses a pasted hot key against an operator of another network before any lookup', async () => {
       jest.doMock('lib/i18n', () => ({ getMessage: (key: string) => key }));
       const { adopt, lookupCalls, client } = await setupRecovery(undefined, { network: 'mainnet' });
@@ -3033,7 +3631,7 @@ describe('MidenClientInterface', () => {
         })
       }));
 
-      await expect(client.recoverGuardianAccountByHotKey('deadbeef', OZ_TESTNET)).rejects.toThrow(
+      await expect(client.prepareGuardianRecoveryByHotKey('deadbeef', OZ_TESTNET)).rejects.toThrow(
         'guardianOtherNetwork'
       );
       expect(lookupCalls.count).toBe(0);
@@ -3083,7 +3681,7 @@ describe('MidenClientInterface', () => {
 
       jest.useFakeTimers();
       try {
-        const pending = client.recoverGuardianAccountsBySeed(() => new Uint8Array(32), 'https://guardian.example');
+        const pending = client.prepareGuardianRecoveryBySeed(() => new Uint8Array(32), 'https://guardian.example');
         pending.catch(() => {});
         // Past the bound: one attempt, no retry (an abandoned attempt is never aborted).
         await jest.advanceTimersByTimeAsync(30_000 + 1_000);
@@ -3109,16 +3707,22 @@ describe('MidenClientInterface', () => {
     });
   });
 
-  describe('recoverGuardianAccountByHotKey', () => {
+  describe('prepareGuardianRecoveryByHotKey and adoptPreparedGuardianHotKeyRecovery', () => {
     // The pasted key's commitment as its toHex() returns it (0x-prefixed); the method
-    // normalizes it and each on-chain signer commitment before comparing.
+    // normalizes it before the membership check.
     const PASTED_COMMITMENT = '0xaabb';
 
-    // The lookup itself (recoverAndAdoptByKey) is spied on the instance rather than
-    // driven end to end (that path is already covered by the recoverGuardianAccountsBySeed
+    // The membership check compares like the real one: any slot, any case or prefix.
+    const membershipOf = (onChain: string[]) =>
+      jest.fn((_account: unknown, commitment: string) =>
+        onChain.some(entry => jest.requireActual('lib/secure-hot-key/commitment').sameCommitment(entry, commitment))
+      );
+
+    // The lookup itself (lookupServedStatesByKey) is spied on the instance rather than
+    // driven end to end (that path is already covered by the seed recovery
     // tests above); what's under test here is this method's own not-found throw and its
-    // adopt callback's two refusals, so only the key handling around them runs for real.
-    const setup = (getSignerDetailsFromAccount: jest.Mock = jest.fn()) => {
+    // verify callback's refusal, so only the key handling around them runs for real.
+    const setup = (hasSignerCommitment: jest.Mock = jest.fn()) => {
       const publicKey = {
         serialize: () => new Uint8Array([0, 0x11, 0x22]),
         toCommitment: () => ({ toHex: () => PASTED_COMMITMENT, free: jest.fn() }),
@@ -3130,30 +3734,39 @@ describe('MidenClientInterface', () => {
       jest.doMock('lib/i18n', () => ({ getMessage: jest.fn((key: string) => key) }));
       jest.doMock('../guardian/native-http');
       jest.doMock('../guardian/account', () => ({
-        getSignerDetailsFromAccount,
+        hasSignerCommitment,
         insertGuardianAccountMonotonically: jest.fn(),
         createGuardianAccount: jest.fn()
       }));
       jest.doMock('lib/miden/activity/connectivity-issues', () => ({ addConnectivityIssue: jest.fn() }));
     };
 
-    // recoverAndAdoptByKey's 3rd argument is the adopt callback under test; invoking it
+    // lookupServedStatesByKey's 3rd argument is the verify callback under test; invoking it
     // with a stub account exercises its accept path and two refusals without a real lookup.
-    const spyRecoverAndAdoptByKeyInvokingVerify = (client: unknown, stubAccount: unknown) =>
-      jest.spyOn(client as any, 'recoverAndAdoptByKey').mockImplementation(async (...args: unknown[]) => {
+    const spyLookupServedStatesByKeyInvokingVerify = (client: unknown, stubAccount: unknown) =>
+      jest.spyOn(client as any, 'lookupServedStatesByKey').mockImplementation(async (...args: unknown[]) => {
         const verify = args[2] as ((acc: unknown) => Promise<void>) | undefined;
         await verify?.(stubAccount);
-        return ['unreachable'];
+        return [
+          {
+            bytes: new Uint8Array(),
+            accountIdHex: '0x01',
+            accountId: 'unreachable',
+            nonce: 0n,
+            isNew: false,
+            commitment: 'feed'
+          }
+        ];
       });
 
-    it('rejects with GUARDIAN_ACCOUNT_NOT_FOUND and the localized no-account message when nothing was adopted', async () => {
+    it('rejects with GUARDIAN_ACCOUNT_NOT_FOUND and the localized no-account message when nothing was found', async () => {
       setup();
       const { MidenClientInterface } = await import('./miden-client-interface');
       const { GUARDIAN_ACCOUNT_NOT_FOUND, NoGuardianAccountsFoundError } = await import('./guardian-recovery-errors');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      jest.spyOn(client as any, 'recoverAndAdoptByKey').mockResolvedValue([]);
+      jest.spyOn(client as any, 'lookupServedStatesByKey').mockResolvedValue([]);
 
-      const rejection = client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example');
+      const rejection = client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
 
       await expect(rejection).rejects.toBeInstanceOf(NoGuardianAccountsFoundError);
       await expect(rejection).rejects.toMatchObject({
@@ -3167,9 +3780,9 @@ describe('MidenClientInterface', () => {
       setup();
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      jest.spyOn(client as any, 'recoverAndAdoptByKey').mockRejectedValue(new Error('HTTP 404'));
+      jest.spyOn(client as any, 'lookupServedStatesByKey').mockRejectedValue(new Error('HTTP 404'));
 
-      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
+      await expect(client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
         'HTTP 404'
       );
       expect(requireProbes().mockProbeVerdicts).toEqual([['https://guardian.example', false]]);
@@ -3178,36 +3791,33 @@ describe('MidenClientInterface', () => {
 
     it('resolves with the adopted account when the pasted key is the current hot key, in any case or prefix', async () => {
       const stubAccount = {};
-      const getSignerDetailsFromAccount = jest.fn().mockResolvedValueOnce({ commitment: 'AABB' });
-      setup(getSignerDetailsFromAccount);
+      const hasSignerCommitment = membershipOf(['AABB', 'ffff']);
+      setup(hasSignerCommitment);
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      spyRecoverAndAdoptByKeyInvokingVerify(client, stubAccount);
+      spyLookupServedStatesByKeyInvokingVerify(client, stubAccount);
+      jest.spyOn(client as any, 'adoptServedStates').mockResolvedValueOnce(['unreachable']);
 
-      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).resolves.toEqual([
+      const prepared = await client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
+      await expect(client.adoptPreparedGuardianHotKeyRecovery(prepared)).resolves.toEqual([
         { accountId: 'unreachable', hotPublicKey: '1122' }
       ]);
-      expect(getSignerDetailsFromAccount).toHaveBeenCalledTimes(1);
+      expect(hasSignerCommitment).toHaveBeenCalledWith(stubAccount, 'aabb');
       expect(requireProbes().mockProbeVerdicts).toEqual([['https://guardian.example', true]]);
     });
 
-    it('rejects with no code when the pasted key matches only the recovery (cold) key', async () => {
+    it('adopts the account when the pasted hot key sits at a later slot of the signer set', async () => {
       const stubAccount = {};
-      const getSignerDetailsFromAccount = jest
-        .fn()
-        .mockResolvedValueOnce({ commitment: 'ffff' })
-        .mockResolvedValueOnce({ commitment: 'AABB' });
-      setup(getSignerDetailsFromAccount);
+      setup(membershipOf(['ffff', 'eeee', '0xAABB']));
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      spyRecoverAndAdoptByKeyInvokingVerify(client, stubAccount);
+      spyLookupServedStatesByKeyInvokingVerify(client, stubAccount);
+      jest.spyOn(client as any, 'adoptServedStates').mockResolvedValueOnce(['unreachable']);
 
-      const rejection = client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example');
-
-      await expect(rejection).rejects.toMatchObject({ message: 'importHotKeyIsRecoveryKey' });
-      await expect(rejection).rejects.not.toHaveProperty('code');
-      expect(getSignerDetailsFromAccount).toHaveBeenNthCalledWith(1, stubAccount, false);
-      expect(getSignerDetailsFromAccount).toHaveBeenNthCalledWith(2, stubAccount, true);
+      const prepared = await client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
+      await expect(client.adoptPreparedGuardianHotKeyRecovery(prepared)).resolves.toEqual([
+        { accountId: 'unreachable', hotPublicKey: '1122' }
+      ]);
     });
 
     it.each([
@@ -3235,9 +3845,9 @@ describe('MidenClientInterface', () => {
         }));
         const { MidenClientInterface } = await import('./miden-client-interface');
         const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-        const lookup = jest.spyOn(client as any, 'recoverAndAdoptByKey');
+        const lookup = jest.spyOn(client as any, 'lookupServedStatesByKey');
 
-        await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toBe(trap);
+        await expect(client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example')).rejects.toBe(trap);
         expect(frees.commitment).not.toHaveBeenCalled();
         expect(frees.publicKey).not.toHaveBeenCalled();
         expect(frees.secretKey).not.toHaveBeenCalled();
@@ -3265,25 +3875,21 @@ describe('MidenClientInterface', () => {
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
 
-      await expect(client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
+      await expect(client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example')).rejects.toThrow(
         'not a commitment'
       );
       expect(frees.commitment).toHaveBeenCalledTimes(1);
       expect(frees.publicKey).toHaveBeenCalledTimes(1);
     });
 
-    it('rejects with no code when the pasted key matches neither the hot nor the recovery key', async () => {
+    it('rejects with no code when no slot of the signer set holds the pasted key', async () => {
       const stubAccount = {};
-      const getSignerDetailsFromAccount = jest
-        .fn()
-        .mockResolvedValueOnce({ commitment: 'ffff' })
-        .mockResolvedValueOnce({ commitment: 'eeee' });
-      setup(getSignerDetailsFromAccount);
+      setup(membershipOf(['ffff', 'eeee']));
       const { MidenClientInterface } = await import('./miden-client-interface');
       const client = MidenClientInterface.fromClient(buildFakeMidenClient() as any, 'testnet');
-      spyRecoverAndAdoptByKeyInvokingVerify(client, stubAccount);
+      spyLookupServedStatesByKeyInvokingVerify(client, stubAccount);
 
-      const rejection = client.recoverGuardianAccountByHotKey('deadbeef', 'https://guardian.example');
+      const rejection = client.prepareGuardianRecoveryByHotKey('deadbeef', 'https://guardian.example');
 
       await expect(rejection).rejects.toMatchObject({ message: 'importHotKeyNotActive' });
       await expect(rejection).rejects.not.toHaveProperty('code');
@@ -3716,7 +4322,10 @@ describe('MidenClientInterface', () => {
       client = await stagedClient(staged.executeRequest);
       const { WasmClientPoisonedError } = await import('./wasm-client-poison');
 
-      await expect(client.swapTransaction(swapTx as any)).rejects.toBeInstanceOf(WasmClientPoisonedError);
+      const poisonErr = await client.swapTransaction(swapTx as any).catch((err: unknown) => err);
+      expect(poisonErr).toBeInstanceOf(WasmClientPoisonedError);
+      const { isLockEvictedError } = await import('./sdk-error-code');
+      expect(isLockEvictedError(poisonErr)).toBe(true);
 
       expect(staged.prove).toHaveBeenCalledTimes(1);
       expect(staged.submit).not.toHaveBeenCalled();
@@ -4078,8 +4687,8 @@ describe('MidenClientInterface', () => {
       const client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
       client.free();
 
-      await expect(
-        client.sendTransaction({
+      const err = await client
+        .sendTransaction({
           accountId: 'sender',
           secondaryAccountId: 'recip',
           faucetId: 'faucet',
@@ -4087,10 +4696,59 @@ describe('MidenClientInterface', () => {
           amount: BigInt(100),
           extraInputs: {}
         } as any)
-      ).rejects.toMatchObject({ name: 'WasmClientPoisonedError' });
+        .catch((caught: unknown) => caught);
+
+      expect(err).toMatchObject({ name: 'WasmClientPoisonedError' });
+      const { isLockEvictedError } = await import('./sdk-error-code');
+      expect(isLockEvictedError(err)).toBe(true);
 
       expect(stubs.proveViaOffscreen).toHaveBeenCalledTimes(1);
       expect(yieldMock).not.toHaveBeenCalled();
+      expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
+    });
+
+    it('marks offscreen submit inner-client acquisition eviction as lock-evicted (#2325)', async () => {
+      const fakeWasm = buildWasmStub();
+      const inner = {
+        executeTransaction: jest.fn(async () => fakeTransactionResult),
+        submitProvenTransaction: jest.fn(async () => 100),
+        applyTransaction: jest.fn(async () => undefined),
+        getAccount: jest.fn(async () => undefined)
+      };
+      buildOffscreenStubs();
+      const fakeMidenClient = buildClientWithInner(inner, fakeWasm);
+      let client!: MidenClientInterfaceType;
+      let innerCalls = 0;
+      (fakeMidenClient as any)._withInnerWebClient = async (fn: any) => {
+        innerCalls += 1;
+        if (innerCalls === 2) client.markPoisoned();
+        return fn(inner);
+      };
+      jest.doMock('@miden-sdk/miden-sdk/lazy', () => ({
+        ...fakeWasm,
+        TransactionProver: { newLocalProver: jest.fn(() => ({ serialize: () => 'local' })) },
+        TransactionRequest: { deserialize: jest.fn(() => ({})) },
+        getWasmOrThrow: async () => fakeWasm
+      }));
+
+      const { MidenClientInterface } = await import('./miden-client-interface');
+      const { isLockEvictedError } = await import('./sdk-error-code');
+      client = MidenClientInterface.fromClient(fakeMidenClient as any, 'testnet');
+
+      const err = await client
+        .sendTransaction({
+          accountId: 'sender',
+          secondaryAccountId: 'recip',
+          faucetId: 'faucet',
+          noteType: 'public' as any,
+          amount: BigInt(100),
+          extraInputs: {}
+        } as any)
+        .catch((caught: unknown) => caught);
+
+      expect(innerCalls).toBe(2);
+      expect((err as Error & { cause?: Error }).cause?.message).toContain('while acquiring offscreen submit client');
+      expect(isLockEvictedError(err)).toBe(true);
       expect(inner.submitProvenTransaction).not.toHaveBeenCalled();
     });
 

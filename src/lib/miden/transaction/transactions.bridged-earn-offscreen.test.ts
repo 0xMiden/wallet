@@ -500,6 +500,280 @@ describe('reviewed compact Epoch source on the existing single-key pipeline', ()
     expect(sourceSubmit).not.toHaveBeenCalled();
     expect(txStore[0]?.mayHaveSubmitted).toBe(true);
   });
+
+  it('inline reviewed native bridge preserves mayHaveSubmitted and omits errorBeforeSubmit on post-submit failure (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'false';
+    const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    const tx = ownedNativeBridgeRow();
+    txStore.push({ ...tx });
+    mockProxyNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      const stamp = args[4] as ((stage: string) => Promise<void>) | undefined;
+      await stamp?.('submitting');
+      throw new Error('inline apply failed after submit');
+    });
+
+    const caught = await generateTransaction(tx, signCallback, false, compactProvider).catch((error: unknown) => error);
+    expect(hasErrorBeforeSubmit(caught)).toBe(false);
+    expect(txStore[0]?.mayHaveSubmitted).toBe(true);
+    expect(
+      (txStore[0]?.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.[0]?.preSubmitEnd
+    ).toBeUndefined();
+  });
+
+  it('offscreen reviewed native bridge tags errorBeforeSubmit without recordLeafEnd on pre-open failure and retires late stamps (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { hasErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    const txPreOpen = ownedNativeBridgeRow();
+    txPreOpen.id = 'owned-preopen-fail';
+    txStore.push({ ...txPreOpen });
+    let capturedGate: ((evidence?: unknown) => Promise<boolean>) | undefined;
+    mockProxyNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      capturedGate = args[5] as (evidence?: unknown) => Promise<boolean>;
+      throw new Error('offscreen pre-open failure');
+    });
+
+    const caught = await generateTransaction(txPreOpen, signCallback, false, compactProvider).catch(
+      (error: unknown) => error
+    );
+    expect(hasErrorBeforeSubmit(caught)).toBe(true);
+    expect(await capturedGate?.()).toBe(false);
+    expect(txStore.find(r => r.id === 'owned-preopen-fail')?.submitEvidence).toBeUndefined();
+
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parked = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          if (!parked && current) {
+            const probe = {
+              ...current,
+              submitEvidence: Array.isArray(current.submitEvidence) ? [...current.submitEvidence] : undefined
+            };
+            fn(probe);
+            if ((probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')) {
+              parked = true;
+              stampStarted();
+              await parkedStamp;
+            }
+          }
+          return inner.modify(fn);
+        }
+      };
+    });
+
+    const txLate = ownedNativeBridgeRow();
+    txLate.id = 'owned-late-stamp';
+    txStore.push({ ...txLate });
+    let pendingGate: Promise<boolean> | undefined;
+    mockProxyNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      pendingGate = (args[5] as (evidence?: unknown) => Promise<boolean>)();
+      await enteredStamp;
+      throw new Error('offscreen aborted while gate stamp awaited Dexie');
+    });
+
+    try {
+      let lateSettled = false;
+      const lateRun = generateTransaction(txLate, signCallback, false, compactProvider).then(
+        () => {
+          lateSettled = true;
+        },
+        () => {
+          lateSettled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(lateSettled).toBe(false);
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp();
+      await lateRun;
+      expect(await pendingGate).toBe(false);
+
+      const rowLate = txStore.find(r => r.id === 'owned-late-stamp')!;
+      expect(rowLate.mayHaveSubmitted).toBeUndefined();
+      expect(rowLate.submitEvidence).toEqual([
+        expect.objectContaining({ source: 'stage', preSubmitEnd: true, raisedFlag: true })
+      ]);
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+    }
+  });
+
+  it('keeps gate opened and omits errorBeforeSubmit on late stamp when offscreen reviewed native bridge retireCrossing throws (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { hasErrorBeforeSubmit, isKilledBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    const { OperationAbortedError } = jest.requireActual('../back/offscreen-codec');
+    const tx = ownedNativeBridgeRow();
+    tx.id = 'owned-late-retire-fail';
+    txStore.push({ ...tx });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parkedOnce = false;
+    let failRetire = false;
+    let retireAttempted = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current
+            ? {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence)
+                  ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                  : undefined
+              }
+            : {};
+          fn(probe);
+          if (
+            !parkedOnce &&
+            (probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')
+          ) {
+            parkedOnce = true;
+            stampStarted();
+            await parkedStamp;
+          } else if (
+            failRetire &&
+            (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(e => e.preSubmitEnd === true)
+          ) {
+            retireAttempted = true;
+            throw new Error('QuotaExceededError during owned retire');
+          }
+          return inner.modify(fn);
+        }
+      };
+    });
+
+    let pendingGate: Promise<boolean> | undefined;
+    mockProxyNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      pendingGate = (args[5] as (evidence?: unknown) => Promise<boolean>)();
+      await enteredStamp;
+      throw new OperationAbortedError('op-owned-late-retire-fail', 'deadline');
+    });
+
+    let settled = false;
+    try {
+      const runPromise = generateTransaction(tx, signCallback, false, compactProvider).then(
+        () => undefined,
+        (error: unknown) => {
+          settled = true;
+          return error;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
+      failRetire = true;
+      releaseStamp();
+      const caught = await runPromise;
+      expect(await pendingGate).toBe(false);
+      expect(retireAttempted).toBe(true);
+      expect(hasErrorBeforeSubmit(caught)).toBe(false);
+      expect(isKilledBeforeSubmit(caught)).toBe(false);
+      expect(txStore.find(r => r.id === 'owned-late-retire-fail')?.mayHaveSubmitted).toBe(true);
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+    }
+  });
+
+  it('keeps gate opened and omits errorBeforeSubmit on late stamp when reviewed bridge has no attempt (retireCrossing undefined) (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const { hasErrorBeforeSubmit, isKilledBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    const { OperationAbortedError } = jest.requireActual('../back/offscreen-codec');
+    const tx = reviewedEpochRow();
+    tx.id = 'epoch-no-attempt-late-stamp';
+    txStore.push({ ...tx });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parkedOnce = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (row: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (row: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current ? { ...current } : {};
+          fn(probe);
+          if (!parkedOnce && probe.mayHaveSubmitted === true) {
+            parkedOnce = true;
+            stampStarted();
+            await parkedStamp;
+          }
+          return inner.modify(fn);
+        }
+      };
+    });
+
+    let pendingGate: Promise<boolean> | undefined;
+    mockProxyNewTransaction.mockImplementationOnce(async (...args: unknown[]) => {
+      pendingGate = (args[5] as (evidence?: unknown) => Promise<boolean>)();
+      await enteredStamp;
+      throw new OperationAbortedError('op-epoch-late-stamp', 'deadline');
+    });
+
+    let settled = false;
+    try {
+      const runPromise = generateTransaction(tx, signCallback, false, compactProvider).then(
+        () => undefined,
+        (error: unknown) => {
+          settled = true;
+          return error;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
+      releaseStamp();
+      const caught = await runPromise;
+      expect(await pendingGate).toBe(false);
+      expect(hasErrorBeforeSubmit(caught)).toBe(false);
+      expect(isKilledBeforeSubmit(caught)).toBe(false);
+      expect(txStore.find(r => r.id === 'epoch-no-attempt-late-stamp')?.mayHaveSubmitted).toBe(true);
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+    }
+  });
 });
 
 // markBridgedSendFailed's write, landing after the loop picked the row up and before its leaf runs.
@@ -533,6 +807,27 @@ describe('non-guardian bridged-send / earn-deposit leaf → proxy delegation (sl
     expect(mockGetMidenClient).not.toHaveBeenCalled();
     expect(mockInlineSendTransaction).not.toHaveBeenCalled();
     expect(mockComplete.bridged).not.toHaveBeenCalled();
+  });
+
+  it('NEAR Intents bridged-send → midenClientProxy.sendTransaction with a stage stamp, completed as a bridged-send', async () => {
+    const tx = await run('tx-bs-near-intents', {
+      type: 'bridged-send',
+      secondaryAccountId: 'mm1deposit_qr7qqq9wr6w',
+      faucetId: 'faucet',
+      amount: 1000n,
+      noteType: 'public',
+      extraInputs: { provider: 'near-intents', destinationAddress: '0x2222222222222222222222222222222222222222' }
+    });
+
+    // The row (with its 1Click tracking) reaches `sendTransaction` with a guarded signer, stage stamp, and submit gate.
+    const [calledTx, callback, stamp, gate] = mockProxySendTransaction.mock.calls[0] ?? [];
+    expect(calledTx).toEqual(tx);
+    expect(typeof callback).toBe('function');
+    expect(callback).not.toBe(signCallback);
+    expect(typeof stamp).toBe('function');
+    expect(typeof gate).toBe('function');
+    expect(mockProxyNewTransaction).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
   });
 
   it.each(['agglayer', 'usdcx'])(

@@ -5,16 +5,22 @@ import { useTranslation } from 'react-i18next';
 import { AnimatedNumber, Button, ButtonVariant, SegmentedControl, SectionHeader } from 'components/ui';
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { getNumberSymbols } from 'lib/i18n/core';
+import { compareAccountIds } from 'lib/miden/activity/utils';
+import { readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
+import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import {
   recordPortfolioObservation,
   readPortfolioObservations,
   type PortfolioObservation
 } from 'lib/miden/portfolio-observations';
+import * as Repo from 'lib/miden/repo';
 import type { AccountScope } from 'lib/miden-chain/account-scope';
 import { getEffectiveNetworkName, getEffectiveRpcUrl } from 'lib/miden-chain/effective-endpoints';
 import { WalletStatus } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
 
+import { buildActivityHistoryObservations } from './activity-history';
+import { CommandAiBar } from './CommandAiBar';
 import { CommandAssets } from './CommandAssets';
 import { CommandHistoryTrace } from './CommandHistoryTrace';
 import { useCommandPortfolio } from './useCommandPortfolio';
@@ -25,7 +31,7 @@ const DAY_MS = 24 * 60 * 60_000;
 const BALANCE_PLACEHOLDER = '---';
 const PORTFOLIO_COLUMN_PADDING = 'px-5 py-6 sm:px-8';
 const PORTFOLIO_HEADER = 'flex min-h-9 flex-wrap items-center justify-between gap-x-3 gap-y-1';
-const RANGES = { '1W': 7, '1M': 30, '3M': 90, '1Y': 365 };
+const PRESET_RANGES = { '1D': 1, '1W': 7, '1M': 30, '3M': 90, '1Y': 365 } as const;
 const ALLOCATION_COLORS = [
   'text-accent-primary',
   'text-accent-receive-ink',
@@ -33,8 +39,9 @@ const ALLOCATION_COLORS = [
   'text-accent-earn-ink',
   'text-accent-tint-ink'
 ] as const;
-type HistoryRange = keyof typeof RANGES;
+type HistoryRange = keyof typeof PRESET_RANGES;
 const RANGE_ITEMS: { id: HistoryRange; label: string }[] = [
+  { id: '1D', label: '1D' },
   { id: '1W', label: '1W' },
   { id: '1M', label: '1M' },
   { id: '3M', label: '3M' },
@@ -60,8 +67,8 @@ export function CommandPortfolio({
   const [hidden, setHidden] = useCommandPrivacy();
   const portfolio = useCommandPortfolio(scope);
   const [selectedRange, setSelectedRange] = useState<HistoryRange | null>(null);
-  const range = selectedRange ?? '1M';
   const [history, setHistory] = useState<{ key: string; rows: readonly PortfolioObservation[] } | null>(null);
+  const [activityRows, setActivityRows] = useState<{ key: string; rows: readonly ITransaction[] } | null>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const accountId = useWalletStore(state => state.currentAccount?.publicKey);
   const ready = useWalletStore(state => state.status === WalletStatus.Ready);
@@ -98,7 +105,7 @@ export function CommandPortfolio({
     void recordPortfolioObservation(observation)
       .then(async (): Promise<void> => {
         if (cancelled) return;
-        const rows = await readPortfolioObservations(stableScope, Date.now() - RANGES['1Y'] * DAY_MS);
+        const rows = await readPortfolioObservations(stableScope, Date.now() - PRESET_RANGES['1Y'] * DAY_MS);
         if (!cancelled) setHistory({ key, rows });
       })
       .catch(() => {
@@ -112,7 +119,7 @@ export function CommandPortfolio({
 
   useEffect(() => {
     let cancelled = false;
-    void readPortfolioObservations(stableScope, Date.now() - RANGES['1Y'] * DAY_MS)
+    void readPortfolioObservations(stableScope, Date.now() - PRESET_RANGES['1Y'] * DAY_MS)
       .then(rows => {
         if (!cancelled) setHistory({ key, rows });
       })
@@ -124,11 +131,77 @@ export function CommandPortfolio({
     };
   }, [key, stableScope]);
 
-  const actual = useMemo(() => (history?.key === key ? history.rows : []), [history, key]);
-  const points = useMemo(
-    () => actual.filter(row => row.capturedAt >= Date.now() - RANGES[range] * DAY_MS),
-    [actual, range]
+  useEffect(() => {
+    let cancelled = false;
+    const loadRows = readTransactionIndexChunks(
+      Repo.transactions,
+      statusTypeIndexSpecs([
+        [ITransactionStatus.Completed, 'consume'],
+        [ITransactionStatus.Completed, 'bridged-receive'],
+        [ITransactionStatus.Completed, 'earn-withdraw'],
+        [ITransactionStatus.Completed, 'send'],
+        [ITransactionStatus.Completed, 'bridged-send'],
+        [ITransactionStatus.Completed, 'earn-deposit']
+      ]),
+      row => compareAccountIds(row.accountId, stableScope.accountId)
+    );
+    void loadRows
+      .then(rows => {
+        if (!cancelled) setActivityRows({ key, rows });
+      })
+      .catch(() => {
+        if (!cancelled) setActivityRows({ key, rows: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [key, stableScope.accountId, capturedAt, value]);
+
+  const activityHistory = useMemo(
+    () =>
+      buildActivityHistoryObservations({
+        scope: stableScope,
+        transactions: activityRows?.key === key ? activityRows.rows : [],
+        assets: portfolio.assets,
+        tokenPrices: portfolio.tokenPrices,
+        currentValue: value,
+        coverage,
+        coverageKey
+      }),
+    [activityRows, coverage, coverageKey, key, portfolio.assets, portfolio.tokenPrices, stableScope, value]
   );
+
+  const actual = useMemo(
+    () => (activityHistory.length >= 2 ? activityHistory : history?.key === key ? history.rows : []),
+    [activityHistory, history, key]
+  );
+  const now = Date.now();
+  const range: HistoryRange = selectedRange ?? '1D';
+  const { points, rangeStart, rangeMs } = useMemo(() => {
+    const windowMs = PRESET_RANGES[range] * DAY_MS;
+    const start = now - windowMs;
+    const windowPoints = actual.filter(row => row.capturedAt >= start);
+    if (range === '1D' && actual.length >= 2) {
+      const firstAt = actual[0]!.capturedAt;
+      const lastAt = actual[actual.length - 1]!.capturedAt;
+      const observedSpanMs = lastAt - firstAt;
+      if (observedSpanMs < DAY_MS || windowPoints.length < 2) {
+        const rawSpan = Math.max(0, observedSpanMs);
+        const pad = rawSpan > 0 ? Math.max(rawSpan * 0.04, 1_000) : 60_000;
+        const fitStart = firstAt - pad;
+        return {
+          points: actual,
+          rangeStart: fitStart,
+          rangeMs: Math.max(1, lastAt + pad - fitStart)
+        };
+      }
+    }
+    return {
+      points: windowPoints,
+      rangeStart: start,
+      rangeMs: windowMs
+    };
+  }, [actual, now, range]);
   const { samples, gaps } = useMemo(() => {
     const stride = Math.max(1, Math.ceil(points.length / 365));
     const samples: { row: (typeof points)[number]; run: number }[] = [];
@@ -148,10 +221,44 @@ export function CommandPortfolio({
     : '';
   const values = samples.map(({ row }) => Number(row.value));
   const min = Math.min(...values);
-  const span = Math.max(...values) - min;
+  const maxVal = Math.max(...values);
+  const span = maxVal - min;
+  const firstSampleValue = samples.length >= 2 ? Number(samples[0]!.row.value) : null;
+  const lastSampleValue = samples.length >= 2 ? Number(samples[samples.length - 1]!.row.value) : null;
+  const periodDelta =
+    !hidden &&
+    firstSampleValue !== null &&
+    lastSampleValue !== null &&
+    Number.isFinite(firstSampleValue) &&
+    Number.isFinite(lastSampleValue)
+      ? {
+          amount: lastSampleValue - firstSampleValue,
+          percentage: firstSampleValue > 0 ? ((lastSampleValue - firstSampleValue) / firstSampleValue) * 100 : null
+        }
+      : null;
+  const deltaAmountLabel = periodDelta
+    ? `${periodDelta.amount >= 0 ? '+' : '-'}$${formatAmountDisplay(Math.abs(periodDelta.amount), displayOptions)}`
+    : null;
+  const deltaPercentageLabel =
+    periodDelta && periodDelta.percentage !== null
+      ? `(${periodDelta.percentage >= 0 ? '+' : '-'}${formatAmountDisplay(Math.abs(periodDelta.percentage), {
+          ...displayOptions,
+          formatting: 'fixed'
+        })}${t('percentSign')})`
+      : null;
+  const yTicks =
+    span > 0
+      ? [
+          { top: 18, value: maxVal },
+          { top: 50, value: min + span / 2 },
+          { top: 82, value: min }
+        ]
+      : [{ top: 50, value: min }];
+  const formatAxisTime = (ts: number) =>
+    rangeMs <= DAY_MS
+      ? new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : new Date(ts).toLocaleDateString([], { month: 'short', day: 'numeric' });
   const hasTrace = samples.some((sample, index) => index > 0 && samples[index - 1]?.run === sample.run);
-  const rangeMs = RANGES[range] * DAY_MS;
-  const rangeStart = Date.now() - rangeMs;
   const chartPoints = samples.map(({ row, run }) => ({
     x: Math.max(0, Math.min(100, (100 * (row.capturedAt - rangeStart)) / rangeMs)),
     y: span ? 82 - (64 * (Number(row.value) - min)) / span : 50,
@@ -176,6 +283,7 @@ export function CommandPortfolio({
     });
   return (
     <div className="mx-auto grid w-full min-w-0 max-w-[90rem] grid-cols-1 gap-6 px-4 py-6 sm:px-8 lg:grid-cols-12 lg:px-[4vw] lg:py-10">
+      <CommandAiBar scope={scope} assets={portfolio.actionBalances} tokenPrices={portfolio.livePrices} />
       <div
         data-testid="command-portfolio-surface"
         className="relative isolate grid min-w-0 overflow-hidden rounded-3xl border border-hairline bg-linear-to-b from-fill/65 to-page lg:col-span-12 lg:grid-cols-12"
@@ -237,16 +345,31 @@ export function CommandPortfolio({
         <section
           className="min-w-0 border-t border-hairline bg-page bg-[radial-gradient(ellipse_at_bottom_right,var(--ds-accent-tint),transparent_72%)] px-5 py-5 sm:px-8 lg:col-span-12 lg:row-start-2"
           aria-label={t('commandObservedHistory')}
-          aria-busy={history?.key !== key}
+          aria-busy={history?.key !== key || activityRows?.key !== key}
           data-testid="command-history"
         >
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-            <SectionHeader size="lg">{t('commandObservedHistory')}</SectionHeader>
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <SectionHeader size="lg">{t('commandObservedHistory')}</SectionHeader>
+              {periodDelta && (
+                <span
+                  data-testid="command-chart-delta"
+                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-caption font-semibold tabular-nums ${
+                    periodDelta.amount >= 0
+                      ? 'border-accent-receive-ink/30 bg-accent-receive-ink/10 text-accent-receive-ink'
+                      : 'border-negative-tint-ink/30 bg-negative-tint/15 text-negative-tint-ink'
+                  }`}
+                >
+                  <span>{deltaAmountLabel}</span>
+                  {deltaPercentageLabel !== null && <span className="opacity-85">{deltaPercentageLabel}</span>}
+                </span>
+              )}
+            </div>
             <SegmentedControl<HistoryRange>
               aria-label={t('commandHistoryRange')}
               size="sm"
-              layout="fill"
-              className="w-52 min-w-0 max-w-full px-1"
+              layout="scroll"
+              className="min-w-0 max-w-full px-1"
               value={range}
               items={RANGE_ITEMS}
               onChange={next => {
@@ -276,7 +399,7 @@ export function CommandPortfolio({
               <div
                 data-testid="command-chart"
                 data-history-kind={hasTrace ? 'trace' : 'observations'}
-                className={hasTrace ? 'relative mx-2 mt-5 h-44 sm:h-56' : 'relative mx-2 mt-5 h-28 sm:h-36'}
+                className="relative mx-2 mt-5 h-44 sm:h-56"
                 onMouseMove={event => {
                   const rect = event.currentTarget.getBoundingClientRect();
                   if (rect.width) {
@@ -290,21 +413,53 @@ export function CommandPortfolio({
                     );
                   }
                 }}
+                onMouseLeave={() => setSelected(null)}
               >
                 <CommandHistoryTrace key={range} points={chartPoints} reveal={selectedRange !== null} />
-                {activePoint && (
-                  <div
+                {yTicks.map(tick => (
+                  <span
+                    key={tick.top}
                     aria-hidden="true"
-                    className="pointer-events-none absolute inset-y-0 w-px bg-linear-to-b from-accent-primary/45 to-transparent"
-                    style={{ left: `${activePoint.x}%` }}
+                    className="pointer-events-none absolute right-1 -translate-y-1/2 rounded bg-page/75 px-1 text-[11px] text-muted/75 [backdrop-filter:blur(4px)] [-webkit-backdrop-filter:blur(4px)] tabular-nums"
+                    style={{ top: `${tick.top}%` }}
                   >
-                    <span
-                      data-testid="command-chart-marker"
-                      className="absolute size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink ring-1 ring-accent-primary"
-                      style={{ top: `${activePoint.y}%` }}
-                    />
-                  </div>
+                    ${formatAmountDisplay(tick.value, displayOptions)}
+                  </span>
+                ))}
+                {selected !== null && activePoint && sample && (
+                  <>
+                    <div
+                      data-testid="command-chart-tooltip"
+                      className="pointer-events-none absolute top-1 z-10 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-full border border-accent-primary/35 bg-fill/90 px-2.5 py-1 text-[11px] font-medium text-ink shadow-md [backdrop-filter:blur(12px)] [-webkit-backdrop-filter:blur(12px)] tabular-nums"
+                      style={{ left: `${Math.max(12, Math.min(88, activePoint.x))}%` }}
+                    >
+                      <span className="font-semibold text-accent-tint-ink">
+                        ${formatAmountDisplay(Number(sample.value), displayOptions)}
+                      </span>
+                      <span className="text-muted">·</span>
+                      <span className="text-muted">{formatAxisTime(sample.capturedAt)}</span>
+                    </div>
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-y-0 w-px bg-linear-to-b from-transparent via-accent-primary/75 to-transparent shadow-[0_0_8px_var(--accent-primary)]"
+                      style={{ left: `${activePoint.x}%` }}
+                    >
+                      <span
+                        data-testid="command-chart-marker"
+                        className="absolute size-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-page bg-accent-tint-ink shadow-[0_0_12px_var(--accent-primary)] ring-2 ring-accent-primary/60"
+                        style={{ top: `${activePoint.y}%` }}
+                      />
+                    </div>
+                  </>
                 )}
+              </div>
+              <div
+                aria-hidden="true"
+                className="mx-2 mt-1 flex items-center justify-between text-[11px] text-muted/75 tabular-nums"
+              >
+                <span>{formatAxisTime(rangeStart)}</span>
+                <span>{formatAxisTime(rangeStart + rangeMs / 2)}</span>
+                <span>{formatAxisTime(rangeStart + rangeMs)}</span>
               </div>
               <input
                 type="range"
@@ -404,7 +559,7 @@ export function CommandPortfolio({
           assets={portfolio.assets}
           prices={portfolio.tokenPrices}
           hidden={hidden}
-          current={portfolio.current}
+          current={portfolio.shown}
         />
       </div>
       {recentActions && <div className="min-w-0 lg:col-span-5">{recentActions}</div>}

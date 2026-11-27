@@ -172,9 +172,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
         amount,
         review: quote,
         underlyingDecimals: position.decimals,
-        // No Miden-side transaction happens (gasless EVM intent sign), so the
-        // handoff goes to the bespoke withdraw status screen — not the
-        // prove/submit generating-transaction page.
+        // Open the withdrawal status screen after the wallet checks the balance and saves the tracking row.
         onRowCreated: txId =>
           navigate({
             pathname: `/earn/withdraw-status/${encodeURIComponent(txId)}`,
@@ -182,9 +180,7 @@ const EarnWithdrawReview: FC<EarnWithdrawReviewProps> = ({ positionId }) => {
           })
       });
     } catch (e) {
-      // If the row was already created we have navigated away and the
-      // generating screen renders the failed phase; this only surfaces
-      // pre-row validation errors.
+      // The status screen shows errors for saved withdrawals. Review shows errors before the wallet saves a row.
       setSubmitError(e instanceof Error ? t(e.message) : t('earnGaslessWithdrawalFailed'));
       setSubmitErrorId(
         e instanceof Error

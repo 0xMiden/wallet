@@ -8,6 +8,8 @@ import {
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
 import type * as FaucetIdSettingModule from 'lib/miden/assets/faucet-id-setting';
+import { readBalanceSnapshot, tagBalanceSnapshot } from 'lib/miden/balance-snapshot';
+import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { DEFAULT_TOKEN_METADATA } from 'lib/miden/metadata/defaults';
 import { getNativeDisplayMetadataSync } from 'lib/miden/metadata/native';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
@@ -169,6 +171,97 @@ describe('useWalletStore', () => {
       expect(state.currentAccount?.publicKey).toBe('pk1');
       expect(state.isInitialized).toBe(true);
       expect(state.lastSyncedAt).toBeGreaterThan(0);
+    });
+
+    // The encrypted backup reads its storage index on unlock, once per transition to Ready.
+    describe('the backup refresh on unlock', () => {
+      const backendState = (status: WalletStatus) => ({
+        status,
+        accounts: [],
+        currentAccount: null,
+        networks: [],
+        settings: null,
+        ownMnemonic: true
+      });
+      const backupRefreshCalls = () =>
+        mockRequest.mock.calls.filter(([req]) => req?.type === WalletMessageType.BackupRefreshRequest);
+
+      beforeEach(() => {
+        mockRequest.mockResolvedValue({ type: WalletMessageType.BackupRefreshResponse, outcome: 'unchanged' });
+      });
+
+      it('asks for an unlock refresh when the wallet turns Ready', () => {
+        useWalletStore.getState().syncFromBackend(backendState(WalletStatus.Ready));
+
+        expect(backupRefreshCalls()).toEqual([[{ type: WalletMessageType.BackupRefreshRequest, reason: 'unlock' }]]);
+      });
+
+      it('does not ask again for a sync that finds the wallet Ready already', () => {
+        const { syncFromBackend } = useWalletStore.getState();
+        syncFromBackend(backendState(WalletStatus.Ready));
+        syncFromBackend(backendState(WalletStatus.Ready));
+
+        expect(backupRefreshCalls()).toHaveLength(1);
+      });
+
+      it('does not ask while the wallet is locked', () => {
+        useWalletStore.getState().syncFromBackend(backendState(WalletStatus.Locked));
+
+        expect(backupRefreshCalls()).toHaveLength(0);
+      });
+
+      it('asks again after a lock and a new unlock', () => {
+        const { syncFromBackend } = useWalletStore.getState();
+        syncFromBackend(backendState(WalletStatus.Ready));
+        syncFromBackend(backendState(WalletStatus.Locked));
+        syncFromBackend(backendState(WalletStatus.Ready));
+
+        expect(backupRefreshCalls()).toHaveLength(2);
+      });
+
+      it('logs a failed unlock refresh and does not throw', async () => {
+        const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+        const failure = new Error('backend gone');
+        mockRequest.mockRejectedValueOnce(failure);
+        try {
+          expect(() => useWalletStore.getState().syncFromBackend(backendState(WalletStatus.Ready))).not.toThrow();
+          await new Promise(resolve => setTimeout(resolve, 0));
+          expect(warn).toHaveBeenCalledWith('[syncFromBackend] the backup refresh on unlock failed:', failure);
+        } finally {
+          warn.mockRestore();
+        }
+      });
+    });
+  });
+
+  describe('encrypted backup actions', () => {
+    it('refreshBackup sends the event and returns the outcome', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.BackupRefreshResponse, outcome: 'updated' });
+
+      await expect(useWalletStore.getState().refreshBackup('address-book')).resolves.toBe('updated');
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.BackupRefreshRequest,
+        reason: 'address-book'
+      });
+    });
+
+    it('refreshBackup rejects a response of another type', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.BackupDeleteProfileResponse, outcome: 'updated' });
+
+      await expect(useWalletStore.getState().refreshBackup('foreground')).rejects.toThrow();
+    });
+
+    it('deleteBackup sends the delete request and returns the outcome', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.BackupDeleteProfileResponse, outcome: 'disabled' });
+
+      await expect(useWalletStore.getState().deleteBackup()).resolves.toBe('disabled');
+      expect(mockRequest).toHaveBeenCalledWith({ type: WalletMessageType.BackupDeleteProfileRequest });
+    });
+
+    it('deleteBackup rejects a response of another type', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.BackupRefreshResponse, outcome: 'updated' });
+
+      await expect(useWalletStore.getState().deleteBackup()).rejects.toThrow();
     });
   });
 
@@ -703,6 +796,37 @@ describe('useWalletStore', () => {
 
       useWalletStore.setState(state => ({ assetsMetadata: { ...state.assetsMetadata, mtst1plain: faucetMetadata } }));
       expect(faucetMetadataOf('mtst1plain')).toEqual(faucetMetadata);
+    });
+
+    it('keeps the vault read proof of landed rows when overrides are hydrated afterwards', () => {
+      const scope = { accountId: 'proof-account', network: 'testnet', rpcUrl: 'https://node' };
+      const row = (tokenId: string) =>
+        ({
+          tokenId,
+          tokenSlug: tokenId,
+          balance: 3,
+          balanceBaseUnits: '3000000',
+          fiatPrice: 0,
+          change24h: 0,
+          metadata: { symbol: tokenId, name: tokenId, decimals: 6 }
+        }) as TokenBalanceData;
+      const accounts = { 'proof-account': [row('mtst1plain')], 'proof-account-2': [row('mtst1fresh')] };
+      for (const [accountId, rows] of Object.entries(accounts)) {
+        tagBalanceSnapshot(
+          rows,
+          { network: 'testnet', effectiveNetwork: 'testnet', rpcUrl: scope.rpcUrl, accountNonce: '1', capturedAt: 1 },
+          accountId
+        );
+      }
+      useWalletStore.setState({ balances: accounts });
+      useWalletStore
+        .getState()
+        .hydrateTokenMetadataOverrides({ mtst1fresh: { name: 'Fresh', symbol: 'FRS', decimals: 3 } });
+      const landed = useWalletStore.getState().balances;
+      expect(landed['proof-account-2']![0]!.metadata.decimals).toBe(3);
+      for (const accountId of Object.keys(accounts)) {
+        expect(readBalanceSnapshot(landed[accountId]!, { ...scope, accountId })).not.toBeNull();
+      }
     });
 
     it('applies the stored overrides on hydrate and removes the ones storage no longer has', async () => {
@@ -1243,6 +1367,20 @@ describe('useWalletStore', () => {
       const result = await getAuthSecretKey('key-id');
 
       expect(result).toBe('secret-key-123');
+    });
+
+    it('carries the rotation proposal scope into the signing request', async () => {
+      mockRequest.mockResolvedValueOnce({ type: WalletMessageType.SignWordResponse, signature: '0xword-sig' });
+
+      await useWalletStore.getState().signWord('pub', '0xword', 'rotation-id', true);
+
+      expect(mockRequest).toHaveBeenCalledWith({
+        type: WalletMessageType.SignWordRequest,
+        publicKey: 'pub',
+        wordHex: '0xword',
+        transactionId: 'rotation-id',
+        rotationProposal: true
+      });
     });
 
     it('signWord posts a SignWordRequest and returns the signature string', async () => {
@@ -2459,13 +2597,21 @@ describe('useWalletStore', () => {
         balancesLoading: { 'addr-1': false, 'addr-2': true },
         balancesLastFetched: { 'addr-1': 1, 'addr-2': 2 },
         balanceReadFailed: { 'addr-1': true, 'addr-2': true },
+        balanceRefreshFailed: { 'addr-1': true, 'addr-2': false },
         balanceReadInFlight: { 'addr-1': true, 'addr-2': false },
         assetsMetadata: { 'asset-1': row.metadata },
         tokenPrices: { A: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' as const } } as any,
         accounts: [{ publicKey: 'addr-1', name: 'One' } as any]
       });
-      const { balances, balancesLoading, balancesLastFetched, balanceReadFailed, balanceReadInFlight, ...others } =
-        useWalletStore.getState();
+      const {
+        balances,
+        balancesLoading,
+        balancesLastFetched,
+        balanceReadFailed,
+        balanceRefreshFailed,
+        balanceReadInFlight,
+        ...others
+      } = useWalletStore.getState();
 
       useWalletStore.getState().clearBalances();
 
@@ -2474,12 +2620,14 @@ describe('useWalletStore', () => {
       expect(after.balancesLoading).toEqual({});
       expect(after.balancesLastFetched).toEqual({});
       expect(after.balanceReadFailed).toEqual({});
+      expect(after.balanceRefreshFailed).toEqual({});
       expect(after.balanceReadInFlight).toEqual({});
       const {
         balances: _b,
         balancesLoading: _l,
         balancesLastFetched: _f,
         balanceReadFailed: _rf,
+        balanceRefreshFailed: _rrf,
         balanceReadInFlight: _ri,
         ...othersAfter
       } = after;

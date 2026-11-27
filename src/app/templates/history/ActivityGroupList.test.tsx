@@ -1,26 +1,27 @@
 import React from 'react';
 
+import { Address } from '@miden-sdk/miden-sdk/lazy';
 import { render, screen, within } from '@testing-library/react';
 
 import { recoveredHistoryRecord } from 'lib/miden/guardian/history';
+import { _resetCanonicalWalletAccountIdsForTest } from 'lib/miden/sdk/helpers';
 import { markActivityRead, resetActivityReadState } from 'lib/settings/activity-read';
 
 import { ActivityGroupList } from './ActivityGroupList';
+import { activityCounterpartyNames } from './activityGroups';
+import { ACTIVITY_COUNTERPARTY_BECH32, mockActivityCounterpartyDecode } from './activityGroupTestFixtures';
 import { historyEntryUnreadKey } from './activityUnread';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
 
 const FAUCET = 'miden-native-faucet';
 
-jest.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string, options?: Record<string, unknown>) =>
-      key === 'activityGroupPartialCount'
-        ? `${options?.count}+`
-        : key === 'swapProgressPercent'
-          ? `swapProgressPercent_${options?.percentage}`
-          : key
-  })
-}));
+const mockTranslate = (key: string, options?: Record<string, unknown>) =>
+  key === 'activityGroupPartialCount'
+    ? `${options?.count}+`
+    : key === 'swapProgressPercent'
+      ? `swapProgressPercent_${options?.percentage}`
+      : key;
+jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: mockTranslate }) }));
 
 jest.mock('lib/miden-chain/native-asset', () => ({ getNativeAssetIdSync: () => FAUCET }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
@@ -175,6 +176,119 @@ describe('ActivityGroupList — unread', () => {
 });
 
 describe('ActivityGroupList', () => {
+  it('retains decoded addresses only for the current list and account', () => {
+    const decode = jest.mocked(Address.fromBech32);
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
+    const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
+    const currentPage = [firstEntry];
+    const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
+    const list = (entries: IHistoryEntry[], accountAddress = 'first-account') => {
+      const accountProps = { ...props, accountAddress };
+      return <ActivityGroupList {...accountProps} entries={entries} />;
+    };
+    const clearDecodes = () => {
+      _resetCanonicalWalletAccountIdsForTest();
+      decode.mockClear();
+    };
+
+    try {
+      clearDecodes();
+      const { rerender, unmount } = render(list([firstEntry]));
+      expect(decode).toHaveBeenCalledTimes(1);
+
+      clearDecodes();
+      rerender(list([firstEntry]));
+      expect(decode).not.toHaveBeenCalled();
+
+      rerender(list([]));
+      rerender(list(currentPage));
+      expect(decode).toHaveBeenCalledTimes(1);
+
+      clearDecodes();
+      rerender(list(currentPage, 'second-account'));
+      expect(decode).toHaveBeenCalledTimes(1);
+
+      clearDecodes();
+      unmount();
+      render(list([firstEntry], 'second-account'));
+      expect(decode).toHaveBeenCalledTimes(1);
+    } finally {
+      restoreDecoder();
+      _resetCanonicalWalletAccountIdsForTest();
+    }
+  });
+
+  it('retries an address that could not be decoded during the first render', () => {
+    const decode = jest.mocked(Address.fromBech32);
+    const restoreDecoder = mockActivityCounterpartyDecode(Address.fromBech32);
+    const firstEntry = entry({ secondaryAddress: ACTIVITY_COUNTERPARTY_BECH32 });
+    const props = { nameOf: () => undefined, initialLoading: false, hasMore: false, loadMore: jest.fn() };
+
+    try {
+      _resetCanonicalWalletAccountIdsForTest();
+      decode.mockClear();
+      decode.mockImplementationOnce(() => {
+        throw new Error('SDK unavailable');
+      });
+      const { rerender } = render(<ActivityGroupList {...props} entries={[firstEntry]} />);
+      expect(rows()).toHaveLength(1);
+      expect(decode).toHaveBeenCalledTimes(1);
+
+      rerender(<ActivityGroupList {...props} entries={[firstEntry]} />);
+      expect(rows()).toHaveLength(1);
+      expect(decode).toHaveBeenCalledTimes(2);
+      expect(decode).toHaveBeenLastCalledWith(ACTIVITY_COUNTERPARTY_BECH32);
+    } finally {
+      restoreDecoder();
+      _resetCanonicalWalletAccountIdsForTest();
+    }
+  });
+
+  it('reuses decoded counterparties when appending a page to a large history', () => {
+    const counterparties = Array.from({ length: 258 }, (_, index) => ({
+      address: `mtst1${index.toString(36).padStart(26, 'q')}`,
+      accountId: `0x${index.toString(16).padStart(30, '0')}`
+    }));
+    const ids = new Map(counterparties.map(({ address, accountId }) => [address, accountId]));
+    const firstPage = counterparties.slice(0, -1).map(({ address }) => entry({ secondaryAddress: address }));
+    const existingAddress = counterparties[0]!.address;
+    const newAddress = counterparties.at(-1)!.address;
+    const decode = jest.mocked(Address.fromBech32);
+    const originalDecode = decode.getMockImplementation();
+    if (!originalDecode) throw new Error('The Jest SDK address decoder is unavailable');
+    const firstCall = decode.mock.calls.length;
+    const nameOf = activityCounterpartyNames([{ address: counterparties[0]!.accountId, name: 'Saved alias' }]);
+    const props = { nameOf, initialLoading: false, loadMore: jest.fn() };
+
+    _resetCanonicalWalletAccountIdsForTest();
+    decode.mockImplementation(address => {
+      const accountId = ids.get(address);
+      return accountId === undefined
+        ? originalDecode(address)
+        : ({ accountId: () => ({ toString: () => accountId }) } as ReturnType<typeof Address.fromBech32>);
+    });
+    try {
+      const { rerender } = render(<ActivityGroupList {...props} entries={firstPage} hasMore />);
+      expect(rows()).toHaveLength(firstPage.length);
+      expect(decode.mock.calls.slice(firstCall)).toHaveLength(firstPage.length);
+      const firstAppendCall = decode.mock.calls.length;
+
+      const nextPage = [entry({ secondaryAddress: existingAddress }), entry({ secondaryAddress: newAddress })];
+      rerender(<ActivityGroupList {...props} entries={[...firstPage, ...nextPage]} hasMore={false} />);
+
+      expect(rows()).toHaveLength(counterparties.length);
+      const existingGroup = rows().find(row => row.dataset.groupId === existingAddress);
+      expect(existingGroup).toHaveAttribute('data-group-count', '2');
+      expect(existingGroup).toHaveTextContent('Saved alias');
+      expect(rows().find(row => row.dataset.groupId === newAddress)).toHaveAttribute('data-group-count', '1');
+      expect(decode.mock.calls.length - firstAppendCall).toBe(1);
+      expect(decode).toHaveBeenLastCalledWith(newAddress);
+    } finally {
+      decode.mockImplementation(originalDecode);
+      _resetCanonicalWalletAccountIdsForTest();
+    }
+  });
+
   it('spins while the first page is still loading', () => {
     const { container } = renderList([], { initialLoading: true });
     expect(screen.queryByTestId('activity-group-list')).toBeNull();
@@ -231,6 +345,89 @@ describe('ActivityGroupList', () => {
     expect(listed[0]).toHaveAttribute('href', '/activity/group/address/mtst1alice');
     expect(listed[1]).toHaveAttribute('data-group-kind', 'swap');
     expect(listed[1]).toHaveAttribute('href', '/activity/group/swap');
+  });
+
+  it('titles a dApp group with its origin and finds it by the latest transaction contact', () => {
+    const origin = 'https://dapp.test:8443';
+    renderList([entry({ initiatingDappOrigin: origin, secondaryAddress: 'mtst1alice' })], {
+      nameOf: activityCounterpartyNames([{ address: 'mtst1alice', name: 'Alice' }]),
+      searchQuery: 'alice'
+    });
+
+    const row = screen.getByTestId('activity-group-row');
+    expect(row).toHaveAttribute('href', '/activity/group/dapp/https%3A%2F%2Fdapp.test%3A8443');
+    expect(row).toHaveAttribute('data-group-kind', 'dapp');
+    expect(within(row).getByText(origin)).toBeTruthy();
+    expect(within(row).getByText(/Alice/)).toBeTruthy();
+  });
+
+  it('finds a dApp group by the contact on its represented claim', () => {
+    const initiatingDappOrigin = 'https://dapp.test:8443';
+    const senderAddress = 'mtst1xyz';
+    renderList([], {
+      claims: [
+        {
+          note: {
+            id: 'claim',
+            faucetId: 'token-faucet',
+            senderAddress,
+            amount: '1',
+            isBeingClaimed: true,
+            type: 'unknown',
+            receivedAt: 1_000,
+            metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+          },
+          status: 'claiming',
+          txId: 'consume',
+          initiatingDappOrigin
+        }
+      ],
+      nameOf: activityCounterpartyNames([{ address: senderAddress, name: 'Alice' }]),
+      searchQuery: 'alice'
+    });
+
+    const row = screen.getByTestId('activity-group-row');
+    expect(row).toHaveAttribute('data-group-kind', 'dapp');
+    expect(within(row).getByText(/Alice/)).toBeTruthy();
+  });
+
+  it('labels an untimed-only dApp group with its claim sender contact', () => {
+    const aliceClaim = {
+      note: {
+        id: 'untimed-claim',
+        faucetId: 'token-faucet',
+        senderAddress: 'mtst1xyz',
+        amount: '1',
+        isBeingClaimed: true,
+        type: 'unknown' as const,
+        metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+      },
+      status: 'claiming' as const,
+      txId: 'consume',
+      initiatingDappOrigin: 'https://dapp.test:8443'
+    };
+    const bobClaim = {
+      ...aliceClaim,
+      note: { ...aliceClaim.note, id: 'bob-claim', senderAddress: 'mtst1other' },
+      txId: 'bob-consume'
+    };
+    const timedAlice = { ...aliceClaim, note: { ...aliceClaim.note, receivedAt: 1_000 } };
+    const nameOf = activityCounterpartyNames([
+      { address: 'mtst1xyz', name: 'Alice' },
+      { address: 'mtst1other', name: 'Bob' }
+    ]);
+    const props = { entries: [], nameOf, initialLoading: false, hasMore: false, loadMore: jest.fn() };
+    const { rerender } = render(<ActivityGroupList {...props} claims={[aliceClaim]} />);
+
+    expect(screen.getByTestId('activity-group-row')).toHaveTextContent('received · Alice');
+    expect(screen.getByTestId('activity-group-row')).not.toHaveTextContent('2 hours');
+
+    rerender(<ActivityGroupList {...props} claims={[aliceClaim, bobClaim]} />);
+    expect(screen.getByTestId('activity-group-row')).toHaveTextContent('received · Alice');
+    expect(screen.getByTestId('activity-group-row')).not.toHaveTextContent('Bob');
+
+    rerender(<ActivityGroupList {...props} claims={[bobClaim, timedAlice]} />);
+    expect(screen.getByTestId('activity-group-row')).toHaveTextContent('received · Alice · 2 hours');
   });
 
   it('names a known counterparty and ellipsises an unknown address', () => {
@@ -539,6 +736,27 @@ describe('ActivityGroupList', () => {
         searchQuery: 'lending'
       });
       expect(screen.queryByTestId('activity-group-row')).toBeNull();
+    });
+
+    it('can search older pages when the first page has no matching group', () => {
+      const firstPage = searchable();
+      const olderMatch = entry({ secondaryAddress: 'mtst1oldercontact', timestamp: 1 });
+      const props = {
+        nameOf,
+        searchQuery: 'oldercontact',
+        initialLoading: false,
+        loadMore: jest.fn(),
+        scrollParentRef: { current: document.createElement('div') }
+      };
+      const { rerender } = render(<ActivityGroupList {...props} entries={firstPage} hasMore />);
+
+      expect(screen.getByTestId('infinite-scroll')).toHaveAttribute('data-has-more', 'true');
+      expect(screen.queryByText('noOperationsFound')).toBeNull();
+      mockScroller.props?.loadMore(2);
+      expect(props.loadMore).toHaveBeenCalledWith(2);
+
+      rerender(<ActivityGroupList {...props} entries={[...firstPage, olderMatch]} hasMore={false} />);
+      expect(screen.getByTestId('activity-group-row')).toHaveAttribute('data-group-id', 'mtst1oldercontact');
     });
 
     it('shows the empty state when no group matches', () => {

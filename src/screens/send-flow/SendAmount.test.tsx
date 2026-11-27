@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 
+import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import {
   publishMockBridgeSnapshot,
   TEST_BRIDGE_CONFIG_SNAPSHOT,
@@ -89,7 +90,16 @@ jest.mock('components/AmountInput', () => ({
     )
 }));
 jest.mock('./bridge-networks', () => ({
-  getBridgeNetwork: (id: string) => (id === 'sepolia' ? { id: 'sepolia', name: 'Sepolia', chainId: 1 } : undefined)
+  getSendNetwork: (id: string) => {
+    switch (id) {
+      case 'sepolia':
+        return { id: 'sepolia', name: 'Sepolia', kind: 'evm', chainId: 1, bridge: true };
+      case 'solana':
+        return { id: 'solana', name: 'Solana', kind: 'solana', nearIntentsChainId: 'sol', bridge: false };
+      default:
+        return undefined;
+    }
+  }
 }));
 
 const TOKEN = { id: 't', name: 'MIDEN', decimals: 6, balance: 12.345678, fiatPrice: 2, scaleIsKnown: true };
@@ -207,6 +217,9 @@ describe('SendAmount', () => {
   it('fills Max below a stored balance that may have been rounded up past 2^52 base units', () => {
     const props = renderAmount({ token: { ...TOKEN, decimals: 12, balance: 10000.3 } });
 
+    expect(screen.getByTestId('send-amount-available')).toHaveTextContent('available 10000.2999');
+    expect(screen.getByTitle('available 10000.29999999999')).toBeVisible();
+
     fireEvent.click(screen.getByTestId('send-amount-max'));
     expect(props.onAmountChange).toHaveBeenCalledWith('10000.29999999999');
   });
@@ -233,6 +246,13 @@ describe('SendAmount', () => {
 
     expect(screen.getByTestId('send-amount-recipient')).toHaveTextContent('Alice');
     expect(screen.getByText('Sepolia')).toBeInTheDocument();
+  });
+
+  it('names a NEAR Intents chain as the network of a Solana recipient', () => {
+    renderAmount({ recipientAddress: 'So1anaRecipient', network: 'solana' });
+
+    expect(screen.getByText('Solana')).toBeInTheDocument();
+    expect(screen.queryByText('miden')).not.toBeInTheDocument();
   });
 
   it('turns a fee shortfall into a notice with a Receive link, leaving the amount unmarked', () => {
@@ -389,17 +409,16 @@ describe('SendAmount user-visible errors', () => {
     jest.useRealTimers();
   });
 
-  const expectReport = async (id: string, surface: string) => {
+  const expectReport = async (...expected: [id: string, surface: string, evidence?: unknown]) => {
     await act(async () => jest.advanceTimersByTimeAsync(999));
     expect(reportUserVisibleError).not.toHaveBeenCalled();
     await act(async () => jest.advanceTimersByTimeAsync(1));
-    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([[id, surface]]);
+    expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([expected]);
     await act(async () => jest.advanceTimersByTimeAsync(1000));
     expect(reportUserVisibleError).toHaveBeenCalledTimes(1);
   };
 
   it.each([
-    'invalidAmount',
     'amountMustBeLessThanBalance',
     'feeReserveBlocksSend',
     'usdcxBurnFeeUnavailable',
@@ -465,16 +484,27 @@ describe('SendAmount user-visible errors', () => {
     await expectReport('usdcxSendMoreThanPayoutFee', 'field');
   });
 
-  it('does not report an invalid amount until its error text becomes visible', async () => {
-    const props = { ...renderProps(), error: 'invalidAmount' };
-    const { rerender } = render(<SendAmount {...props} />);
+  it.each([
+    { mode: 'staged Send', embedded: false, producer: 'send_step' },
+    { mode: 'Command Send', embedded: true, producer: 'command_send' }
+  ])('reports the $mode producer only once its invalid amount warning is visible', async ({ embedded, producer }) => {
+    const props = { ...renderProps(), embedded, error: 'invalidAmount' };
+    const { rerender } = render(<SendAmount {...props} />, {
+      wrapper: ({ children }) => (
+        <FlowPresentationProvider value={embedded ? 'command' : 'compact'}>{children}</FlowPresentationProvider>
+      )
+    });
     await act(async () => jest.advanceTimersByTimeAsync(1500));
     expect(screen.queryByText('invalidAmount')).not.toBeInTheDocument();
     expect(reportUserVisibleError).not.toHaveBeenCalled();
 
     rerender(<SendAmount {...props} amount="0" />);
     expect(screen.getByText('invalidAmount')).toBeVisible();
-    await expectReport('invalidAmount', 'field');
+    const input = screen.getByTestId('send-amount-input');
+    expect(input).toHaveValue('0');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.queryByTestId('send-amount-confirm')?.hasAttribute('disabled')).toBe(embedded ? undefined : true);
+    await expectReport('invalidAmount', 'field', { kind: 'invalid_amount', invalidAmountProducer: producer });
   });
 
   it('reports an unknown token scale while confirmation remains blocked', async () => {
@@ -482,7 +512,10 @@ describe('SendAmount user-visible errors', () => {
 
     expect(screen.getByTestId('send-amount-available')).toHaveTextContent('unknownTokenScale');
     expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
-    await expectReport('unknownTokenScale', 'inline');
+    await expectReport('unknownTokenScale', 'inline', {
+      kind: 'token_scale',
+      tokenScaleProducer: 'send_amount'
+    });
   });
 
   it('does not report the pending burn-fee measurement as an error', async () => {

@@ -12,7 +12,7 @@ export const TOKEN_DETAIL_FIXTURE_ID = params.has('missing')
   ? 'mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0'
   : TEST_TOKEN_IETH.faucetId;
 const tokenId = TOKEN_DETAIL_FIXTURE_ID;
-const token = {
+export const token = {
   tokenId,
   balance: 987654321.123456,
   metadata: {
@@ -25,9 +25,17 @@ const token = {
   }
 };
 
-const priceInfo = { price: 1234.5678, change24h: -29.6296, percentageChange24h: -2.4, kind: 'market' as const };
+const priceInfo = {
+  price: 1234.5678,
+  change24h: -29.6296,
+  percentageChange24h: -2.4,
+  observedAt: params.has('stalePrice') ? Date.now() - 11 * 60_000 : Date.now(),
+  provider: 'binance' as const,
+  kind: 'market' as const
+};
 const storeState = {
-  tokenPrices: { ETH: priceInfo },
+  tokenPrices: params.has('priceError') ? {} : { ETH: priceInfo },
+  tokenPricesStatus: params.has('priceError') ? ('error' as const) : ('ready' as const),
   tokenMetadataOverrides: {},
   setTokenMetadataOverride: async () => undefined,
   clearTokenMetadataOverride: async () => undefined
@@ -40,7 +48,10 @@ export const useMidenContext = (): never => {
 };
 export const useAllBalances = () => ({
   data: [{ ...token, metadata: params.has('missing') ? undefined : token.metadata }],
-  isLoading: false
+  isLoading: params.has('unavailable'),
+  readFailed: params.has('unavailable'),
+  balanceRefreshFailed: params.has('refreshFailed'),
+  balanceReadInFlight: params.has('updating')
 });
 export const useAllTokensBaseMetadata = () => (params.has('missing') ? {} : { [tokenId]: token.metadata });
 export const useWalletStore = <T,>(selector: (state: typeof storeState) => T): T => selector(storeState);
@@ -88,6 +99,8 @@ export const hapticMedium = () => undefined;
 export const hapticSelection = () => undefined;
 export const openExternalUrl = async () => undefined;
 export const goBack = () => undefined;
+export const useLocation = () => ({ pathname: '/', search: '', hash: '' });
+export const Link = ({ children }: { children?: React.ReactNode }) => <>{children}</>;
 export const navigate = (destination: string | { pathname: string; search?: string }) => {
   const path = typeof destination === 'string' ? destination : `${destination.pathname}${destination.search ?? ''}`;
   window.location.hash = path;

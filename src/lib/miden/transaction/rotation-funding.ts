@@ -1,3 +1,4 @@
+import { readTransactionIndexChunks, statusTypeIndexSpecs, typeIndexSpecs } from 'lib/miden/db/index-query';
 import { isWorthClaiming, noteUnknownClaimFloor, totalClaimableAmount } from 'lib/miden/fees/spendable';
 import * as Repo from 'lib/miden/repo';
 
@@ -13,8 +14,14 @@ export const hotKeyRotationLockName = (accountPublicKey: string): string => `hot
 
 type GateRowShape = Pick<ITransaction, 'type' | 'accountId' | 'status' | 'rotationFunding'>;
 
-export const isRotationRow = (row: GateRowShape, accountPublicKey: string): boolean =>
+export const isRotationRow = (row: Pick<ITransaction, 'type' | 'accountId'>, accountPublicKey: string): boolean =>
   row.type === 'replace-hot-key' && row.accountId === accountPublicKey;
+
+/** A device revocation shares the rotation row type but installs no key. */
+export const isActivationRow = (
+  row: Pick<ITransaction, 'type' | 'accountId' | 'extraInputs'>,
+  accountPublicKey: string
+): boolean => isRotationRow(row, accountPublicKey) && !row.extraInputs?.revokedSignerCommitment;
 
 export const isRotationFundingRow = (row: GateRowShape, accountPublicKey: string): boolean =>
   row.type === 'consume' && row.rotationFunding === true && row.accountId === accountPublicKey;
@@ -44,17 +51,31 @@ export const newestRow = <T extends QueuedRowShape>(rows: readonly T[]): T | und
  * fail, minting a hot key it never uses. After a completed claim the gate queues the
  * rotation next, so there is then nothing to adopt.
  */
-export async function findAdoptableShortfallRow(accountPublicKey: string): Promise<ITransaction | undefined> {
-  const rows = await Repo.transactions
-    .filter(row => isRotationRow(row, accountPublicKey) || isRotationFundingRow(row, accountPublicKey))
-    .toArray();
-  const rotation = newestRow(rows.filter(row => row.type === 'replace-hot-key'));
+export async function findAdoptableShortfallRow(
+  accountPublicKey: string,
+  rotationRequest?: string
+): Promise<ITransaction | undefined> {
+  const rotationRows = await readTransactionIndexChunks(
+    Repo.transactions,
+    typeIndexSpecs(['replace-hot-key']),
+    row =>
+      row.restoredFromBackup !== true &&
+      isActivationRow(row, accountPublicKey) &&
+      (rotationRequest === undefined || row.extraInputs?.rotationRequest === rotationRequest)
+  );
+  const rotation = newestRow(rotationRows);
   if (rotation === undefined || !isVaultShortfallRow(rotation)) return undefined;
   const failedAt = rotation.completedAt ?? rotation.initiatedAt;
-  const claimedSince = rows.some(
-    row => row.type === 'consume' && row.status === ITransactionStatus.Completed && (row.completedAt ?? 0) > failedAt
+  const claimsSince = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusTypeIndexSpecs([[ITransactionStatus.Completed, 'consume']]),
+    row =>
+      row.restoredFromBackup !== true &&
+      isRotationFundingRow(row, accountPublicKey) &&
+      (row.completedAt ?? 0) > failedAt,
+    { limit: 1 }
   );
-  return claimedSince ? undefined : rotation;
+  return claimsSince.length > 0 ? undefined : rotation;
 }
 
 /** The part of a claimable-notes read the selection needs: the list, and whether it is only the cache. */

@@ -1,0 +1,202 @@
+name: Deploy Command AI
+
+on:
+  workflow_dispatch:
+    inputs:
+      deployment_source:
+        description: Source revision to deploy
+        type: choice
+        options:
+          - published-release
+          - main
+        default: published-release
+        required: true
+      release_tag:
+        description: Published wallet release tag to deploy
+        type: string
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: command-ai-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: command-ai-production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Resolve deployment source
+        id: source
+        env:
+          DEPLOYMENT_SOURCE: ${{ inputs.deployment_source || 'published-release' }}
+          DEPLOYMENT_LABEL: Command AI
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          DEPLOY_EVENT_NAME: ${{ github.event_name }}
+          DEPLOY_WORKFLOW_REF: ${{ github.ref }}
+          DEPLOY_WORKFLOW_SHA: ${{ github.sha }}
+        run: node scripts/feature-eligibility-deploy-source.mjs
+
+      - name: Require a published release
+        if: steps.source.outputs.mode == 'published-release'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        with:
+          script: |
+            const { data: release } = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: process.env.RELEASE_TAG
+            });
+            if (release.draft || !release.published_at) throw new Error('A published release tag is required');
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.source.outputs.ref }}
+      - name: Resolve deployment revision
+        id: revision
+        env:
+          DEPLOYMENT_SOURCE: ${{ steps.source.outputs.mode }}
+          DEPLOYMENT_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          revision=$(git rev-parse HEAD)
+          if [[ "$DEPLOYMENT_SOURCE" == main && "$revision" != "$DEPLOYMENT_SHA" ]]; then
+            echo 'Main deployment checkout does not match the workflow commit' >&2
+            exit 1
+          fi
+          printf 'sha=%s\n' "$revision" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        uses: ./.github/actions/yarn-install
+      - name: Type-check the Worker
+        run: npx tsc --noEmit -p services/command-ai/tsconfig.json
+      - name: Check Bread answers with synthetic questions
+        if: hashFiles('scripts/command-ai-eval/questions.json') != ''
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: node scripts/command-ai-eval/run-eval.mjs --questions --require-live
+
+      - name: Prepare server configuration and secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          ALLOWED_ORIGINS: ${{ vars.COMMAND_AI_ALLOWED_ORIGINS }}
+          COMMAND_AI_PROXY_URL: ${{ vars.COMMAND_AI_PROXY_URL }}
+          DEPLOYMENT_REVISION: ${{ steps.revision.outputs.sha }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          import { join, resolve } from 'node:path';
+          for (const key of [
+            'CLOUDFLARE_API_TOKEN',
+            'CLOUDFLARE_ACCOUNT_ID',
+            'GROQ_API_KEY',
+            'ALLOWED_ORIGINS',
+            'COMMAND_AI_PROXY_URL'
+          ]) {
+            if (!process.env[key]?.trim()) throw new Error(`Missing production setting: ${key}`);
+          }
+          const origins = JSON.parse(process.env.ALLOWED_ORIGINS);
+          if (!Array.isArray(origins) || !origins.length || origins.some(o => typeof o !== 'string' || !o || o.includes('*'))) {
+            throw new Error('COMMAND_AI_ALLOWED_ORIGINS must be a non-empty JSON array of exact origins');
+          }
+          const endpoint = new URL(process.env.COMMAND_AI_PROXY_URL);
+          if (endpoint.protocol !== 'https:' || endpoint.username || endpoint.password || endpoint.search || endpoint.hash || process.env.COMMAND_AI_PROXY_URL.endsWith('/')) {
+            throw new Error('COMMAND_AI_PROXY_URL must be an HTTPS base URL with no trailing slash');
+          }
+          const service = resolve('services/command-ai');
+          const config = JSON.parse(readFileSync(join(service, 'wrangler.jsonc'), 'utf8').replace(/^\s*\/\/.*$/gm, ''));
+          const limit = config.ratelimits?.find(binding => binding.name === 'COMMAND_AI_RATE_LIMIT');
+          if (limit?.simple?.limit !== 30 || limit.simple.period !== 60) {
+            throw new Error('Missing or invalid COMMAND_AI_RATE_LIMIT binding');
+          }
+          config.main = resolve(service, config.main);
+          config.vars = {
+            ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
+            DEPLOYMENT_REVISION: process.env.DEPLOYMENT_REVISION
+          };
+          writeFileSync(join(process.env.RUNNER_TEMP, 'command-ai-release.json'), JSON.stringify(config), { mode: 0o600 });
+          writeFileSync(
+            join(process.env.RUNNER_TEMP, 'command-ai-secrets.json'),
+            JSON.stringify({ GROQ_API_KEY: process.env.GROQ_API_KEY.trim() }),
+            { mode: 0o600 }
+          );
+          NODE
+
+      - name: Deploy Worker with server-only secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_SEND_METRICS: 'false'
+          DEPLOYMENT_MESSAGE: ${{ steps.source.outputs.message }}
+        run: >-
+          npx --yes wrangler@4.151.3 deploy
+          --config "$RUNNER_TEMP/command-ai-release.json"
+          --secrets-file "$RUNNER_TEMP/command-ai-secrets.json"
+          --message "$DEPLOYMENT_MESSAGE"
+
+      - name: Verify deployment
+        env:
+          COMMAND_AI_PROXY_URL: ${{ vars.COMMAND_AI_PROXY_URL }}
+          COMMAND_AI_ALLOWED_ORIGINS: ${{ vars.COMMAND_AI_ALLOWED_ORIGINS }}
+          COMMAND_AI_REVISION: ${{ steps.revision.outputs.sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          const base = process.env.COMMAND_AI_PROXY_URL;
+          const origins = JSON.parse(process.env.COMMAND_AI_ALLOWED_ORIGINS);
+          const expectedRevision = process.env.COMMAND_AI_REVISION;
+          let healthOk = false;
+          for (let attempt = 1; attempt <= 5; attempt += 1) {
+            try {
+              const res = await fetch(`${base}/healthz`, { cache: 'no-store', credentials: 'omit' });
+              const body = await res.json();
+              if (res.ok && body?.ok === true && body.revision === expectedRevision) {
+                healthOk = true;
+                break;
+              }
+            } catch {}
+            await new Promise(resolve => setTimeout(resolve, 2_000));
+          }
+          if (!healthOk) throw new Error('Deployed command-ai /healthz check failed');
+          const preflight = await fetch(`${base}/v1/compile`, {
+            method: 'OPTIONS',
+            headers: {
+              Origin: origins[0],
+              'Access-Control-Request-Method': 'POST',
+              'Access-Control-Request-Headers': 'content-type'
+            },
+            cache: 'no-store',
+            credentials: 'omit'
+          });
+          if (preflight.status !== 204 || preflight.headers.get('Access-Control-Allow-Origin') !== origins[0]) {
+            throw new Error(`CORS preflight failed with status ${preflight.status}`);
+          }
+          const foreign = await fetch(`${base}/v1/compile`, {
+            method: 'POST',
+            headers: { Origin: 'https://command-ai-probe.invalid', 'Content-Type': 'application/json' },
+            body: JSON.stringify({ redactedText: 'ping' }),
+            cache: 'no-store',
+            credentials: 'omit'
+          });
+          if (foreign.status !== 403 || foreign.headers.get('Access-Control-Allow-Origin') !== null) {
+            throw new Error(`Foreign origin check expected 403, got ${foreign.status}`);
+          }
+          NODE
+
+      - name: Remove temporary server secrets
+        if: always()
+        shell: bash
+        run: rm -f "$RUNNER_TEMP/command-ai-secrets.json" "$RUNNER_TEMP/command-ai-release.json"

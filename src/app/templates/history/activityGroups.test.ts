@@ -1,9 +1,11 @@
 import { ICON_BY_TYPE, ITransactionType } from 'lib/miden/db/types';
+import { canonicalWalletAccountId } from 'lib/miden/sdk/helpers';
 
 import {
   ActivityCategory,
   activityCategoryOf,
   activityClaimGroupKeyOf,
+  activityClaimMatcher,
   activityGroupKeyOf,
   activityGroupMatcher,
   activityGroupPath,
@@ -13,6 +15,11 @@ import {
   isPendingActivityEntry
 } from './activityGroups';
 import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+
+jest.mock('lib/miden/sdk/helpers', () => {
+  const actual = jest.requireActual<typeof import('lib/miden/sdk/helpers')>('lib/miden/sdk/helpers');
+  return { ...actual, canonicalWalletAccountId: jest.fn(actual.canonicalWalletAccountId) };
+});
 
 const FAUCET = 'miden-native-faucet';
 
@@ -40,6 +47,55 @@ const entry = (over: Partial<IHistoryEntry> = {}): IHistoryEntry => ({
   type: HistoryEntryType.CompletedTransaction,
   txType: 'send',
   ...over
+});
+
+describe('verified dApp grouping', () => {
+  it.each(['claiming', 'failed'] as const)(
+    'keeps a represented %s consume in the same dApp group as its transaction',
+    status => {
+      const initiatingDappOrigin = 'https://example.test:8443';
+      const note = {
+        id: 'note',
+        faucetId: FAUCET,
+        senderAddress: 'mtst1alice',
+        amount: '1',
+        isBeingClaimed: status === 'claiming',
+        type: 'unknown' as const,
+        metadata: { name: 'Token', symbol: 'TOK', decimals: 6 }
+      };
+      const claim = { note, status, txId: 'consume', initiatingDappOrigin };
+      const manualClaim = { note: { ...note, id: 'manual-note' }, status, txId: 'manual-consume' };
+      const claims = [claim, manualClaim];
+      const groups = groupActivityEntries([], () => 'Alice', claims);
+      expect(groups.map(({ kind, id, claims }) => [kind, id, claims.length])).toEqual([
+        ['dapp', initiatingDappOrigin, 1],
+        ['address', note.senderAddress, 1]
+      ]);
+      expect(claims.filter(activityClaimMatcher('dapp', initiatingDappOrigin))).toEqual([claim]);
+      expect(claims.filter(activityClaimMatcher('address', note.senderAddress))).toEqual([manualClaim]);
+    }
+  );
+
+  it('groups once by exact initiating origin without grouping legacy or wait-result grant rows there', () => {
+    const origin = 'https://example.test:8443';
+    const counterparty = { secondaryAddress: 'mtst1alice' };
+    const initiated = { ...entry(counterparty), initiatingDappOrigin: origin };
+    const sameHostDifferentPort = { ...entry(counterparty), initiatingDappOrigin: 'https://example.test' };
+    const grantOnly = { ...entry(counterparty), dappOrigins: [origin] };
+    const legacy = entry(counterparty);
+    const groups = groupActivityEntries([initiated, sameHostDifferentPort, grantOnly, legacy], () => 'Alice');
+
+    expect(groups.map(({ kind, id, entries }) => ({ kind, id, keys: entries.map(row => row.key) }))).toEqual([
+      { kind: 'dapp', id: 'https://example.test', keys: [sameHostDifferentPort.key] },
+      { kind: 'dapp', id: origin, keys: [initiated.key] },
+      { kind: 'address', id: 'mtst1alice', keys: [grantOnly.key, legacy.key] }
+    ]);
+    const dapp = groups[1]!;
+    expect(activityGroupPath(dapp)).toBe('/activity/group/dapp/https%3A%2F%2Fexample.test%3A8443');
+    expect(
+      [initiated, sameHostDifferentPort, grantOnly, legacy].filter(activityGroupMatcher(dapp.kind, dapp.id))
+    ).toEqual([initiated]);
+  });
 });
 
 describe('activityGroupKeyOf', () => {
@@ -128,6 +184,21 @@ describe('groupActivityEntries', () => {
       ['address', 'mtst1alice', 2],
       ['swap', 'swap', 1]
     ]);
+  });
+
+  it('preserves unrecognized hexadecimal references without decoding them', () => {
+    const parseHex = jest.mocked(canonicalWalletAccountId);
+    const callsBefore = parseHex.mock.calls.length;
+    const groups = groupActivityEntries([
+      entry({ secondaryAddress: '0xABCD' }),
+      entry({ secondaryAddress: '0xabcd' }),
+      entry({ secondaryAddress: '0xABCD_tag' })
+    ]);
+    expect(groups.map(({ id, count }) => [id, count])).toEqual([
+      ['0xABCD', 2],
+      ['0xABCD_tag', 1]
+    ]);
+    expect(parseHex.mock.calls).toHaveLength(callsBefore);
   });
 
   it('sorts the groups by their latest entry, newest first', () => {
@@ -296,7 +367,8 @@ describe('activityCategoryOf', () => {
     execute: 'others',
     'switch-guardian': 'others',
     'replace-hot-key': 'others',
-    'update-procedure-threshold': 'others'
+    'update-procedure-threshold': 'others',
+    'register-name': 'others'
   };
 
   const TYPES: ITransactionType[] = [
@@ -310,7 +382,8 @@ describe('activityCategoryOf', () => {
     'execute',
     'switch-guardian',
     'replace-hot-key',
-    'update-procedure-threshold'
+    'update-procedure-threshold',
+    'register-name'
   ];
 
   it('puts each transaction type in its category', () => {

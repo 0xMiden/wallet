@@ -135,6 +135,36 @@ describe('useNearIntentsQuote', () => {
     expect(result.current.quote?.correlationId).toBe('first');
     expect(result.current.error?.message).toBe('refused');
   });
+
+  it('aborts the signal on request change and unmount without overlapping slow queries', async () => {
+    const signals: AbortSignal[] = [];
+    const query = jest.fn((_req: OneClickQuoteRequest, signal: AbortSignal) => {
+      signals.push(signal);
+      return new Promise<OneClickQuoteResponse>(() => undefined);
+    });
+    const { rerender, unmount } = renderHook(
+      ({ amount, active }: { amount: string; active: boolean }) => useNearIntentsQuote(request(amount), query, active),
+      { initialProps: { amount: '1000000', active: true } }
+    );
+
+    act(() => jest.advanceTimersByTime(350));
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.aborted).toBe(false);
+
+    // Slow response must not trigger a second overlapping query on interval tick.
+    act(() => jest.advanceTimersByTime(60_000));
+    expect(signals).toHaveLength(1);
+
+    rerender({ amount: '2000000', active: true });
+    expect(signals[0]?.aborted).toBe(true);
+
+    act(() => jest.advanceTimersByTime(350));
+    expect(signals).toHaveLength(2);
+    expect(signals[1]?.aborted).toBe(false);
+
+    unmount();
+    expect(signals[1]?.aborted).toBe(true);
+  });
 });
 
 describe('nearIntentsQuoteExpired', () => {

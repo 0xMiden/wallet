@@ -9,6 +9,7 @@ import { FIAT_CURRENCY_STORAGE_KEY, FiatCurrencyProvider } from 'lib/fiat-curren
 import { BackgroundLockManager } from 'lib/lock-up/BackgroundLockManager';
 import { BridgeIntentWatcher } from 'lib/miden/activity/BridgeIntentWatcher';
 import { MidenContextProvider, useMidenContext } from 'lib/miden/front/client';
+import { MidenNameWatcher } from 'lib/miden/name/MidenNameWatcher';
 import { prunePortfolioObservations } from 'lib/miden/portfolio-observations';
 import { MidenSharedStorageKey } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
@@ -30,6 +31,7 @@ import { OrphanedTransactionRecovery } from './OrphanedTransactionRecovery';
 import { preloadStorage } from './storage';
 import { SwapOrderTrackingManager } from './SwapOrderTrackingManager';
 import { SwapSettlementManager } from './SwapSettlementManager';
+import { useBackupForegroundRefresh } from './useBackupForegroundRefresh';
 import { useForegroundRefresh } from './useForegroundRefresh';
 import { useSyncTrigger } from './useSyncTrigger';
 import { getMidenClient } from '../sdk/miden-client';
@@ -179,8 +181,9 @@ export const MidenProvider: FC<PropsWithChildren> = ({ children }) => {
     <WalletStoreProvider>
       {ready && (
         <MidenContextProvider>
-          {/* Prices are public and need no unlock. Fetched only once the wallet turned ready, they
-              landed after Home's first frame, so the balance card showed a placeholder and then the total. */}
+          {/* The wallet owns the write client: no SDK provider, which would build another client
+              and run a startup sync. Prices are public and need no unlock. Fetched only once the
+              wallet turned ready, they landed after Home's first frame, so the balance card showed a placeholder and then the total. */}
           <PriceProvider />
           <ConditionalProviders>{children}</ConditionalProviders>
         </MidenContextProvider>
@@ -227,6 +230,8 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
   // that arrived while backgrounded appears promptly instead of after the poll
   // intervals elapse (#462). No-op off mobile.
   useForegroundRefresh();
+  // The encrypted backup reads its storage index when the wallet comes to the foreground.
+  useBackupForegroundRefresh();
 
   return useMemo(
     () =>
@@ -238,6 +243,7 @@ const ConditionalProviders: FC<PropsWithChildren> = ({ children }) => {
             <SwapOrderTrackingManager />
             <NativeNoteAutoConsumeManager />
             <EarnIntentWatcher />
+            <MidenNameWatcher />
             <BridgeIntentWatcher />
             <BadgeIssuanceManager />
             {/* Startup recovery for transactions orphaned by an app kill. No-op on

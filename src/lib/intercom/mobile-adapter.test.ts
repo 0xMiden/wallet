@@ -432,6 +432,18 @@ describe('MobileIntercomAdapter', () => {
       expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc', 'recovery-tx');
     });
 
+    it('passes proposal signing scope through the native SignWordRequest', async () => {
+      await adapter.request({
+        type: WalletMessageType.SignWordRequest,
+        publicKey: 'pub-key-123',
+        wordHex: '0xabc',
+        transactionId: 'recovery-tx',
+        rotationProposal: true
+      });
+
+      expect(Actions.signWord).toHaveBeenCalledWith('pub-key-123', '0xabc', 'recovery-tx', true);
+    });
+
     it('handles PersistNewHotKeyRequest', async () => {
       const response = await adapter.request({
         type: WalletMessageType.PersistNewHotKeyRequest,

@@ -1,4 +1,5 @@
 import { compareAccountIds } from 'lib/miden/activity/utils';
+import { readTransactionIndexChunks, statusTypeIndexSpecs } from 'lib/miden/db/index-query';
 import { isLiveTransaction, type ITransaction, ITransactionStatus, type SwapTransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 
@@ -67,23 +68,62 @@ export const settlesUnattended = (order: SwapOrder): boolean =>
   order.extraInputs.autoConsume !== false || isRecoveredReturnOrder(order);
 
 export async function localSwapOrders(accountId: string): Promise<SwapOrder[]> {
-  const rows = await Repo.transactions
-    .filter(
-      tx =>
-        tx.status === ITransactionStatus.Completed &&
-        // "Orders created by THIS wallet" is the whole point of this list, and a
-        // restored row is not evidence of that — it says whatever the backup's
-        // author wrote. Downstream this drives reclaim, which initiates a real
-        // consume against the order's own `expiresAt` and asset data.
-        // A Guardian-recovered order joins once this wallet's Cancel stamped it,
-        // and only to have its order note, as the node holds it, taken back (#1487).
-        (!tx.restoredFromBackup || isRecoveredReturnOrder(tx)) &&
-        compareAccountIds(tx.accountId, accountId) &&
-        isSwapTransaction(tx)
-    )
-    .toArray();
+  const matches = (tx: ITransaction): boolean =>
+    tx.status === ITransactionStatus.Completed &&
+    // "Orders created by THIS wallet" is the whole point of this list, and a
+    // restored row is not evidence of that - it says whatever the backup's
+    // author wrote. Downstream this drives reclaim, which initiates a real
+    // consume against the order's own `expiresAt` and asset data.
+    // A Guardian-recovered order joins once this wallet's Cancel stamped it,
+    // and only to have its order note, as the node holds it, taken back (#1487).
+    (!tx.restoredFromBackup || isRecoveredReturnOrder(tx)) &&
+    compareAccountIds(tx.accountId, accountId) &&
+    isSwapTransaction(tx);
+
+  const rows = await readTransactionIndexChunks(
+    Repo.transactions,
+    statusTypeIndexSpecs([[ITransactionStatus.Completed, 'swap']]),
+    matches
+  );
   return rows.filter((tx): tx is SwapOrder => isSwapTransaction(tx) && isSwapOrder(tx));
 }
+
+/** The order ids of `orders`, as a payback attachment spells them. */
+export const swapOrderIdsOf = (orders: readonly SwapOrder[]): Set<string> =>
+  new Set(orders.map(order => orderIdString(order.extraInputs.orderId)));
+
+/**
+ * True when `note` carries the payback attachment of a PSWAP order that is not one of `ownOrderIds`, the orders this
+ * device placed (`localSwapOrders`). On a second device of the account that is the payback of an order the first
+ * device placed. Only the placing device claims a payback unattended, so two devices do not claim the same one
+ * (multi-device). Anyone can put this attachment on a note, so the flag only withholds the unattended claim: the
+ * user can still accept the note by hand.
+ */
+export const isPeerSwapPayback = (
+  note: Pick<ConsumableNoteDto, 'swapAttachment'>,
+  ownOrderIds: ReadonlySet<string>
+): boolean => Boolean(note.swapAttachment) && !ownOrderIds.has(note.swapAttachment?.orderId ?? '');
+
+/**
+ * How long a peer's swap payback stays out of the claim list after its block. The device that placed the order claims
+ * the payback in that time when it is open. The time has an end on purpose: when the placing device is closed or
+ * lost, or the wallet was recovered, no device claims the payback unattended, and a note that never shows cannot be
+ * accepted.
+ */
+export const PEER_SWAP_PAYBACK_HOLD_SECONDS = 10 * 60;
+
+/**
+ * True while the claim list holds back `note`: a payback of a PSWAP order that another device placed
+ * (`isPeerSwapPayback`), younger than {@link PEER_SWAP_PAYBACK_HOLD_SECONDS}. A payback with no known receive time is
+ * shown, so a failed block-time read never hides a note.
+ */
+export const isHeldBackPeerSwapPayback = (
+  note: { peerSwapPayback?: boolean; receivedAt?: number },
+  nowSeconds: number = Math.floor(Date.now() / 1000)
+): boolean =>
+  note.peerSwapPayback === true &&
+  note.receivedAt !== undefined &&
+  nowSeconds - note.receivedAt < PEER_SWAP_PAYBACK_HOLD_SECONDS;
 
 /**
  * Classify notes belonging to this wallet's orders using one synced lineage snapshot.

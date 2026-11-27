@@ -5,11 +5,13 @@ import { useTranslation } from 'react-i18next';
 import { useActivityClaims } from 'app/hooks/useActivityClaims';
 import { useActivityHiddenNotes } from 'app/hooks/useActivityHiddenNotes';
 import type { ClaimableNoteWithMetadata, ScopedClaimableNotesRead } from 'lib/miden/front/claimable-notes';
+import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { markActivityRead } from 'lib/settings/activity-read';
 import { useConfirm } from 'lib/ui/dialog';
 
+import { activityDappCounterpartyName, type ActivityCounterpartyName } from './activityGroups';
 import { pendingNoteUnreadKey } from './activityUnread';
 import type { ActivityFilter } from './History';
 import { PendingActivityCard, type PendingActivityItem } from './PendingActivityCard';
@@ -40,12 +42,36 @@ function isShown(item: PendingActivityItem, hiddenIds: ReadonlySet<string>): boo
   return !hiddenIds.has(item.note.id) || item.status === 'claiming';
 }
 
+/** Whether a claim card answers a search; `query` is already lowercased. */
+export function activityClaimMatchesSearch(
+  item: PendingActivityItem,
+  query: string,
+  bridgeConfig: BridgeConfigSnapshot,
+  nameOf?: ActivityCounterpartyName
+): boolean {
+  return [
+    item.note.metadata.symbol,
+    midenTokenLabel(bridgeConfig, item.note.faucetId, item.note.metadata.symbol),
+    item.note.metadata.name,
+    item.note.senderAddress,
+    activityDappCounterpartyName(
+      { initiatingDappOrigin: item.initiatingDappOrigin, secondaryAddress: item.note.senderAddress },
+      nameOf
+    )
+  ].some(value => value?.toLowerCase().includes(query));
+}
+
 /**
  * The incoming transfers the Activity tab lists as claim cards, and the renderer for them. Both the List
  * and the Groups view read it, so a transfer can be accepted or declined from either and each hands the
  * same items to `History`, which hides the consume row a card already stands for.
  */
-export function useActivityClaimList(search: string, filter: ActivityFilter, sharedRead?: ScopedClaimableNotesRead) {
+export function useActivityClaimList(
+  search: string,
+  filter: ActivityFilter,
+  sharedRead?: ScopedClaimableNotesRead,
+  nameOf?: ActivityCounterpartyName
+) {
   const { t } = useTranslation();
   const {
     items: claimItems,
@@ -78,16 +104,9 @@ export function useActivityClaimList(search: string, filter: ActivityFilter, sha
   const listItems = useMemo(
     () =>
       query
-        ? representedItems.filter(item =>
-            [
-              item.note.metadata.symbol,
-              midenTokenLabel(bridgeConfig, item.note.faucetId, item.note.metadata.symbol),
-              item.note.metadata.name,
-              item.note.senderAddress
-            ].some(value => value?.toLowerCase().includes(query))
-          )
+        ? representedItems.filter(item => activityClaimMatchesSearch(item, query, bridgeConfig, nameOf))
         : representedItems,
-    [representedItems, query, bridgeConfig]
+    [representedItems, query, bridgeConfig, nameOf]
   );
 
   // Declined transfers that could still be accepted, which Restore brings back.
@@ -126,12 +145,16 @@ export function useActivityClaimList(search: string, filter: ActivityFilter, sha
         key={item.note.id}
         item={item}
         initiallyExpanded={review}
+        senderName={activityDappCounterpartyName(
+          { initiatingDappOrigin: item.initiatingDappOrigin, secondaryAddress: item.note.senderAddress },
+          nameOf
+        )}
         onAccept={note => acceptRef.current(note)}
         onReject={hiddenLoaded ? note => rejectRef.current(note) : undefined}
         onRetryHeld={heldItem => retryHeldRef.current(heldItem)}
       />
     ),
-    [hiddenLoaded]
+    [hiddenLoaded, nameOf]
   );
 
   return {

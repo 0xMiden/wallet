@@ -22,13 +22,13 @@ If they ever disagree, the code is right and the other two are wrong.
 
 ## What is actually collected
 
-Only while the setting is on. Product events carry exactly eleven fields and no
-free-form text, and no single event carries all eleven — `flow` and `flowId`
+Only while the setting is on. Product events use the closed fields below, with
+no free-form text — `flow` and `flowId`
 belong to the two flow phases, `operation` to `settled`:
 
 | Field | Values |
 |---|---|
-| `phase` | `started`, `ended` (something the user did), `settled` (something the wallet did) |
+| `phase` | `started`, `ended` (flow), `settled` (wallet operation), `visit` (screen), `discovery` (feature control) |
 | `flow` | One of 16: `open`, `unlock`, `create`, `import`, `recover`, `return`, `fund`, `receive_share`, `send`, `swap`, `earn`, `dapp_connect`, `dapp_tx`, `guardian_rotate`, `note_handle`, `activity_view` |
 | `operation` | One of 12, `settled` only: `tx_send`, `tx_receive`, `tx_swap`, `tx_earn`, `tx_bridge`, `tx_guardian`, `tx_dapp`, `tx_other`, `prove`, `service_prover`, `service_node`, `service_network`. A category of work, never a recipient, amount, asset, dApp, or endpoint |
 | `flowId` | Ephemeral per-flow random id, in memory only, never persisted or reused. Flow phases only |
@@ -39,8 +39,16 @@ belong to the two flow phases, `operation` to `settled`:
 | `step` | Where it got to, from a closed list of 23 names. For a flow, the furthest screen reached, such as `select_amount` or `review` — never anything the user typed on it. For an operation, the pipeline stage it died in (`proving`, `sending`, `submitting`) or which prover ran (`prove_fallback`) |
 | `appVersion` | e.g. `1.15.21` |
 | `platform` | `extension`, `ios`, `android` |
+| `screen` | `visit` events only: one of 11 route-derived names (`overview`, `send`, `receive`, `funding`, `swap`, `earn`, `explore`, `activity`, `me`, `tx_status`, `other`). Never a path, id or address |
+| `navSource` | `visit` only: `initial`, `push`, `back`, `replace`, `resume` |
+| `surface` | `visit` and `discovery`: `popup`, `side_panel`, `full_page`, `app` |
+| `order` | `visit` only: in-memory counter ordering one run's visits |
+| `complete` | `visit` only: false when the window closed mid-visit. `durationMs` is then the visible milliseconds |
+| `feature` | `discovery` only: `overview`, `explore`, `activity`, `me`, `send`, `receive`, `earn`, `swap`, `funding` |
+| `entryPoint` | `discovery` only: `bottom_nav`, `home_actions`, `receive_tile`, each restricted to its own features |
+| `discoveryAction` | `discovery` only: `exposed` or `selected` |
 
-### How those eleven fields reach Aptabase
+### How these fields reach Aptabase
 
 `buildEnvelope` in `src/lib/telemetry/aptabase.ts` maps them onto Aptabase's
 envelope, each field exactly once, by name — never by spreading, because

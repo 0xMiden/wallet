@@ -1,6 +1,7 @@
 import type { Runtime } from 'webextension-polyfill';
 
 import { MidenDAppMessageType, type MidenDAppRequest } from 'lib/adapter/types';
+import type { BackupSignalReason } from 'lib/backup/adopt-signal';
 import { getMessage } from 'lib/i18n';
 import { getAccountsWriteQueue } from 'lib/miden/back/accounts-write-queue';
 import { PublicError } from 'lib/miden/back/defaults';
@@ -13,6 +14,8 @@ import { NoteTypeEnum } from 'lib/miden/types';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import {
+  type BackupRefreshOutcome,
+  type BackupRefreshReason,
   EstimateUsdcxBurnFeeRequest,
   type UsdcxBurnFeeEstimate,
   WalletMessageType,
@@ -70,7 +73,9 @@ import {
   getStrictAuthenticationProtectors,
   verifyStrictActionAuthentication,
   swapHotKey,
-  importHotKeyPair
+  importHotKeyPair,
+  refreshBackup,
+  deleteBackup
 } from './actions';
 import packageJson from '../../../../package.json';
 
@@ -201,6 +206,22 @@ jest.mock('lib/miden/back/guardian-recovery', () => ({
   releaseGuardianRecoveriesOnLock: jest.fn()
 }));
 
+// The encrypted backup is the network boundary of these actions: each action only names the event.
+const mockRunBackupRefresh = jest.fn<Promise<BackupRefreshOutcome>, [BackupRefreshReason]>();
+const mockDeleteBackupProfile = jest.fn<Promise<BackupRefreshOutcome>, []>();
+const mockOnBackupLock = jest.fn<void, []>();
+jest.mock('lib/backup/refresh', () => ({
+  runBackupRefresh: (reason: BackupRefreshReason) => mockRunBackupRefresh(reason),
+  deleteBackupProfile: () => mockDeleteBackupProfile(),
+  onBackupLock: () => mockOnBackupLock()
+}));
+
+const mockInstallBackupSignalHandler = jest.fn<void, [((reason: BackupSignalReason) => void) | null]>();
+jest.mock('lib/backup/adopt-signal', () => ({
+  installBackupSignalHandler: (next: ((reason: BackupSignalReason) => void) | null) =>
+    mockInstallBackupSignalHandler(next)
+}));
+
 const mockVaultGetKey = jest.fn();
 const mockWithAccountFileKeyReader = jest.fn();
 jest.mock('lib/miden/back/vault', () => ({
@@ -238,6 +259,7 @@ jest.mock('./store', () => ({
   accountsUpdated: jest.fn((...args: any[]) => mockAccountsUpdated(...args)),
   settingsUpdated: jest.fn((...args: any[]) => mockSettingsUpdated(...args)),
   currentAccountUpdated: jest.fn((...args: any[]) => mockCurrentAccountUpdated(...args)),
+  seedPhraseStatusUpdated: jest.fn(),
   withInited: jest.fn(async fn => fn()),
   withUnlocked: jest.fn(async fn => fn({ vault: mockVault }))
 }));
@@ -320,6 +342,10 @@ describe('actions', () => {
     mockStorageRemove.mockReset().mockResolvedValue(undefined);
     mockStorageSet.mockReset().mockResolvedValue(undefined);
     mockAdmitted.mockReset();
+    mockRunBackupRefresh.mockReset().mockResolvedValue('unchanged');
+    mockDeleteBackupProfile.mockReset().mockResolvedValue('updated');
+    mockOnBackupLock.mockReset();
+    mockInstallBackupSignalHandler.mockReset();
     mockEndpointOverride = null;
     mockInited.mockClear();
     mockOwnerConnected = true;
@@ -419,6 +445,18 @@ describe('actions', () => {
       await init();
 
       expect(mockInited).toHaveBeenCalledWith(false);
+    });
+
+    // The backup keys live in this realm, so a signal raised here runs the refresh directly.
+    it('installs the backup signal handler, which runs the refresh of the signalled event', async () => {
+      await init();
+
+      expect(mockInstallBackupSignalHandler).toHaveBeenCalledTimes(1);
+      const handler = mockInstallBackupSignalHandler.mock.calls[0]![0];
+      expect(handler).not.toBeNull();
+      handler?.('guardian-adopt');
+      handler?.('transaction-completed');
+      expect(mockRunBackupRefresh.mock.calls).toEqual([['guardian-adopt'], ['transaction-completed']]);
     });
   });
 
@@ -528,6 +566,14 @@ describe('actions', () => {
       await lock();
 
       expect(mockLocked).toHaveBeenCalled();
+    });
+
+    // The backup's storage key and AES key live for one unlock only.
+    it('drops the backup session keys once, before locked', async () => {
+      await lock();
+
+      expect(mockOnBackupLock).toHaveBeenCalledTimes(1);
+      expect(mockOnBackupLock.mock.invocationCallOrder[0]).toBeLessThan(mockLocked.mock.invocationCallOrder[0]!);
     });
 
     it('releases the Guardian recoveries a failed source kept, once, under the WASM lock before locked', async () => {
@@ -797,6 +843,23 @@ describe('actions', () => {
       expect(mockInstallRealmKeystore).toHaveBeenLastCalledWith({ insertKey: mockVault.insertKeySink });
     });
 
+    // The prompt after a recovery passes no credential: the unlocked vault removes the phrase, and a passcode
+    // wallet (no hardware protector) is never asked for a credential-free unlock it cannot do.
+    it('removes the phrase with the unlocked vault when no password is given', async () => {
+      const { Vault } = jest.requireMock('lib/miden/back/vault');
+      // `withUnlocked` is mocked to hand out `mockVault`, so the removal lands on it.
+      const removeOnUnlocked = jest.fn().mockResolvedValue(undefined);
+      Object.assign(mockVault, { removeSeedPhrase: removeOnUnlocked });
+      try {
+        await expect(removeSeedPhrase()).resolves.toBeUndefined();
+        expect(Vault.setup).not.toHaveBeenCalled();
+        expect(removeOnUnlocked).toHaveBeenCalledTimes(1);
+      } finally {
+        // The shared mock's `beforeEach` clears every value as a mock, so the property must go, not stay undefined.
+        Reflect.deleteProperty(mockVault, 'removeSeedPhrase');
+      }
+    });
+
     it('installs the imported wallet callback after key import', async () => {
       const { Vault } = jest.requireMock('lib/miden/back/vault');
       const imported = { ...mockVault, insertKeySink: jest.fn() };
@@ -879,11 +942,19 @@ describe('actions', () => {
         get.mockReset().mockResolvedValue({ DAppEnabled: true });
       });
     };
-    // A spawn as the real ones run: it wipes through the real clearStorage with the keep list they pass, saves its
-    // vault, and returns it once `returns` settles. One that never settles is a realm that stopped inside the spawn.
+    // A spawn as the real ones run: it commits through `onBeforeCommit`, wipes
+    // through the real clearStorage with the keep list they pass, saves its
+    // vault, and returns it once `returns` settles. One that never settles is a
+    // realm that stopped inside the spawn.
     const wipingSpawn =
       (vault: unknown, returns: Promise<unknown> = Promise.resolve()) =>
-      async () => {
+      async (...args: unknown[]) => {
+        const opts = args.find(arg => arg && typeof arg === 'object' && 'onBeforeCommit' in arg) as
+          | {
+              onBeforeCommit?: () => Promise<void>;
+            }
+          | undefined;
+        await opts?.onBeforeCommit?.();
         await clearStorage(false, SETUP_WIPE_KEPT_KEYS);
         await getStorageProvider().set({ [SAVED_VAULT_KEY]: 'vault' });
         await returns;
@@ -939,7 +1010,11 @@ describe('actions', () => {
           // A mainnet setup whose realm stopped inside its spawn, before the profile moved off mainnet.
           stored[PENDING_ADMISSION_STORAGE_KEY] = [];
           let markedAtSpawn: unknown;
-          Vault[spawnMethod].mockImplementationOnce(async () => {
+          Vault[spawnMethod].mockImplementationOnce(async (...args: unknown[]) => {
+            const opts = args.find(arg => arg && typeof arg === 'object' && 'onBeforeCommit' in arg) as
+              | { onBeforeCommit?: () => Promise<void> }
+              | undefined;
+            await opts?.onBeforeCommit?.();
             markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
             return wipingSpawn(spawnedFor('testnet-account'))();
           });
@@ -1137,9 +1212,29 @@ describe('actions', () => {
           let markedAtSpawn: unknown;
           let markedAtFirstCheck: unknown;
           let markedAtPublish: unknown;
-          Vault[spawnMethod].mockImplementationOnce(async () => {
-            markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
-            return wipingSpawn(spawnedFor('admitted-account', 'second-account'))();
+          Vault[spawnMethod].mockImplementationOnce(async (...args: unknown[]) => {
+            const opts = args.find(arg => arg && typeof arg === 'object' && 'onBeforeCommit' in arg) as
+              | { onBeforeCommit?: () => Promise<void> }
+              | undefined;
+            if (!opts?.onBeforeCommit) {
+              markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
+              return wipingSpawn(spawnedFor('admitted-account', 'second-account'))(...args);
+            }
+            // Pre-commit phase must NOT write PENDING_ADMISSION_STORAGE_KEY before onBeforeCommit.
+            expect(stored[PENDING_ADMISSION_STORAGE_KEY]).toBeUndefined();
+            return wipingSpawn(spawnedFor('admitted-account', 'second-account'))(
+              ...args.map(arg =>
+                arg === opts
+                  ? {
+                      ...opts,
+                      onBeforeCommit: async () => {
+                        await opts.onBeforeCommit!();
+                        markedAtSpawn = stored[PENDING_ADMISSION_STORAGE_KEY];
+                      }
+                    }
+                  : arg
+              )
+            );
           });
           mockRedeemAccess.mockResolvedValueOnce('granted');
           mockAdmitted.mockImplementation(async () => {
@@ -1208,6 +1303,97 @@ describe('actions', () => {
         expect(mockAdmitted).toHaveBeenCalledWith('unadmitted-account');
         expect(outcome).toBeInstanceOf(Error);
       });
+
+      it.each([
+        ['seed recovery', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['OnChain seed restore', 'spawn', () => registerNewWallet(WalletType.OnChain, 'pw', 'words', true)],
+        ['OffChain seed restore', 'spawn', () => registerNewWallet(WalletType.OffChain, 'pw', 'words', true)],
+        ['hot-key recovery', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')]
+      ] as const)(
+        'pre-commit %s failure does not leave PENDING_ADMISSION_STORAGE_KEY=[] or call undoFailedSetup, keeping existing wallet on next init()',
+        async (_name, spawnMethod, invoke) => {
+          const { Vault } = jest.requireMock('lib/miden/back/vault');
+          stored[SAVED_VAULT_KEY] = 'existing-wallet-vault';
+          stored[PENDING_ADMISSION_STORAGE_KEY] = ['existing-account'];
+          Vault[spawnMethod].mockRejectedValueOnce(new Error('guardian lookup failed'));
+
+          await expect(invoke()).rejects.toThrow('guardian lookup failed');
+
+          expect(stored[SAVED_VAULT_KEY]).toBe('existing-wallet-vault');
+          expect(stored[PENDING_ADMISSION_STORAGE_KEY]).toEqual(['existing-account']);
+          expect(mockStorageRemove).not.toHaveBeenCalled();
+          expect(mockUnlocked).not.toHaveBeenCalled();
+
+          // Existing wallet remains intact (not wiped on restart) when admitted on mainnet.
+          mockAdmitted.mockResolvedValueOnce(true);
+          await restartOver();
+          expect(mockInited).toHaveBeenLastCalledWith(true);
+        }
+      );
+
+      it.each([
+        [
+          'seed recovery without pre-existing marker',
+          'spawn',
+          () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)
+        ],
+        [
+          'hot-key recovery without pre-existing marker',
+          'spawnFromHotKey',
+          () => registerWalletFromHotKey('pw', 'hot:evm')
+        ]
+      ] as const)(
+        'pre-commit %s failure never writes PENDING_ADMISSION_STORAGE_KEY=[]',
+        async (_name, spawnMethod, invoke) => {
+          const { Vault } = jest.requireMock('lib/miden/back/vault');
+          stored[SAVED_VAULT_KEY] = 'existing-wallet-vault';
+          delete stored[PENDING_ADMISSION_STORAGE_KEY];
+          Vault[spawnMethod].mockRejectedValueOnce(new Error('no guardian account'));
+
+          await expect(invoke()).rejects.toThrow('no guardian account');
+
+          expect(stored).not.toHaveProperty(PENDING_ADMISSION_STORAGE_KEY);
+          expect(mockStorageRemove).not.toHaveBeenCalled();
+        }
+      );
+
+      it.each([
+        ['seed recovery', 'spawn', () => registerNewWallet(WalletType.Guardian, 'pw', 'words', true)],
+        ['OnChain seed restore', 'spawn', () => registerNewWallet(WalletType.OnChain, 'pw', 'words', true)],
+        ['OffChain seed restore', 'spawn', () => registerNewWallet(WalletType.OffChain, 'pw', 'words', true)],
+        ['hot-key recovery', 'spawnFromHotKey', () => registerWalletFromHotKey('pw', 'hot:evm')]
+      ] as const)(
+        'unadmitted recovered account in %s aborts via checkAccountsAdmitted BEFORE onBeforeCommit / wipe',
+        async (_name, spawnMethod, invoke) => {
+          const { Vault } = jest.requireMock('lib/miden/back/vault');
+          stored[SAVED_VAULT_KEY] = 'existing-wallet-vault';
+          mockAdmitted.mockResolvedValueOnce(false);
+          let ranBeforeCommit = false;
+
+          Vault[spawnMethod].mockImplementationOnce(async (...args: unknown[]) => {
+            const opts = args.find(arg => arg && typeof arg === 'object' && 'checkAccountsAdmitted' in arg) as
+              | {
+                  onBeforeCommit?: () => Promise<void>;
+                  checkAccountsAdmitted?: (accountIds: string[]) => Promise<void>;
+                }
+              | undefined;
+            if (!opts?.checkAccountsAdmitted || !opts?.onBeforeCommit) {
+              throw new Error('Expected checkAccountsAdmitted and onBeforeCommit options');
+            }
+            await opts.checkAccountsAdmitted(['unadmitted-recovered-account']);
+            ranBeforeCommit = true;
+            await opts.onBeforeCommit();
+            await clearStorage(false, SETUP_WIPE_KEPT_KEYS);
+            return spawnedFor('unadmitted-recovered-account');
+          });
+
+          await expect(invoke()).rejects.toBeInstanceOf(PublicError);
+          expect(ranBeforeCommit).toBe(false);
+          expect(stored[SAVED_VAULT_KEY]).toBe('existing-wallet-vault');
+          expect(stored).not.toHaveProperty(PENDING_ADMISSION_STORAGE_KEY);
+          expect(mockStorageRemove).not.toHaveBeenCalled();
+        }
+      );
     });
 
     it('reads no admission for an import on a network that is not invite-only', async () => {
@@ -1305,7 +1491,11 @@ describe('actions', () => {
         'password123',
         'mnemonic words',
         true,
-        'https://guardian.example'
+        'https://guardian.example',
+        expect.objectContaining({
+          onBeforeCommit: expect.any(Function),
+          checkAccountsAdmitted: expect.any(Function)
+        })
       );
       expect(mockVaultInstance.fetchAccounts).toHaveBeenCalled();
       expect(mockUnlocked).toHaveBeenCalled();
@@ -1399,7 +1589,17 @@ describe('actions', () => {
 
       await registerNewWallet(WalletType.Guardian, undefined, 'mnemonic words', true);
 
-      expect(Vault.spawn).toHaveBeenCalledWith(WalletType.Guardian, '', 'mnemonic words', true, undefined);
+      expect(Vault.spawn).toHaveBeenCalledWith(
+        WalletType.Guardian,
+        '',
+        'mnemonic words',
+        true,
+        undefined,
+        expect.objectContaining({
+          onBeforeCommit: expect.any(Function),
+          checkAccountsAdmitted: expect.any(Function)
+        })
+      );
     });
   });
 
@@ -1523,13 +1723,18 @@ describe('actions', () => {
   });
 
   describe('editAccount', () => {
-    it('trims name and updates accounts', async () => {
+    it('trims name and updates accounts, with the time of the rename', async () => {
       const updatedAccounts = { accounts: [{ publicKey: 'pk1', name: 'Trimmed' }] };
       mockVault.editAccountName.mockResolvedValueOnce(updatedAccounts);
+      const renamedAt = 1_800_000_000_000;
+      const now = jest.spyOn(Date, 'now').mockReturnValue(renamedAt);
+      try {
+        await editAccount('pk1', '  Trimmed  ');
+      } finally {
+        now.mockRestore();
+      }
 
-      await editAccount('pk1', '  Trimmed  ');
-
-      expect(mockVault.editAccountName).toHaveBeenCalledWith('pk1', 'Trimmed');
+      expect(mockVault.editAccountName).toHaveBeenCalledWith('pk1', 'Trimmed', renamedAt);
       expect(mockAccountsUpdated).toHaveBeenCalledWith(updatedAccounts);
     });
 
@@ -1537,6 +1742,29 @@ describe('actions', () => {
       const longName = 'a'.repeat(20); // > 16 chars
 
       await expect(editAccount('pk1', longName)).rejects.toThrow('Invalid name');
+    });
+
+    // A rename goes to the encrypted backup at once, after the write and outside the accounts queue.
+    it('runs the accounts backup refresh after the rename, and does not wait for it', async () => {
+      const updatedAccounts = { accounts: [{ publicKey: 'pk1', name: 'Savings' }] };
+      mockVault.editAccountName.mockResolvedValueOnce(updatedAccounts);
+      mockRunBackupRefresh.mockReturnValueOnce(new Promise<BackupRefreshOutcome>(() => {}));
+
+      await editAccount('pk1', 'Savings');
+
+      expect(mockRunBackupRefresh).toHaveBeenCalledTimes(1);
+      expect(mockRunBackupRefresh).toHaveBeenCalledWith('account-renamed');
+      expect(mockRunBackupRefresh.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockAccountsUpdated.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('does not refresh the backup when the rename fails', async () => {
+      await expect(editAccount('pk1', 'a'.repeat(20))).rejects.toThrow('Invalid name');
+      mockVault.editAccountName.mockRejectedValueOnce(new Error('Account with same name already exist'));
+      await expect(editAccount('pk1', 'Taken')).rejects.toThrow('same name');
+
+      expect(mockRunBackupRefresh).not.toHaveBeenCalled();
     });
   });
 
@@ -1549,6 +1777,69 @@ describe('actions', () => {
 
       expect(mockVault.updateSettings).toHaveBeenCalledWith({ contacts: [] });
       expect(mockSettingsUpdated).toHaveBeenCalledWith(newSettings);
+    });
+
+    // A changed contacts list goes to the encrypted backup at once, after the vault write.
+    it('runs the contacts backup refresh after the write when the settings carry contacts', async () => {
+      const contacts = [{ address: 'mtst1friend', name: 'Friend' }];
+      mockVault.updateSettings.mockResolvedValueOnce({ contacts });
+
+      await updateSettings({ contacts });
+
+      expect(mockRunBackupRefresh).toHaveBeenCalledTimes(1);
+      expect(mockRunBackupRefresh).toHaveBeenCalledWith('contacts-changed');
+      expect(mockRunBackupRefresh.mock.invocationCallOrder[0]).toBeGreaterThan(
+        mockSettingsUpdated.mock.invocationCallOrder[0]!
+      );
+    });
+
+    it('runs the contacts backup refresh for an emptied contacts list too', async () => {
+      mockVault.updateSettings.mockResolvedValueOnce({ contacts: [] });
+
+      await updateSettings({ contacts: [] });
+
+      expect(mockRunBackupRefresh).toHaveBeenCalledWith('contacts-changed');
+    });
+
+    it('does not refresh the backup when the settings carry no contacts', async () => {
+      mockVault.updateSettings.mockResolvedValueOnce({});
+
+      await updateSettings({});
+
+      expect(mockRunBackupRefresh).not.toHaveBeenCalled();
+    });
+
+    it('does not refresh the backup when the vault write fails', async () => {
+      mockVault.updateSettings.mockRejectedValueOnce(new Error('write failed'));
+
+      await expect(updateSettings({ contacts: [] })).rejects.toThrow('write failed');
+
+      expect(mockRunBackupRefresh).not.toHaveBeenCalled();
+    });
+
+    it('does not wait for the backup refresh before it resolves', async () => {
+      mockVault.updateSettings.mockResolvedValueOnce({ contacts: [] });
+      mockRunBackupRefresh.mockReturnValueOnce(new Promise<BackupRefreshOutcome>(() => {}));
+
+      await expect(updateSettings({ contacts: [] })).resolves.toBeUndefined();
+      expect(mockRunBackupRefresh).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('encrypted backup', () => {
+    it('refreshBackup runs the refresh of the named event and returns its outcome', async () => {
+      mockRunBackupRefresh.mockResolvedValueOnce('updated');
+
+      await expect(refreshBackup('activity-open')).resolves.toBe('updated');
+      expect(mockRunBackupRefresh).toHaveBeenCalledWith('activity-open');
+    });
+
+    it('deleteBackup deletes the backup profile and returns its outcome', async () => {
+      mockDeleteBackupProfile.mockResolvedValueOnce('disabled');
+
+      await expect(deleteBackup()).resolves.toBe('disabled');
+      expect(mockDeleteBackupProfile).toHaveBeenCalledTimes(1);
+      expect(mockRunBackupRefresh).not.toHaveBeenCalled();
     });
   });
 

@@ -1,6 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 import { liveQuery } from 'dexie';
 
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { createIntercomClient, type IIntercomClient } from 'lib/intercom/client';
 import * as Repo from 'lib/miden/repo';
 import { u8ToB64 } from 'lib/shared/helpers';
@@ -22,12 +23,14 @@ import {
   ICON_BY_TYPE,
   INoteDeliveryState,
   type ISwapExtraInputs,
+  type ISubmitEvidence,
   ITransaction,
   ITransactionIcon,
   ITransactionStage,
   ITransactionStatus,
   SubmitEvidenceFields,
-  TransactionOutput
+  TransactionOutput,
+  isLiveTransaction
 } from '../db/types';
 import { isPrivateNoteType } from '../helpers';
 import { recordedSwapOrder } from '../sdk/apply-after-submit';
@@ -310,6 +313,7 @@ export const updateTransactionStatus = async <K extends keyof ITransaction>(
       logOperationEnd('swap', 'completed', elapsedMsSince(tx.initiatedAt));
     }
   }
+  if (!isLiveTransaction({ status }) && !tx.restoredFromBackup) signalTransactionCompleted();
 };
 
 /**
@@ -620,7 +624,8 @@ export const recordNoteDelivery = async (
  * `completeConsumeTransaction` writes "Reclaimed" when the note's sender (the row's
  * `secondaryAccountId`) is the account itself and "Received" otherwise, as the
  * kill-verified consume derives it; `completeSwapTransaction` writes "Swapped",
- * `completeBridgedSendTransaction` "Bridged to EVM" and `completeSendTransaction` "Sent".
+ * `completeBridgedSendTransaction` "Bridged to EVM", `completeRegisterNameTransaction`
+ * "Name requested" and `completeSendTransaction` "Sent".
  * `completeCustomTransaction` reads its label off the result, so a landed execute takes
  * the one it writes when the result shows no single direction, "Executed".
  */
@@ -634,6 +639,8 @@ export const applyLandedDisplayMessage = (
       return 'Swapped';
     case 'bridged-send':
       return 'Bridged to EVM';
+    case 'register-name':
+      return 'Name requested';
     case 'execute':
       return 'Executed';
     default:
@@ -875,6 +882,10 @@ export const applyVerifiedLanding = (
  */
 export const reportVerifiedLanding = (tx: ITransaction): void => {
   reportOperation({ operation: operationOfType(tx.type), result: 'completed' });
+  // Every caller reports after its landing write committed, so this is the one place a row of this
+  // device that reached Completed on node evidence reaches the encrypted backup, as one that reached it
+  // through `updateTransactionStatus` does.
+  if (!tx.restoredFromBackup) signalTransactionCompleted();
 };
 
 /**
@@ -912,58 +923,54 @@ export interface AttemptContext {
   readonly guardianProposalNonce?: number;
 }
 
-/**
- * Record that `attempt` crossed its submit, with whatever evidence its leaf read (#1081). Guard-free like
- * `markMayHaveSubmitted`, which it replaces at the stamp: a cancel makes the row terminal without stopping the
- * pipeline. An unreliable stamp's evidence is recorded too, because an entry can only hold a row back from "safe".
- */
-export const recordSubmitCrossing = async (
+const recordCrossing = async (
   id: string,
-  evidence: SubmitEvidenceFields | undefined,
-  attempt: AttemptContext
+  attempt: AttemptContext,
+  source: 'stage' | 'pin',
+  evidence?: SubmitEvidenceFields
 ): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
   await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.attemptId !== attempt.attemptId) return false;
     const raised = tx.mayHaveSubmitted !== true;
+    const baseEvidence = raised
+      ? tx.submitEvidence?.map(({ raisedFlag: _staleFlag, ...entry }) => entry)
+      : tx.submitEvidence;
     tx.mayHaveSubmitted = true;
     tx.submitEvidence = upsertEvidenceEntry(
-      tx.submitEvidence,
+      baseEvidence,
       attempt.attemptId,
       {
-        source: 'stage',
-        evidence,
+        source,
+        ...(evidence !== undefined ? { evidence } : {}),
         guardianProposalNonce: attempt.guardianProposalNonce,
         fromExecute: attempt.fromExecute,
         ...(raised ? { raisedFlag: true } : {})
       },
       nowSec
     );
+    return undefined;
   });
 };
+
+/**
+ * Record that `attempt` crossed its submit, with whatever evidence its leaf read (#1081). Guard-free like
+ * `markMayHaveSubmitted`, which it replaces at the stamp: a cancel makes the row terminal without stopping the
+ * pipeline. An unreliable stamp's evidence is recorded too, because an entry can only hold a row back from "safe".
+ */
+export const recordSubmitCrossing = (
+  id: string,
+  evidence: SubmitEvidenceFields | undefined,
+  attempt: AttemptContext
+): Promise<void> => recordCrossing(id, attempt, 'stage', evidence);
 
 /**
  * The Guardian leaf's pre-dispatch pin, per attempt (#1081). A realm killed between submit and the replayed stamp
  * leaves the row looking never-broadcast, so the crossing is pinned before dispatch. `raisedFlag` records that this
  * pin, not an earlier crossing, set `mayHaveSubmitted`, which is what lets the leaf retire it.
  */
-export const pinGuardianCrossing = async (id: string, attempt: AttemptContext): Promise<void> => {
-  const nowSec = Math.floor(Date.now() / 1000);
-  await Repo.transactions.where({ id }).modify(tx => {
-    const raised = tx.mayHaveSubmitted !== true;
-    tx.mayHaveSubmitted = true;
-    tx.submitEvidence = upsertEvidenceEntry(
-      tx.submitEvidence,
-      attempt.attemptId,
-      {
-        source: 'pin',
-        guardianProposalNonce: attempt.guardianProposalNonce,
-        fromExecute: attempt.fromExecute,
-        ...(raised ? { raisedFlag: true } : {})
-      },
-      nowSec
-    );
-  });
-};
+export const pinGuardianCrossing = (id: string, attempt: AttemptContext): Promise<void> =>
+  recordCrossing(id, attempt, 'pin');
 
 /**
  * The Guardian leaf kept this attempt's candidate instead of abandoning it (#1081), on a row that awaits a verdict:
@@ -1006,24 +1013,114 @@ export const recordKeptCandidate = async (
  * `mayHaveSubmitted` its pin raised is cleared, never one an earlier crossing raised. Never throws: it runs in the
  * leaf's catch, whose own error is the one the row must record.
  */
-export const markAttemptPreSubmitEnd = async (id: string, attemptId: string): Promise<void> => {
+/**
+ * Only the attempt currently owning `tx.attemptId` may clear row-level `tx.mayHaveSubmitted`, and only when no
+ * other active (unretired) `raisedFlag` entry in `submitEvidence` still relies on that flag.
+ */
+const mayClearMayHaveSubmitted = (
+  tx: { attemptId?: string; submitEvidence?: ISubmitEvidence[] },
+  attemptId: string,
+  entry: ISubmitEvidence
+): boolean =>
+  entry.raisedFlag === true &&
+  tx.attemptId === attemptId &&
+  !(tx.submitEvidence ?? []).some(
+    candidate => candidate.attemptId !== attemptId && candidate.raisedFlag === true && candidate.preSubmitEnd !== true
+  );
+
+export const markAttemptPreSubmitEndOrThrow = async (id: string, attemptId: string): Promise<void> => {
   const nowSec = Math.floor(Date.now() / 1000);
+  let rowFound = false;
+  let retiredOrAbsent = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    rowFound = true;
+    const entry = (tx.submitEvidence ?? []).find(candidate => candidate.attemptId === attemptId);
+    if (entry === undefined) {
+      retiredOrAbsent = tx.mayHaveSubmitted !== true || tx.attemptId !== attemptId;
+      return false;
+    }
+    const shouldClearFlag = mayClearMayHaveSubmitted(tx, attemptId, entry);
+    tx.submitEvidence = upsertEvidenceEntry(
+      tx.submitEvidence,
+      attemptId,
+      { source: entry.source, preSubmitEnd: true },
+      nowSec
+    );
+    if (shouldClearFlag) tx.mayHaveSubmitted = undefined;
+    retiredOrAbsent = true;
+    return undefined;
+  });
+  if (!rowFound || !retiredOrAbsent) {
+    throw new Error(`[submit-evidence] could not verify pre-submit retirement for ${attemptId} on ${id}`);
+  }
+};
+
+export const markAttemptPreSubmitEnd = async (id: string, attemptId: string): Promise<void> => {
   try {
-    await Repo.transactions.where({ id }).modify(tx => {
-      const entry = (tx.submitEvidence ?? []).find(candidate => candidate.attemptId === attemptId);
-      if (entry === undefined) return false;
-      tx.submitEvidence = upsertEvidenceEntry(
-        tx.submitEvidence,
-        attemptId,
-        { source: entry.source, preSubmitEnd: true },
-        nowSec
-      );
-      if (entry.raisedFlag === true) tx.mayHaveSubmitted = undefined;
-      return undefined;
-    });
+    await markAttemptPreSubmitEndOrThrow(id, attemptId);
   } catch (error) {
     console.warn(`[submit-evidence] could not retire the pin of attempt ${attemptId} on ${id}`, error);
   }
+};
+
+/**
+ * Roll back a pre-submit gate crossing written for a proof that proved stale before broadcast (#2325), so a
+ * re-execution inside the same attempt can record its fresh proof's evidence without colliding on the aborted
+ * transaction id. Unlike {@link markAttemptPreSubmitEnd}, this never sets sticky `preSubmitEnd`, and preserves a
+ * pre-dispatch `'pin'` entry (stripping only the aborted proof's fields) so cached `requestBytes` stay guarded.
+ */
+export const retractSubmitCrossing = async (
+  id: string,
+  attemptId: string,
+  revertStage: ITransactionStage
+): Promise<void> => {
+  await Repo.transactions.where({ id }).modify(tx => {
+    let changed = false;
+    const entries = tx.submitEvidence ?? [];
+    const index = entries.findIndex(candidate => candidate.attemptId === attemptId);
+    if (index !== -1) {
+      const entry = entries[index]!;
+      const shouldClearFlag = mayClearMayHaveSubmitted(tx, attemptId, entry);
+      if (entry.source === 'pin' || entry.preSubmitEnd === true) {
+        const resetEntry: ISubmitEvidence = {
+          attemptId: entry.attemptId,
+          capturedAt: entry.capturedAt,
+          source: entry.source,
+          ...(entry.submitContext !== undefined ? { submitContext: entry.submitContext } : {}),
+          ...(entry.guardianProposalNonce !== undefined ? { guardianProposalNonce: entry.guardianProposalNonce } : {}),
+          ...(entry.fromExecute !== undefined ? { fromExecute: entry.fromExecute } : {}),
+          ...(entry.raisedFlag === true ? { raisedFlag: true as const } : {}),
+          ...(entry.endedBy !== undefined ? { endedBy: entry.endedBy, endedAt: entry.endedAt } : {}),
+          ...(entry.preSubmitEnd === true ? { preSubmitEnd: true as const } : {})
+        };
+        const next = [...entries];
+        next[index] = resetEntry;
+        tx.submitEvidence = next;
+        if (entry.preSubmitEnd === true && shouldClearFlag) {
+          tx.mayHaveSubmitted = undefined;
+        }
+        changed = true;
+      } else {
+        const remaining = entries.filter(candidate => candidate.attemptId !== attemptId);
+        if (remaining.length === 0) delete tx.submitEvidence;
+        else tx.submitEvidence = remaining;
+        if (shouldClearFlag) tx.mayHaveSubmitted = undefined;
+        changed = true;
+      }
+    }
+    if (!hasLeftQueue(tx) && tx.attemptId === attemptId) {
+      if (tx.stage === 'submitting') {
+        tx.stage = revertStage;
+        changed = true;
+      }
+      if (tx.stageTimestamps?.submitting !== undefined) {
+        const { submitting: _retracted, ...rest } = tx.stageTimestamps;
+        tx.stageTimestamps = rest;
+        changed = true;
+      }
+    }
+    return changed ? undefined : false;
+  });
 };
 
 /**

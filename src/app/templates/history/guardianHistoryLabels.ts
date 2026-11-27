@@ -17,7 +17,7 @@ export function guardianHistoryIcon(type: ITransactionType): ITransactionIcon {
   }
 }
 
-export function guardianHistoryActionKey(type: ITransactionType, reclaimed = false): string {
+export function guardianHistoryActionKey(type: ITransactionType, reclaimed = false, hotKeyAdded = false): string {
   switch (type) {
     case 'send':
       return 'sent';
@@ -32,7 +32,7 @@ export function guardianHistoryActionKey(type: ITransactionType, reclaimed = fal
     case 'switch-guardian':
       return 'guardianHistoryGuardianChanged';
     case 'replace-hot-key':
-      return 'guardianHistoryDeviceReplaced';
+      return hotKeyAdded ? 'guardianHistoryDeviceAdded' : 'guardianHistoryDeviceReplaced';
     case 'update-procedure-threshold':
       return 'guardianHistoryAccountSecured';
     default:
@@ -40,12 +40,34 @@ export function guardianHistoryActionKey(type: ITransactionType, reclaimed = fal
   }
 }
 
+/** What a recovered row's title reads from the row. */
+export interface RecoveredActionFacts {
+  reclaimed?: boolean;
+  hotKeyAdded?: boolean;
+  revokedSignerCommitment?: string;
+}
+
+/**
+ * The title key of a recovered row, the one rule every surface uses: a revocation reads as a revoked device, else
+ * the action of its type, with an added device told apart from a replaced one.
+ */
+export function guardianRecoveredActionKey(type: ITransactionType, facts: RecoveredActionFacts): string {
+  if (facts.revokedSignerCommitment) return 'deviceRevoked';
+  return guardianHistoryActionKey(type, facts.reclaimed, facts.hotKeyAdded);
+}
+
 /** Render-time labels: recovery stores evidence, not a fabricated transaction narrative. */
 export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) => string): string {
   if (entry.message === 'Transaction failed') {
     return t('transactionFailedNotificationTitle');
   }
-  if (entry.guardianRecovered) return t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed));
+  // Only a revocation that took effect: a cancelled or unconfirmed one keeps its own message.
+  if (entry.revokedSignerCommitment && !entry.isCancelled && !entry.isUnconfirmed) return t('deviceRevoked');
+  if (entry.guardianRecovered) {
+    return t(
+      guardianRecoveredActionKey(entry.txType, { reclaimed: entry.guardianReclaimed, hotKeyAdded: entry.hotKeyAdded })
+    );
+  }
   // Older rows retain the pre-Earn wording in storage; localize both completion labels at display time.
   if (
     entry.txType === 'earn-deposit' &&
@@ -57,5 +79,5 @@ export function historyEntryActionTitle(entry: IHistoryEntry, t: (key: string) =
     const key = rotationRowTitleKey(entry.guardianSwitchVerdict);
     if (key) return t(key);
   }
-  return entry.message?.trim() || t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed));
+  return entry.message?.trim() || t(guardianHistoryActionKey(entry.txType, entry.guardianReclaimed, entry.hotKeyAdded));
 }

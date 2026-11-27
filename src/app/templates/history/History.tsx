@@ -24,11 +24,13 @@ import {
   IEarnWithdrawExtraInputs,
   ITransaction,
   ITransactionStatus,
-  ISwitchGuardianExtraInputs
+  ISwitchGuardianExtraInputs,
+  nearIntentsSendTrackingOf
 } from 'lib/miden/db/types';
 import { rotationVerdict } from 'lib/miden/guardian/rotation-verdict';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
 import { getTokenMetadata } from 'lib/miden/metadata/utils';
+import { formatMidenName } from 'lib/miden/name/encoding';
 import * as Repo from 'lib/miden/repo';
 import { getPaybackClaimStates, stuckPaybackClaim } from 'lib/miden/swap/payback-claim';
 import {
@@ -46,15 +48,28 @@ import { useRetryableSWR } from 'lib/swr';
 import { useLastData } from 'lib/swr/last-data';
 import useSafeState from 'lib/ui/useSafeState';
 
-import { activityCategoryOf, isPendingActivityEntry } from './activityGroups';
+import {
+  activityCategoryOf,
+  type ActivityCounterpartyName,
+  activityDappCounterpartyName,
+  isPendingActivityEntry
+} from './activityGroups';
 import { guardianHistoryIcon, historyEntryActionTitle } from './guardianHistoryLabels';
 import HistoryView from './HistoryView';
-import { HistoryEntryType, IHistoryEntry } from './IHistoryEntry';
+import {
+  HistoryEntryType,
+  IHistoryEntry,
+  midenNameActivityOf,
+  midenNameLabelOf,
+  reconcileMidenNameActivity
+} from './IHistoryEntry';
 import type { PendingActivityItem } from './PendingActivityCard';
 import { resolveSwapHistoryProgress } from './resolveSwapHistoryProgress';
 import {
   earnWithdrawAmountFields,
+  historySecondaryAddressOf,
   labelHistoryEntry,
+  loadedActivityOneClickTracking,
   resolveConsumeExtraAmounts,
   resolveSwapHistoryFields,
   swapSettlementOf
@@ -96,12 +111,11 @@ type HistoryProps = {
   externalLoading?: boolean;
   /** Set by a host that draws its own loading bar over the list, so the list draws no spinner of its own. */
   hideLoadingSpinner?: boolean;
-  /**
-   * Narrows the list further, after the search and the filter. The Groups view's own page hands
-   * one group's matcher down here, so that page IS this list - paging, the in-flight rows and the
-   * row rendering all come with it - rather than a second list that would drift from it.
-   */
+  /** Narrows the list further after the search and the filter. */
   predicate?: (entry: IHistoryEntry) => boolean;
+  /** Narrows a complete batch after the predicate, including when it is empty. */
+  filterEntries?: (entries: readonly IHistoryEntry[]) => IHistoryEntry[];
+  counterpartyNameOf?: ActivityCounterpartyName;
   /**
    * Renders something other than the date-grouped timeline over the SAME loaded entries, with the
    * paging this component owns. The Groups view uses it; everything else gets `HistoryView`.
@@ -126,7 +140,12 @@ export interface HistoryEntriesView {
 }
 
 /** Whether an activity row answers a search; `query` is already lowercased. */
-export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string, t: (key: string) => string): boolean {
+export function historyEntryMatchesSearch(
+  entry: IHistoryEntry,
+  query: string,
+  t: (key: string) => string,
+  counterpartyNameOf?: ActivityCounterpartyName
+): boolean {
   return Boolean(
     historyEntryActionTitle(entry, t).toLowerCase().includes(query) ||
     entry.token?.toLowerCase().includes(query) ||
@@ -136,7 +155,11 @@ export function historyEntryMatchesSearch(entry: IHistoryEntry, query: string, t
     // for one has to find it, or typing a symbol the user can see hides
     // the very row showing it.
     entry.extraAmounts?.some(extra => extra.token.toLowerCase().includes(query)) ||
-    entry.secondaryAddress?.toLowerCase().includes(query)
+    entry.secondaryAddress?.toLowerCase().includes(query) ||
+    activityDappCounterpartyName(entry, counterpartyNameOf)?.toLowerCase().includes(query) ||
+    entry.recipientName?.toLowerCase().includes(query) ||
+    // The row title shows the full name ("alice.miden"), so search for it too.
+    (entry.midenNameLabel !== undefined && formatMidenName(entry.midenNameLabel).includes(query))
   );
 }
 
@@ -261,6 +284,8 @@ const History = memo<HistoryProps>(
     filter,
     onInitialLoad,
     predicate,
+    filterEntries,
+    counterpartyNameOf,
     renderEntries,
     pendingItems,
     drawnPendingItems,
@@ -378,6 +403,11 @@ const History = memo<HistoryProps>(
           const loaded = scopedRestRef.current.key === safeStateKey ? scopedRestRef.current : NO_SCOPED_ENTRIES;
           const olderSwapIds = loaded.cursorInitialized ? loadedSwapTxIds(loaded.entries) : [];
           const olderMutableIds = loaded.cursorInitialized ? loadedMutableActivityTxIds(loaded.entries) : [];
+          const olderRegistrationIds = loaded.cursorInitialized
+            ? loaded.entries.flatMap(entry =>
+                entry.txType === 'register-name' && entry.txId !== undefined ? [entry.txId] : []
+              )
+            : [];
           const scope = scopeRef.current;
           const work = settledWorkGen.current;
           const key = safeStateKey;
@@ -395,9 +425,11 @@ const History = memo<HistoryProps>(
               setScopedRest(state => patchLoadedSwapSettlement(state, key, olderSwapIdSet, fresh));
             });
           }
-          if (olderMutableIds.length > 0) {
+          if (olderMutableIds.length > 0 || olderRegistrationIds.length > 0) {
             const olderMutableIdSet = new Set(olderMutableIds);
-            void readLoadedActivityStatus(olderMutableIds).then(fresh => {
+            const olderRegistrationIdSet = new Set(olderRegistrationIds);
+            const refreshIds = [...new Set([...olderMutableIds, ...olderRegistrationIds])];
+            void readLoadedActivityStatus(refreshIds).then(fresh => {
               if (
                 fresh === null ||
                 generation !== loadedRowsRefreshGen.current ||
@@ -406,7 +438,9 @@ const History = memo<HistoryProps>(
               ) {
                 return;
               }
-              setScopedRest(state => patchLoadedActivityStatus(state, key, olderMutableIdSet, fresh));
+              setScopedRest(state =>
+                patchLoadedActivityStatus(state, key, olderMutableIdSet, fresh, olderRegistrationIdSet)
+              );
             });
           }
           if (!loaded.cursorInitialized) return;
@@ -650,7 +684,7 @@ const History = memo<HistoryProps>(
       });
     });
     const hiddenNotes = new Set([...representedNotes, ...committedNotes.current, ...heldNotes.current]);
-    let entries: IHistoryEntry[] = allEntries.filter(
+    let entries: IHistoryEntry[] = reconcileMidenNameActivity(allEntries).filter(
       entry =>
         !(
           entry.txType === 'consume' &&
@@ -660,16 +694,17 @@ const History = memo<HistoryProps>(
     );
     if (searchQuery?.trim()) {
       const query = searchQuery.toLowerCase();
-      entries = entries.filter(e => historyEntryMatchesSearch(e, query, t));
+      entries = entries.filter(e => historyEntryMatchesSearch(e, query, t, counterpartyNameOf));
     }
     if (filter && filter !== 'all') {
       // The categories read the tx type, so a failed row (FAILED icon) stays in its category.
       entries = filter === 'arcade' && !predicate ? [] : entries.filter(e => matchesActivityFilter(filter, e));
     }
-    // Last, so a group's page narrows what the search and the filter already left.
+    // A caller narrows what the search and the filter already left.
     if (predicate) {
       entries = entries.filter(predicate);
     }
+    if (filterEntries) entries = filterEntries(entries);
     if (numItems) {
       const maxIndex = Math.min(numItems, entries.length);
       entries = entries.slice(0, maxIndex);
@@ -700,6 +735,7 @@ const History = memo<HistoryProps>(
     return (
       <HistoryView
         entries={entries ?? []}
+        counterpartyNameOf={counterpartyNameOf}
         initialLoading={externalLoading || initialLoading}
         hideLoadingSpinner={hideLoadingSpinner}
         loadError={loadError}
@@ -707,7 +743,9 @@ const History = memo<HistoryProps>(
         loadMore={loadMore}
         // Paging reads settled rows, so it stops wherever that read is off: under Pending, where every settled row
         // is filtered out, and off screen.
-        hasMore={readingCompleted && hasMore}
+        // A capped list stops paging once it is full.
+        hasMore={readingCompleted && hasMore && !(numItems && entries.length >= numItems)}
+        maxRows={numItems}
         scrollParentRef={scrollParentRef}
         tokenId={tokenId}
         fullHistory={fullHistory}
@@ -780,6 +818,7 @@ const loadedMutableActivityTxIds = (entries: readonly IHistoryEntry[]): string[]
       entry.txType === 'bridged-receive' ||
       entry.txType === 'earn-deposit' ||
       entry.txType === 'earn-withdraw' ||
+      entry.oneClickTracking !== undefined ||
       (entry.txType === 'consume' && entry.bridgeInProvider !== undefined);
     if (!mutable || entry.txId === undefined || seen.has(entry.txId)) continue;
     seen.add(entry.txId);
@@ -804,7 +843,8 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
   const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
   const bridgedReceive =
     tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
-  const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+  const bridgeIn: IBridgeInInfo | undefined =
+    tx.type === 'consume' ? (tx.extraInputs?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn) : undefined;
   const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
   const earnDeposit: IEarnDepositExtraInputs | undefined = tx.type === 'earn-deposit' ? tx.extraInputs : undefined;
   return {
@@ -813,13 +853,14 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
         ? 'Transaction failed'
-        : tx.displayMessage,
+        : (tx.backupBridgeReceipt?.displayMessage ?? tx.displayMessage),
     transactionIcon:
       tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon,
     errorMessage: tx.error,
     isCancelled,
     isUnconfirmed,
     bridgeClaimStatus: bridge?.claimStatus,
+    bridgeDestinationChain: bridge?.destinationChain,
     bridgeEpochStatus: bridge?.epochStatus,
     bridgeFillTxHash: bridge?.fillTxHash,
     bridgeFillChainId: bridge?.fillChainId,
@@ -837,7 +878,7 @@ const loadedActivityStatusFields = (tx: ITransaction): Partial<IHistoryEntry> =>
       bridgedReceive?.bridgeOperation?.sourceAttempt?.phase === 'stopped-before-source',
     bridgeInLockedDeposit: bridgedReceive?.epochLockedDeposit,
     bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
-    oneClickTracking: bridgedReceive?.oneClick,
+    oneClickTracking: loadedActivityOneClickTracking(tx),
     earnWithdrawPhase: earnWithdraw?.phase,
     earnDepositStatus: earnDeposit?.epochStatus
   };
@@ -853,19 +894,32 @@ export const patchLoadedActivityStatus = (
   state: ScopedEntries,
   key: string,
   ids: ReadonlySet<string>,
-  fresh: ReadonlyMap<string, ITransaction>
+  fresh: ReadonlyMap<string, ITransaction>,
+  registrationIds?: ReadonlySet<string>
 ): ScopedEntries => {
   if (state.key !== key) return state;
   let changed = false;
   const entries = state.entries.map(entry => {
-    if (entry.txId === undefined || !ids.has(entry.txId)) return entry;
+    if (entry.txId === undefined) return entry;
+    const refreshStatus = ids.has(entry.txId);
+    const refreshName = registrationIds?.has(entry.txId) === true && entry.txType === 'register-name';
+    if (!refreshStatus && !refreshName) return entry;
     const row = fresh.get(entry.txId);
     if (row === undefined) return entry;
-    const fields = loadedActivityStatusFields(row);
+    const fields: Partial<IHistoryEntry> = refreshStatus ? loadedActivityStatusFields(row) : {};
+    if (refreshName && row.type === 'register-name') Object.assign(fields, midenNameActivityOf(row));
     // Every read gives a new tracking object. Every tracking write moves `updatedAt`, so an equal stamp keeps the
     // shown object and the row does not render again.
-    if (entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
+    if (refreshStatus && entry.oneClickTracking?.updatedAt === fields.oneClickTracking?.updatedAt) {
       fields.oneClickTracking = entry.oneClickTracking;
+    }
+    if (
+      entry.bridgeDestinationChain &&
+      fields.bridgeDestinationChain &&
+      entry.bridgeDestinationChain.id === fields.bridgeDestinationChain.id &&
+      entry.bridgeDestinationChain.name === fields.bridgeDestinationChain.name
+    ) {
+      fields.bridgeDestinationChain = entry.bridgeDestinationChain;
     }
     if (Object.entries(fields).every(([field, value]) => sameLoadedField(entry[field as keyof IHistoryEntry], value))) {
       return entry;
@@ -981,12 +1035,13 @@ async function fetchTransactionsAsHistoryEntries(
       ? 'Cancelled'
       : tx.status === ITransactionStatus.Failed
         ? 'Transaction failed'
-        : tx.displayMessage;
+        : (tx.backupBridgeReceipt?.displayMessage ?? tx.displayMessage);
     const icon =
       tx.status === ITransactionStatus.Failed ? 'FAILED' : tx.recovered ? guardianHistoryIcon(tx.type) : tx.displayIcon;
     const tokenMetadata = tx.faucetId ? await getTokenMetadata(tx.faucetId) : undefined;
     const bridge = tx.type === 'bridged-send' ? (tx.extraInputs as IBridgedSendExtraInputs | undefined) : undefined;
-    const bridgeIn: IBridgeInInfo | undefined = tx.type === 'consume' ? tx.extraInputs?.bridgeIn : undefined;
+    const bridgeIn: IBridgeInInfo | undefined =
+      tx.type === 'consume' ? (tx.extraInputs?.bridgeIn ?? tx.backupBridgeReceipt?.bridgeIn) : undefined;
     const bridgedReceive =
       tx.type === 'bridged-receive' ? (tx.extraInputs as IBridgedReceiveExtraInputs | undefined) : undefined;
     const earnWithdraw: IEarnWithdrawExtraInputs | undefined = tx.type === 'earn-withdraw' ? tx.extraInputs : undefined;
@@ -1001,13 +1056,18 @@ async function fetchTransactionsAsHistoryEntries(
     // Swap faucets are usually absent from wallet metadata — resolve both
     // sides through the DEX registry instead of the generic path.
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const nearIntents = nearIntentsSendTrackingOf(tx);
+    const nearIntentsOrigin = nearIntents?.direction === 'miden-to-evm' ? nearIntents.originAsset : undefined;
     const extraAmounts = await resolveConsumeExtraAmounts(tx);
     const entry = {
       address: address,
       key: `completed-${tx.id}`,
       dappOrigins: tx.dappOrigins,
+      initiatingDappOrigin: tx.restoredFromBackup || tx.recovered ? undefined : tx.initiatingDappOrigin,
       guardianRecovered: tx.recovered === true,
       guardianReclaimed: tx.recovery?.reclaimed,
+      hotKeyAdded: tx.type === 'replace-hot-key' && tx.extraInputs?.mode === 'add',
+      revokedSignerCommitment: tx.type === 'replace-hot-key' ? tx.extraInputs?.revokedSignerCommitment : undefined,
       // Same fallback the query sorts by (`getCompletedTransactions`) and the
       // detail view renders. A terminal row is not guaranteed to carry
       // `completedAt`, and the day grouping builds a Date from this with no
@@ -1032,14 +1092,16 @@ async function fetchTransactionsAsHistoryEntries(
             // rather than promoting a secondary over it.
             tx.amount !== undefined && hasKnownScale(tokenMetadata)
             ? formatAmount(tx.amount, tokenMetadata?.decimals)
-            : undefined,
+            : tx.amount !== undefined && nearIntentsOrigin?.decimals !== undefined
+              ? formatAmount(tx.amount, nearIntentsOrigin.decimals)
+              : undefined,
       token: earnWithdrawFields
         ? earnWithdrawFields.token
         : swapFields
           ? swapFields.token
-          : tokenMetadata
-            ? tokenMetadata.symbol
-            : undefined,
+          : hasKnownScale(tokenMetadata)
+            ? tokenMetadata?.symbol
+            : (nearIntentsOrigin?.symbol ?? tokenMetadata?.symbol),
       extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       earnWithdrawPhase: earnWithdraw?.phase,
       // The Miden collateral note landing is only half a deposit — the chip
@@ -1052,7 +1114,9 @@ async function fetchTransactionsAsHistoryEntries(
       ...(swapProgress.get(tx.id) ?? {}),
       paybackClaimStuck: stuckPaybackClaim(paybackStates.get(tx.id)),
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
-      secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      secondaryAddress: historySecondaryAddressOf(tx),
+      recipientName: tx.recipientName,
+      ...midenNameActivityOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       noteType: tx.noteType,
@@ -1067,6 +1131,7 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeDestinationChain: bridge?.destinationChain,
       bridgeAgglayerRoute: bridge?.agglayerRoute,
       bridgeClaimStatus: bridge?.claimStatus,
       bridgeOutputAmount: bridge?.outputAmount,
@@ -1084,7 +1149,7 @@ async function fetchTransactionsAsHistoryEntries(
       restoredFromBackup: tx.restoredFromBackup,
       bridgeInProvider: bridgedReceive?.provider ?? bridgeIn?.provider,
       // A NEAR Intents deposit reads Expired from its tracking deadline (`bridgeBadgeStatusOf`).
-      oneClickTracking: bridgedReceive?.oneClick,
+      oneClickTracking: loadedActivityOneClickTracking(tx),
       bridgeInSourceAddress: bridgedReceive?.sourceAddress ?? bridgeIn?.intentOwner,
       bridgeInSourceChainId: bridgedReceive?.sourceChainId,
       bridgeInSourceAmount: bridgedReceive?.sourceAmount ?? bridgeIn?.sourceAmount,
@@ -1103,7 +1168,8 @@ async function fetchTransactionsAsHistoryEntries(
       bridgeInCctp: bridgedReceive?.cctp,
       bridgeInOutputAmount: bridgedReceive?.outputAmount,
       bridgeInOutputSymbol: bridgedReceive?.outputSymbol,
-      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId
+      bridgeInMidenNoteId: bridgedReceive?.midenNoteId ?? bridgeIn?.midenNoteId,
+      midenNameLabel: midenNameLabelOf(tx)
     } as IHistoryEntry;
 
     return entry;
@@ -1194,10 +1260,13 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
     const guardianSwitch: ISwitchGuardianExtraInputs | undefined =
       tx.type === 'switch-guardian' ? tx.extraInputs : undefined;
     const swapFields = tx.type === 'swap' ? await resolveSwapHistoryFields(tx) : undefined;
+    const nearIntents = nearIntentsSendTrackingOf(tx);
+    const nearIntentsOrigin = nearIntents?.direction === 'miden-to-evm' ? nearIntents.originAsset : undefined;
     const extraAmounts = await resolveConsumeExtraAmounts(tx);
     return {
       key: `pending-${tx.id}`,
       dappOrigins: tx.dappOrigins,
+      initiatingDappOrigin: tx.restoredFromBackup || tx.recovered ? undefined : tx.initiatingDappOrigin,
       address: address,
       secondaryMessage: formatTransactionStatus(tx.status),
       timestamp: tx.initiatedAt,
@@ -1210,14 +1279,22 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
           // trustworthy scale to convert by.
           tx.amount !== undefined && hasKnownScale(tokenMetadata)
           ? formatAmount(tx.amount, tokenMetadata?.decimals)
-          : undefined,
-      token: swapFields ? swapFields.token : tokenMetadata ? tokenMetadata.symbol : undefined,
+          : tx.amount !== undefined && nearIntentsOrigin?.decimals !== undefined
+            ? formatAmount(tx.amount, nearIntentsOrigin.decimals)
+            : undefined,
+      token: swapFields
+        ? swapFields.token
+        : hasKnownScale(tokenMetadata)
+          ? tokenMetadata?.symbol
+          : (nearIntentsOrigin?.symbol ?? tokenMetadata?.symbol),
       extraAmounts: extraAmounts.length > 0 ? extraAmounts : undefined,
       requestedAmount: swapFields?.requestedAmount,
       requestedToken: swapFields?.requestedToken,
       requestedFaucetId: swapFields?.requestedFaucetId,
       // Bridge rows have no Miden recipient — surface the EVM destination instead.
-      secondaryAddress: bridge?.destinationAddress ?? tx.secondaryAccountId,
+      secondaryAddress: historySecondaryAddressOf(tx),
+      recipientName: tx.recipientName,
+      ...midenNameActivityOf(tx),
       txId: tx.id,
       consumedNoteIds: tx.type === 'consume' ? (tx.noteIds ?? (tx.noteId ? [tx.noteId] : [])) : undefined,
       type: entryType,
@@ -1230,6 +1307,7 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeProvider: bridge?.provider,
       bridgeDestinationAddress: bridge?.destinationAddress,
       bridgeDestinationNetwork: bridge?.destinationNetwork,
+      bridgeDestinationChain: bridge?.destinationChain,
       bridgeAgglayerRoute: bridge?.agglayerRoute,
       bridgeClaimStatus: bridge?.claimStatus,
       bridgeOutputAmount: bridge?.outputAmount,
@@ -1245,7 +1323,9 @@ async function fetchPendingTransactionsAsHistoryEntries(address: string, tokenId
       bridgeReclaimNoteId: bridge?.reclaimNoteId,
       bridgeSubmitClaimed: bridge?.submitClaimed,
       restoredFromBackup: tx.restoredFromBackup,
-      earnDepositStatus: earnDeposit?.epochStatus
+      earnDepositStatus: earnDeposit?.epochStatus,
+      oneClickTracking: loadedActivityOneClickTracking(tx),
+      midenNameLabel: midenNameLabelOf(tx)
     } as IHistoryEntry;
   });
   const entries = await Promise.all(entryPromises);

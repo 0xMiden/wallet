@@ -108,11 +108,19 @@ async function upstreamFetch(fetchImpl, url, init, timeoutMs) {
 }
 
 // The provider's refusal text never reaches the wallet. Only a reason on this fixed list becomes its own code,
-// so the wallet can tell the user what to change.
+// so the wallet can tell the user what to change. Other text, for example "Internal server error", stays
+// `upstream_request_failed`.
+const UPSTREAM_REASON_CODES = new Map([
+  ['No liquidity available', 'no_liquidity'],
+  ['recipient is not valid', 'invalid_recipient']
+]);
+
 function upstreamErrorCode(text) {
   try {
     const body = JSON.parse(text);
-    if (record(body) && body.message === 'No liquidity available') return 'no_liquidity';
+    if (record(body) && typeof body.message === 'string' && UPSTREAM_REASON_CODES.has(body.message)) {
+      return UPSTREAM_REASON_CODES.get(body.message);
+    }
   } catch {
     // A body that is not JSON has no reason the wallet can use.
   }

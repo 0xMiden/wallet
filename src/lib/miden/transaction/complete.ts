@@ -1,6 +1,7 @@
 import { TransactionResult } from '@miden-sdk/miden-sdk/lazy';
 
 import { sameTxHash } from 'lib/agglayer/status';
+import { signalTransactionCompleted } from 'lib/backup/adopt-signal';
 import { earnWithdrawExecutionIdentity, validateEarnWithdrawPreparedExecution } from 'lib/epoch/earn-withdraw-policy';
 import {
   matchesEarnDepositIntent,
@@ -8,6 +9,7 @@ import {
   type ExpectedEarnDepositIntent,
   type ExpectedEarnWithdrawIntent
 } from 'lib/epoch/intent-key';
+import { getMessage } from 'lib/i18n/core';
 import { clearGuardianServiceFor, type GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { MultisigService } from 'lib/miden/guardian';
 import {
@@ -42,8 +44,10 @@ import {
   stampPostSubmitStage,
   swapOrderExpiresAt,
   undeliveredDisplayMessage,
-  updateTransactionStatus
+  updateTransactionStatus,
+  verifiedLandingRowFields
 } from './helper';
+import { hotKeyActivationMessage } from './hot-key-rotation-residual';
 import { ensureGuardianProcedureThresholds } from './initiate';
 import {
   bridgedSendCompletionRead,
@@ -70,6 +74,7 @@ import {
   BridgedSendTransaction,
   EarnDepositTransaction,
   IBridgeClaimStatus,
+  IBridgeProvider,
   IBridgedReceiveExtraInputs,
   IBridgedReceivePhase,
   IBridgedSendExtraInputs,
@@ -78,21 +83,27 @@ import {
   IEarnWithdrawExtraInputs,
   IEarnWithdrawPhase,
   IEarnWithdrawPreparedExecution,
+  IConsumeMidenNameExtraInputs,
+  IMidenNameClaimLink,
   INoteDeliveryState,
+  IRegisterNameExtraInputs,
   isOpenSettlementClaim,
   ITransaction,
   ITransactionStatus,
+  MidenNamePhase,
   ReplaceHotKeyTransaction,
   SendTransaction,
   SwapTransaction,
   SwitchGuardianTransaction,
   UpdateProcedureThresholdTransaction
 } from '../db/types';
+import { bindMidenNameClaimRegistration } from '../name/registrations';
 import { recordedSwapOrder, swapOrderOf } from '../sdk/apply-after-submit';
 import { sameWalletAccountId } from '../sdk/helpers';
 import { retireLandedTrap } from '../sdk/landed-trap-retirement';
 import { assertWasmHoldCurrent, withWasmClientLock } from '../sdk/miden-client';
 import { isPoisonedPipeline } from '../sdk/sdk-error-code';
+import { isWasmClientPoisonedError } from '../sdk/wasm-client-poison';
 import { isRecoveredSwapOrder } from '../swap/recovered-order';
 
 export const completeCustomTransaction = async (transaction: ITransaction, result: TransactionResult) => {
@@ -252,6 +263,21 @@ const orderHasSettleClaim = async (swapOrderTxId: string): Promise<boolean> =>
     .filter(tx => tx.type === 'consume' && tx.extraInputs?.swapSettleKind !== 'reclaim')
     .count()) > 0;
 
+const midenNameClaimLinksOf = (
+  extraInputs: Partial<IConsumeMidenNameExtraInputs> | undefined
+): IMidenNameClaimLink[] => {
+  const byRegisterTxId = new Map<string, IMidenNameClaimLink>();
+  if (extraInputs?.midenNameClaim) {
+    byRegisterTxId.set(extraInputs.midenNameClaim.registerTxId, extraInputs.midenNameClaim);
+  }
+  if (extraInputs?.midenNameClaims) {
+    for (const link of Object.values(extraInputs.midenNameClaims)) {
+      byRegisterTxId.set(link.registerTxId, link);
+    }
+  }
+  return [...byRegisterTxId.values()];
+};
+
 export const completeConsumeTransaction = async (id: string, result: TransactionResult) => {
   // The tail's read when it ran, else one now; each part rethrows in the step where it always surfaced.
   const read = consumeCompletionRead(id, result);
@@ -260,7 +286,12 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
 
   const dbTransaction = await withCompletionStep('row_read', () => Repo.transactions.where({ id }).first());
   const reclaimed = compareAccountIds(dbTransaction?.accountId ?? '', sender);
-  const displayMessage = reclaimed ? 'Reclaimed' : 'Received';
+  // A consume that claims one or more Miden Name delivery notes carries links
+  // to their `register-name` rows. Those notes hold non-fungible assets only.
+  const nameClaimInputs: Partial<IConsumeMidenNameExtraInputs> | undefined = dbTransaction?.extraInputs;
+  const midenNameClaims = midenNameClaimLinksOf(nameClaimInputs);
+  let displayMessage = reclaimed ? 'Reclaimed' : 'Received';
+  if (midenNameClaims.length > 0) displayMessage = 'Name received';
   const secondaryAccountId = reclaimed ? undefined : sender;
   const { resultBytes, deliveries } = await withCompletionStep('result_serialize', async () => keptOrThrow(bytes));
   // A GC purchase consumed the whole sale note, but received only what its fill bought; the rest went back out as
@@ -326,6 +357,19 @@ export const completeConsumeTransaction = async (id: string, result: Transaction
     }
   } catch (err) {
     console.warn('[swap-settlement] consume stamping failed (non-fatal)', err);
+  }
+
+  // Miden Name claim: the name is now in the account, so move each linked
+  // `register-name` row to `owned`. The tracker also gets `owned` from this
+  // consume row, so a failure here must not fail the consume.
+  for (const claim of midenNameClaims) {
+    try {
+      if (!(await patchRegisterNameExtraInputs(claim.registerTxId, { phase: 'owned' }))) {
+        await bindMidenNameClaimRegistration(claim.registerTxId, id, 'completed');
+      }
+    } catch (err) {
+      console.warn('[miden-name] owned patch failed (non-fatal)', err);
+    }
   }
 };
 
@@ -442,11 +486,11 @@ export const completeReplaceHotKeyTransaction = async (
   let storedAccountId = tx.accountId;
   try {
     const newHotPublicKey = tx.extraInputs?.newHotPublicKey;
-    if (!newHotPublicKey) {
+    if (!newHotPublicKey && !tx.extraInputs.revokedSignerCommitment) {
       throw new Error('Replace-hot-key tx is missing newHotPublicKey in extraInputs');
     }
 
-    if (!guardianProvider.swapHotKey) {
+    if (!guardianProvider.swapHotKey && !tx.extraInputs.revokedSignerCommitment) {
       throw new Error('swapHotKey not implemented in this provider');
     }
 
@@ -460,7 +504,8 @@ export const completeReplaceHotKeyTransaction = async (
     // `signerCommitments`. `buildColdMultisigService` loads that field from the
     // guardian's stored blob (which can still be pre-rotation), so
     // `reRegisterCurrentStateOnGuardian` re-derives it from the freshly-synced
-    // on-chain account (now [new-hot, cold]) right before registering (#619 gap
+    // on-chain account (now [new-hot, cold] after a replace, or the earlier set
+    // plus new-hot after an add) right before registering (#619 gap
     // 3) - otherwise this could re-push the OLD allowlist, the historical
     // permanent-401 bug. Runs BEFORE `swapHotKey` arms the ~3s hot-sync.
     // Best-effort: an on-chain-successful rotation must not be failed by a
@@ -542,7 +587,9 @@ export const completeReplaceHotKeyTransaction = async (
     // Vault.swapHotKey resolves the previous hot pubkey from the persisted
     // WalletAccount and is idempotent: if the record already reflects
     // `newHotPublicKey` (retry), the cleanup branch is a no-op.
-    await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
+    // A revocation installs no new key, so it has nothing to swap.
+    if (newHotPublicKey && guardianProvider.swapHotKey)
+      await guardianProvider.swapHotKey(storedAccountId, newHotPublicKey);
   } catch (error) {
     retireLandedTrap(error, tx.id, result);
     console.error('Error completing replace-hot-key transaction:', error);
@@ -567,7 +614,9 @@ export const completeReplaceHotKeyTransaction = async (
     {
       // Kept from the read made before the re-register and the swap, which can replace the client.
       ...(result ? landedFee(readLandedResultFields(result, tx.id)) : {}),
-      displayMessage: 'Everyday key rotated',
+      displayMessage: tx.extraInputs.revokedSignerCommitment
+        ? getMessage('deviceRevoked')
+        : hotKeyActivationMessage(tx.extraInputs.mode),
       completedAt: Math.floor(Date.now() / 1000),
       // Spread the whole record (updateTransactionStatus Object.assigns the whole extraInputs):
       // newHotPublicKey and the stamped guardianEndpoint both survive. Then record whether the
@@ -580,7 +629,8 @@ export const completeReplaceHotKeyTransaction = async (
     'everyday key rotation'
   );
 
-  // The account now has both signers on-chain, so bring it up to the same
+  // The account now has its new hot signer and the cold signer on-chain (and,
+  // after an add, the other devices' hot signers too), so bring it up to the same
   // hardening a freshly-created 3-key account has (update_guardian threshold
   // 2, which the update_signers rotation above can't carry). Best-effort and
   // idempotent; never affects the rotation's success. After an eviction during
@@ -1051,12 +1101,26 @@ export const completeSendTransaction = async (tx: SendTransaction, result: Trans
   });
 };
 
+/** The stored message of a landed bridged-send. A NEAR Intents send can go to a chain that is not EVM. */
+const bridgedSendLandedMessage = (provider: IBridgeProvider | undefined): string => {
+  switch (provider) {
+    case 'usdcx':
+      return 'USDCx burn submitted';
+    case 'near-intents':
+      return 'Sent through NEAR Intents';
+    case 'epoch':
+    case 'agglayer':
+    case undefined:
+      return 'Bridged to EVM';
+  }
+};
+
 export const completeBridgedSendTransaction = async (tx: BridgedSendTransaction, result: TransactionResult) => {
   const { outputNoteIds, feeFields, transactionId, resultBytes } = keptOrThrow(bridgedSendCompletionRead(tx, result));
 
   await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
     ...feeFields,
-    displayMessage: tx.extraInputs?.provider === 'usdcx' ? 'USDCx burn submitted' : 'Bridged to EVM',
+    displayMessage: bridgedSendLandedMessage(tx.extraInputs?.provider),
     transactionId,
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds
@@ -1075,6 +1139,177 @@ export const completeEarnDepositTransaction = async (tx: EarnDepositTransaction,
     outputNoteIds,
     completedAt: Math.floor(Date.now() / 1000), // seconds
     resultBytes
+  });
+};
+
+/** Rank of each non-terminal phase. A patch can only keep or increase the rank. */
+const MIDEN_NAME_PHASE_RANK: Record<Exclude<MidenNamePhase, 'failed'>, number> = {
+  requested: 0,
+  submitted: 1,
+  issued: 2,
+  claiming: 3,
+  owned: 4
+};
+
+/**
+ * Whether a row in phase `current` can go to phase `next`. Exported for tests.
+ *
+ * `failed` and `owned` are terminal: nothing moves them. A same-phase patch is
+ * permitted, so that a caller can add fields (for example `deliveryScanFrom`).
+ * `failed` is permitted from each non-terminal phase. The one move back is
+ * `claiming → issued`: the tracker makes it when the claim consume failed, so
+ * that it can queue a new claim.
+ */
+export const canMoveMidenNamePhase = (current: MidenNamePhase, next: MidenNamePhase): boolean => {
+  if (current === next) return true;
+  switch (current) {
+    case 'failed':
+    case 'owned':
+      return false;
+    case 'claiming':
+      if (next === 'issued') return true;
+      break;
+    default:
+      break;
+  }
+  if (next === 'failed') return true;
+  return MIDEN_NAME_PHASE_RANK[next] >= MIDEN_NAME_PHASE_RANK[current];
+};
+
+export type RegisterNameExtraInputsPatch = Partial<
+  Pick<
+    IRegisterNameExtraInputs,
+    'phase' | 'failure' | 'lastError' | 'deliveryNoteId' | 'claimTxId' | 'claimAttempts' | 'deliveryScanFrom'
+  >
+>;
+
+const nextRegisterNameExtraInputs = (
+  tx: ITransaction | undefined,
+  patch: RegisterNameExtraInputsPatch,
+  options: { expectPhase?: MidenNamePhase; defaultPhase?: (current: MidenNamePhase) => MidenNamePhase } = {}
+): IRegisterNameExtraInputs | undefined => {
+  if (!tx || tx.type !== 'register-name' || tx.restoredFromBackup === true) return undefined;
+  const inputs: IRegisterNameExtraInputs | undefined = tx.extraInputs;
+  if (!inputs) return undefined;
+  if (options.expectPhase !== undefined && inputs.phase !== options.expectPhase) return undefined;
+  const fallbackPhase = options.defaultPhase ? options.defaultPhase(inputs.phase) : inputs.phase;
+  const nextPhase = patch.phase ?? fallbackPhase;
+  if (!canMoveMidenNamePhase(inputs.phase, nextPhase)) return undefined;
+  return {
+    ...inputs,
+    ...patch,
+    phase: nextPhase,
+    phaseUpdatedAt: nextPhase !== inputs.phase ? Date.now() : inputs.phaseUpdatedAt
+  };
+};
+
+/**
+ * Patch the `extraInputs` of a `register-name` row. Returns true when the patch
+ * was written.
+ *
+ * Refuses (returns false) when the row is not a `register-name` row, is
+ * restored from a backup, has a phase other than `expectPhase` (when given), or
+ * when the phase move is not permitted (see `canMoveMidenNamePhase`).
+ * `phaseUpdatedAt` changes only when the phase changes.
+ */
+export const patchRegisterNameExtraInputs = async (
+  id: string,
+  patch: RegisterNameExtraInputsPatch,
+  options: { expectPhase?: MidenNamePhase } = {}
+): Promise<boolean> => {
+  let written = false;
+  await Repo.transactions.where({ id }).modify(tx => {
+    const next = nextRegisterNameExtraInputs(tx, patch, options);
+    // `false`, not a bare return - dexie re-puts the deep clone for any other value.
+    if (!next) return false;
+    tx.extraInputs = next;
+    written = true;
+    return undefined;
+  });
+  return written;
+};
+
+/**
+ * Promote a `Failed` or `Unconfirmed` `register-name` row whose registration
+ * note is proven on chain to `Completed` atomically with advancing its phase (`requested` →
+ * `submitted`, or the phase in `patch`). Returns the updated `extraInputs` when
+ * written, or `undefined` when declined.
+ */
+export const promoteLandedRegisterNameRow = async (
+  id: string,
+  patch: RegisterNameExtraInputsPatch = {},
+  options: { expectPhase?: MidenNamePhase } = {}
+): Promise<IRegisterNameExtraInputs | undefined> => {
+  let reconciled: ITransaction | undefined;
+  let writtenInputs: IRegisterNameExtraInputs | undefined;
+  await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.status !== ITransactionStatus.Failed && tx.status !== ITransactionStatus.Unconfirmed) return false;
+    const next = nextRegisterNameExtraInputs(tx, patch, {
+      ...options,
+      defaultPhase: current => (current === 'requested' ? 'submitted' : current)
+    });
+    if (!next) return false;
+    applyVerifiedLanding(tx, {
+      ...verifiedLandingRowFields(tx),
+      completedAt: tx.completedAt ?? Math.floor(Date.now() / 1000),
+      extraInputs: next
+    });
+    reconciled = tx;
+    writtenInputs = next;
+    return undefined;
+  });
+
+  if (reconciled !== undefined) {
+    reportVerifiedLanding(reconciled);
+  }
+  return writtenInputs;
+};
+
+/**
+ * Complete a `register-name` row. Record the ids of the user output notes (the
+ * register note and, when the kernel shows it as a user note, the sponsorship
+ * note) and move the phase to `submitted`. The register note id comes first.
+ */
+export const completeRegisterNameTransaction = async (tx: ITransaction, result: TransactionResult) => {
+  const executedTx = result.executedTransaction();
+  // The transaction is on chain here. A failed read of the output notes must not
+  // fail the row, so record no ids and continue. An eviction is the exception
+  // (see `feePaidFromResult`): continue on that client is a double borrow.
+  let noteIds: string[] = [];
+  try {
+    noteIds = splitLandedOutputNotes(result, tx.id).userNotes.map(note => note.id().toString());
+  } catch (err) {
+    if (isWasmClientPoisonedError(err)) throw err;
+    console.warn('[miden-name] could not read the output notes of the register transaction', err);
+  }
+  const inputs: Partial<IRegisterNameExtraInputs> | undefined = tx.extraInputs;
+  const expectedNoteId = inputs?.registrationNoteId;
+  const hasExpectedNote = expectedNoteId !== undefined && noteIds.includes(expectedNoteId);
+  const outputNoteIds = hasExpectedNote
+    ? [expectedNoteId, ...noteIds.filter(noteId => noteId !== expectedNoteId)]
+    : noteIds;
+  if (!hasExpectedNote) {
+    console.warn('[miden-name] the executed transaction has no output note with the registration note id', {
+      txId: tx.id,
+      expectedNoteId,
+      outputNoteIds
+    });
+  }
+
+  // The phase goes in the same write as the status, so that no crash can leave
+  // a Completed row in phase `requested`. Read the row again: the in-memory copy
+  // is from the time when the loop picked the row.
+  const freshRow = await Repo.transactions.where({ id: tx.id }).first();
+  const submittedInputs = nextRegisterNameExtraInputs(freshRow, { phase: 'submitted' });
+
+  await updateTransactionStatus(tx.id, ITransactionStatus.Completed, {
+    ...landedFee(readLandedResultFields(result, tx.id, tx)),
+    displayMessage: 'Name requested',
+    transactionId: executedTx.id().toHex(),
+    outputNoteIds,
+    ...(submittedInputs ? { extraInputs: submittedInputs } : {}),
+    completedAt: Math.floor(Date.now() / 1000), // seconds
+    resultBytes: result.serialize()
   });
 };
 
@@ -1318,11 +1553,9 @@ export const updateEarnWithdrawPhase = async (
 ) => {
   let settled: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (
-      expected &&
-      (tx.restoredFromBackup || tx.status !== ITransactionStatus.Completed || !matchesEarnWithdrawIntent(tx, expected))
-    )
-      return;
+    if (tx.restoredFromBackup) return false;
+    if (expected && (tx.status !== ITransactionStatus.Completed || !matchesEarnWithdrawIntent(tx, expected)))
+      return false;
     const inputs: IEarnWithdrawExtraInputs = tx.extraInputs;
     if (!canAdvanceEarnWithdrawPhase(inputs.phase, phase)) {
       console.warn(`[earn-withdraw] refusing phase downgrade ${inputs.phase} -> ${phase} on ${id}`);
@@ -1337,6 +1570,8 @@ export const updateEarnWithdrawPhase = async (
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
     return undefined;
   });
+
+  if (settled !== undefined && !settled.restoredFromBackup) signalTransactionCompleted();
 
   if (settled !== undefined && phase === 'failed' && !settled.restoredFromBackup) {
     reportTransactionFailure({
@@ -1422,14 +1657,16 @@ export const updateBridgedReceivePhase = async (
   const { failure: source, ...details }: NonNullable<typeof extra> = extra ?? {};
   let settled: ITransaction | undefined;
   let failed: ITransaction | undefined;
+  let receiptChanged = false;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.restoredFromBackup) return false;
     const inputs: IBridgedReceiveExtraInputs | undefined = tx.extraInputs;
-    if (!canMoveBridgedReceivePhase(inputs?.phase, phase) || (canUpdate && !canUpdate(tx))) return;
+    if (!canMoveBridgedReceivePhase(inputs?.phase, phase) || (canUpdate && !canUpdate(tx))) return false;
     // A reopen clears only the Arc execute it saw revert or stall: a newer execute saved meanwhile, with its proof,
     // stands.
     const reopened = extra?.cctp?.revertedExecuteTxHash ?? extra?.cctp?.stalledExecuteTxHash;
-    if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return;
-    if (onlyIfNoExecuteHash && inputs?.cctp?.executeTxHash !== undefined) return;
+    if (reopened !== undefined && inputs?.cctp?.executeTxHash !== reopened) return false;
+    if (onlyIfNoExecuteHash && inputs?.cctp?.executeTxHash !== undefined) return false;
     const nowSec = Math.floor(Date.now() / 1000);
     // The CCTP leg is written a field at a time (the burn's domain, then the attestation, then the
     // execute hash), so a write merges into what the row holds instead of replacing it.
@@ -1449,6 +1686,7 @@ export const updateBridgedReceivePhase = async (
     // through both and must report on the first.
     const fromPhase = inputs?.phase;
     if (phase === 'failed' && fromPhase !== 'failed') failed = tx;
+    receiptChanged = fromPhase !== phase && BRIDGED_RECEIVE_SETTLED_PHASES.has(phase);
     if (
       (fromPhase === undefined || !BRIDGED_RECEIVE_SETTLED_PHASES.has(fromPhase)) &&
       BRIDGED_RECEIVE_SETTLED_PHASES.has(phase)
@@ -1472,7 +1710,10 @@ export const updateBridgedReceivePhase = async (
       tx.displayMessage = 'Bridged from EVM';
     }
     if (phase === 'failed' && extra?.error) tx.error = extra.error;
+    return undefined;
   });
+
+  if (receiptChanged) signalTransactionCompleted();
 
   if (failed !== undefined && !failed.restoredFromBackup) {
     const inputs: IBridgedReceiveExtraInputs | undefined = failed.extraInputs;
@@ -1575,6 +1816,7 @@ export const updateBridgeClaimStatus = async (
 ) => {
   let landed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
+    if (tx.restoredFromBackup) return false;
     const ei: IBridgedSendExtraInputs = tx.extraInputs ?? {};
     if (ei.provider === 'agglayer') {
       if (ei.claimStatus === 'claimed' && claimStatus !== 'claimed') return;
@@ -1596,6 +1838,7 @@ export const updateBridgeClaimStatus = async (
       applyVerifiedLanding(tx, bridgedSendLandedValues());
       landed = tx;
     }
+    return undefined;
   });
 
   if (landed !== undefined) {
@@ -1624,7 +1867,10 @@ export const listUnconfirmedSwitchRows = async (accountId: string): Promise<Swit
   const rows = await Repo.transactions
     .where('type')
     .equals('switch-guardian')
-    .filter(row => row.accountId === accountId && rotationVerdict(row)?.kind === 'submitted-unconfirmed')
+    .filter(
+      row =>
+        !row.restoredFromBackup && row.accountId === accountId && rotationVerdict(row)?.kind === 'submitted-unconfirmed'
+    )
     .toArray();
   return rows.filter((row): row is SwitchGuardianTransaction => row.type === 'switch-guardian');
 };
@@ -1657,14 +1903,16 @@ export const listUnconfirmedSwitchRows = async (accountId: string): Promise<Swit
 export const resolveUnconfirmedSwitch = async (id: string, landed: boolean): Promise<void> => {
   if (landed) {
     await Repo.transactions.where({ id }).modify(tx => {
+      if (tx.restoredFromBackup) return false;
       tx.displayMessage = 'Guardian switched';
       tx.extraInputs = { ...tx.extraInputs, commitUnconfirmed: false };
+      return undefined;
     });
     return;
   }
   let failed: ITransaction | undefined;
   await Repo.transactions.where({ id }).modify(tx => {
-    if (rotationVerdict(tx)?.kind !== 'submitted-unconfirmed') return false;
+    if (tx.restoredFromBackup || rotationVerdict(tx)?.kind !== 'submitted-unconfirmed') return false;
     tx.status = ITransactionStatus.Failed;
     tx.displayMessage = 'Guardian switch discarded';
     // Plain prose, like every other `tx.error` (the field carries thrown-error
@@ -1775,6 +2023,7 @@ export const markBridgedSendFailed = async (id: string, error: string) => {
   });
   if (demoted === undefined) return;
   if (!demoted.restoredFromBackup) {
+    signalTransactionCompleted();
     reportTransactionFailure({
       point: 'bridge_send_settlement',
       type: demoted.type,

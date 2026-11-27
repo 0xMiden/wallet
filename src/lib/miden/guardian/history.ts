@@ -5,7 +5,7 @@ import { canonicalGuardianEndpoint, isValidGuardianUrl, sameGuardianEndpoint } f
 
 import { GuardianHistoryDataError } from './history-errors';
 import { compareAccountIds } from '../activity/utils';
-import type { IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
+import type { HotKeyActivationMode, IConsumedAssetTotal, ITransaction, ITransactionType } from '../db/types';
 import {
   ConsumeTransaction,
   ITransactionStatus,
@@ -82,6 +82,38 @@ export interface GuardianHistoryCheckpoint {
   terminal?: boolean;
 }
 
+/** The proposal description of a replace hot-key rotation (`createReplaceHotKeyProposal`). */
+const REPLACE_HOT_KEY_DESCRIPTION = 'Replace device (hot) signer';
+/** The proposal description of an add hot-key rotation (`createAddHotKeyProposal`). */
+const ADD_HOT_KEY_DESCRIPTION = 'Add device (hot) signer';
+/** The proposal description of a device revocation (`createRevokeDeviceProposal`). */
+const REVOKE_DEVICE_DESCRIPTION = 'Revoke device';
+
+/** True for the wallet's own revocation of another device, which rides the replace-hot-key row type. */
+function isRecoveredRevocation(proposal?: ProposalMetadata): boolean {
+  return proposal?.proposalType === 'remove_signer' && proposal.description === REVOKE_DEVICE_DESCRIPTION;
+}
+
+/** The activation mode a recovered rotation ran with, read from its proposal description. */
+export function recoveredHotKeyMode(proposal?: ProposalMetadata): HotKeyActivationMode {
+  switch (proposal?.description) {
+    case ADD_HOT_KEY_DESCRIPTION:
+      return 'add';
+    default:
+      return 'replace';
+  }
+}
+
+function recoveredHotKeyMessage(proposal?: ProposalMetadata): string {
+  if (isRecoveredRevocation(proposal)) return 'Device revoked';
+  switch (recoveredHotKeyMode(proposal)) {
+    case 'add':
+      return 'Device added';
+    case 'replace':
+      return 'Device key rotated';
+  }
+}
+
 export function recoveredAction(proposal?: ProposalMetadata): ITransactionType {
   switch (proposal?.proposalType) {
     case 'p2id':
@@ -99,7 +131,15 @@ export function recoveredAction(proposal?: ProposalMetadata): ITransactionType {
     case 'switch_guardian':
       return 'switch-guardian';
     case 'add_signer':
-      return proposal.description === 'Replace device (hot) signer' ? 'replace-hot-key' : 'execute';
+      switch (proposal.description) {
+        case REPLACE_HOT_KEY_DESCRIPTION:
+        case ADD_HOT_KEY_DESCRIPTION:
+          return 'replace-hot-key';
+        default:
+          return 'execute';
+      }
+    case 'remove_signer':
+      return isRecoveredRevocation(proposal) ? 'replace-hot-key' : 'execute';
     case 'update_procedure_threshold':
       return 'update-procedure-threshold';
     default:
@@ -167,8 +207,15 @@ export function concreteRecoveredTransaction(inputs: RecoveredTransactionInputs)
     case 'switch-guardian':
       if (!proposal?.newGuardianEndpoint) return undefined;
       return new SwitchGuardianTransaction(accountId, proposal.newGuardianEndpoint, undefined, operator);
-    case 'replace-hot-key':
-      return new ReplaceHotKeyTransaction(accountId);
+    case 'replace-hot-key': {
+      // The mode travels on the row so the history title can tell an add from a replace. A revocation
+      // activates nothing, so it has none; the commitment it removed is not in the retained metadata.
+      const rotation = new ReplaceHotKeyTransaction(accountId);
+      if (!isRecoveredRevocation(proposal)) {
+        rotation.extraInputs = { ...rotation.extraInputs, mode: recoveredHotKeyMode(proposal) };
+      }
+      return rotation;
+    }
     case 'update-procedure-threshold':
       if (!proposal?.targetProcedure || proposal.targetThreshold === undefined) return undefined;
       return new UpdateProcedureThresholdTransaction(accountId, proposal.targetProcedure, proposal.targetThreshold);
@@ -375,7 +422,7 @@ export function recoveredHistoryRecord(
     initiatedAt: timestamp,
     completedAt: timestamp,
     queuedSeq: undefined,
-    displayMessage: type === 'replace-hot-key' ? 'Device key rotated' : undefined,
+    displayMessage: type === 'replace-hot-key' ? recoveredHotKeyMessage(resolvedProposal) : undefined,
     amount: first?.amount,
     faucetId: first?.faucetId,
     assetTotals: totals,

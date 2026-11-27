@@ -54,13 +54,18 @@
  *     update-procedure-threshold completes with its finalization (#1233).
  */
 
-import { TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
+import { NoteType, TransactionRequest } from '@miden-sdk/miden-sdk/lazy';
 
 import { describeRotationFailure } from 'app/templates/HotKeyRotationGate.selectors';
 import type { GuardianAccountProvider } from 'lib/miden/front/guardian-manager';
 import { StaleProofError } from 'lib/miden/guardian/proof-freshness';
-import { clearGuardianAccountLocks, GuardianBackpressureError } from 'lib/miden/guardian/serialize';
+import {
+  clearGuardianAccountLocks,
+  getGuardianCandidate,
+  GuardianBackpressureError
+} from 'lib/miden/guardian/serialize';
 import { bindFeeFaucetClientScope } from 'lib/miden/sdk/sync-and-record-fee-faucet';
+import { ONE_CLICK_EXPIRED_ERROR, OneClickDeadlineError } from 'lib/one-click/deadline';
 import { WalletType } from 'screens/onboarding/types';
 
 import {
@@ -68,14 +73,15 @@ import {
   CustomTransactionEffectsChangedError,
   isUnconfirmedFailure,
   STALE_PROOF_ERROR,
+  TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR,
   TRANSACTION_EXPIRED_ERROR
 } from './constants';
 import { noteDeliveryWriteCount } from './helper';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
 import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
-import { ITransaction, ITransactionStatus, ReplaceHotKeyTransaction } from '../db/types';
-import { markErrorBeforeSubmit } from '../sdk/sdk-error-code';
+import { ITransaction, ITransactionStatus, RegisterNameTransaction, ReplaceHotKeyTransaction } from '../db/types';
+import { markErrorBeforeSubmit, markLockEvictedError } from '../sdk/sdk-error-code';
 import { parseSubmitEvidence } from '../sdk/submit-evidence';
 import { WasmClientPoisonedError } from '../sdk/wasm-client-poison';
 
@@ -360,6 +366,11 @@ jest.mock('../sdk/miden-client', () => ({
 // The routing seam under test: `dispatchGuardianPipeline` is a controllable spy,
 // and `midenClientProxy.syncState` is the pre-guardian sync (no-op here).
 const mockDispatchGuardianPipeline = jest.fn();
+const mockRegisterNameGuard = jest.fn(async (_tx: RegisterNameTransaction) => {});
+const mockCompleteRegisterName = jest.fn(async (_tx: RegisterNameTransaction, _result: object) => {});
+jest.mock('lib/miden/name/guard', () => ({
+  assertMidenNameRegistrationLive: (tx: RegisterNameTransaction) => mockRegisterNameGuard(tx)
+}));
 
 // The offscreen leaf passes its submit gate (#1644) before a submit, so a dispatch that resolves, or fails after the
 // gate, opens it as the real leaf does; one tagged as failing before its submit never reaches it. A test turns
@@ -425,6 +436,8 @@ const mockComplete = {
   updateThreshold: jest.fn(async (..._a: unknown[]) => {})
 };
 jest.mock('./complete', () => ({
+  completeRegisterNameTransaction: (tx: RegisterNameTransaction, result: object) =>
+    mockCompleteRegisterName(tx, result),
   completeSendTransaction: (...a: unknown[]) => mockComplete.send(...a),
   completeConsumeTransaction: (...a: unknown[]) => mockComplete.consume(...a),
   completeSwapTransaction: (...a: unknown[]) => mockComplete.swap(...a),
@@ -682,6 +695,119 @@ afterEach(() => {
   delete process.env.MIDEN_USE_OFFSCREEN_CLIENT;
   // The candidate a Guardian write leaves is realm state (#312); one test's write must not gate the next test's.
   clearGuardianAccountLocks();
+});
+
+describe('Guardian name registration routing', () => {
+  const nameProvider = {
+    getAccounts: async () => [],
+    getPublicKeyForCommitment: async () => 'pk',
+    signWord: async () => 'sig'
+  };
+
+  function arrangeRegistration() {
+    const row = new RegisterNameTransaction({
+      accountId: 'guardian-acc',
+      label: 'alice',
+      network: 'testnet',
+      paymentFaucetId: 'faucet',
+      registryAccountId: 'registry',
+      priceBaseUnits: 20_000_000n,
+      networkFeeBaseUnits: 210n,
+      requestBytes: new Uint8Array([4, 2]),
+      registrationNoteId: '0xnote',
+      reclaimHeight: 1300,
+      builtAtBlock: 1000,
+      delegateTransaction: false
+    });
+    const fixture = arrange(row.id, { ...row });
+    return { ...fixture, row };
+  }
+
+  async function runRegistration(flag: string) {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = flag;
+    const result = makeResult();
+    mockDispatchGuardianPipeline.mockResolvedValue(result);
+    const { row, service, inline } = arrangeRegistration();
+    const initialBytes = row.requestBytes;
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(mockRegisterNameGuard).toHaveBeenCalledWith(row);
+    expect(service.createRebasedCustomProposal).toHaveBeenCalledWith(initialBytes, 'register_name', undefined);
+    expect(service.signAndCreateTransactionRequest).toHaveBeenCalledWith('prop', new Uint8Array(REBASED_BYTES));
+    expect(mockCompleteRegisterName).toHaveBeenCalledTimes(1);
+    return { row, inline, result };
+  }
+
+  it('uses the correct client when the offscreen flag is true', async () => {
+    const { row, inline, result } = await runRegistration('true');
+    expect(inline.__executeRequest).not.toHaveBeenCalled();
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    const [acct, trBytes, delegate, cb, stamp] = mockDispatchGuardianPipeline.mock.calls[0];
+    expect(acct).toBe(row.accountId);
+    expect(Array.from(trBytes as Uint8Array)).toEqual(TR_BYTES);
+    expect(delegate).toBe(false);
+    expect(cb).toBe(signCallback);
+    expect(stamp).toEqual(expect.any(Function));
+    expect(mockCompleteRegisterName).toHaveBeenCalledWith(row, result);
+  });
+
+  it('uses the correct client when the offscreen flag is false', async () => {
+    const { inline } = await runRegistration('false');
+    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+  });
+
+  it('keeps a submitted registration completed when the offscreen apply fails', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const error: Error & { errorCode: string } = Object.assign(new Error('local apply failed after submit'), {
+      errorCode: 'ApplyTransactionAfterSubmitFailed'
+    });
+    mockDispatchGuardianPipeline.mockRejectedValue(error);
+    const { row, inline } = arrangeRegistration();
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(inline.__executeRequest).not.toHaveBeenCalled();
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(txStore.find(tx => tx.id === row.id)).toMatchObject({
+      status: ITransactionStatus.Completed,
+      displayMessage: 'Name requested'
+    });
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+  });
+
+  it('retains submitEvidence and keeps Guardian candidate without abandoning when offscreen aborts', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(new OperationAbortedError('op-reg-kill', 'deadline'));
+    const { row, service } = arrangeRegistration();
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(mockDispatchGuardianPipeline).toHaveBeenCalledTimes(1);
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const stored = txStore.find(tx => tx.id === row.id) as Record<string, unknown>;
+    expect(stored.submitEvidence).toEqual(KEPT_AT_7);
+    expect(stored.status).toBe(ITransactionStatus.Failed);
+    expect(stored.nextEligibleAt).toBeUndefined();
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+  });
+
+  it('enters Unconfirmed and keeps Guardian candidate on an indefinite submit outcome', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockRejectedValue(
+      new Error(`Offscreen call 'guardianPipeline' failed: ${INDEFINITE}`)
+    );
+    const { row, service } = arrangeRegistration();
+
+    await generateTransaction(row, signCallback, false, nameProvider);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const stored = txStore.find(tx => tx.id === row.id) as Record<string, unknown>;
+    expect(stored.status).toBe(ITransactionStatus.Unconfirmed);
+    expect(stored.submitEvidence).toEqual(KEPT_AT_7);
+    expect(mockCompleteRegisterName).not.toHaveBeenCalled();
+  });
 });
 
 describe('actual Guardian request authorization boundary', () => {
@@ -1035,7 +1161,15 @@ describe('guardian leaf routing — flag ON (offscreen)', () => {
     // other silently narrows the fix back to the two types that happen to have
     // tests.
     const { UNAUTHORIZED_EXECUTION_REQUEUEABLE } = await import('./index');
-    expect([...UNAUTHORIZED_EXECUTION_REQUEUEABLE].sort()).toEqual(['consume', 'execute', 'send', 'swap']);
+    // `register-name` reuses its pre-built bytes (same note id), so a retry after
+    // an execution-time rejection cannot pay two times.
+    expect([...UNAUTHORIZED_EXECUTION_REQUEUEABLE].sort()).toEqual([
+      'consume',
+      'execute',
+      'register-name',
+      'send',
+      'swap'
+    ]);
   });
 
   it('an "unauthorized" that is NOT execution-scoped stays terminally Failed (no double-send)', async () => {
@@ -2675,10 +2809,156 @@ describe('guardian leaf records the submit crossing', () => {
     const { inline, service } = arrange('one-click-expired-inline', row, makeResult(), () => {
       now = Date.parse(fundingDeadline);
     });
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let sawSubmittingStage = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (draft: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (draft: Record<string, unknown>) => unknown) => {
+          await handle.modify(fn);
+          if (txStore.find(item => item.id === query.id)?.stage === 'submitting') sawSubmittingStage = true;
+        }
+      };
+    });
 
     try {
       await generateTransaction(
         buildTx('one-click-expired-inline', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      nowSpy.mockRestore();
+    }
+
+    expect(sawSubmittingStage).toBe(false);
+    expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
+    expect(inline.__submit).not.toHaveBeenCalled();
+    expect(mockComplete.send).not.toHaveBeenCalled();
+    const finalRow = txStore.find(item => item.id === 'one-click-expired-inline')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.stage).toBe('proving');
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    expect(isUnconfirmedFailure(finalRow as never)).toBe(false);
+  });
+
+  it('retracts inline submitting stage when a 1Click deadline expires during the stage write (#2325)', async () => {
+    let now = Date.now();
+    const fundingDeadline = new Date(now + 1_000).toISOString();
+    const providerDeadline = new Date(now + 60_000).toISOString();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const row = {
+      type: 'send' as const,
+      secondaryAccountId: 'deposit-address',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: {
+        oneClick: {
+          fundingDeadline,
+          request: { deadline: fundingDeadline },
+          quote: {
+            quoteRequest: { deadline: fundingDeadline },
+            quote: { deadline: providerDeadline }
+          }
+        }
+      }
+    };
+    const { inline, service } = arrange('one-click-expired-during-gate-inline', row);
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhere = repo.transactions.where.getMockImplementation()!;
+    let expiredOnStageWrite = false;
+    let sawSubmittingStage = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const handle = realWhere(query) as { modify: (fn: (draft: Record<string, unknown>) => unknown) => Promise<void> };
+      return {
+        ...handle,
+        modify: async (fn: (draft: Record<string, unknown>) => unknown) => {
+          await handle.modify(fn);
+          const current = txStore.find(item => item.id === query.id);
+          if (!expiredOnStageWrite && current?.stage === 'submitting') {
+            expiredOnStageWrite = true;
+            sawSubmittingStage = true;
+            now = Date.parse(fundingDeadline);
+          }
+        }
+      };
+    });
+
+    try {
+      await generateTransaction(
+        buildTx('one-click-expired-during-gate-inline', row) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhere);
+      nowSpy.mockRestore();
+    }
+
+    expect(sawSubmittingStage).toBe(true);
+    expect(inline.__submit).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
+    const finalRow = txStore.find(item => item.id === 'one-click-expired-during-gate-inline')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.stage).toBe('proving');
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect(finalRow.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
+  });
+
+  const nearIntentsBridgedSend = (fundingDeadline: string, providerDeadline: string) => ({
+    type: 'bridged-send' as const,
+    secondaryAccountId: 'deposit-address',
+    faucetId: 'f',
+    amount: '1',
+    noteType: 'public',
+    extraInputs: {
+      provider: 'near-intents',
+      destinationAddress: '0x2222222222222222222222222222222222222222',
+      destinationNetwork: 1,
+      sourceFaucetId: 'f',
+      claimStatus: 'not-applicable',
+      oneClick: {
+        fundingDeadline,
+        request: { deadline: fundingDeadline },
+        quote: {
+          quoteRequest: { deadline: fundingDeadline },
+          quote: { deadline: providerDeadline }
+        }
+      }
+    }
+  });
+
+  it('proposes a NEAR Intents bridged-send as a public P2ID to the deposit address and completes it', async () => {
+    const live = new Date(Date.now() + 60_000).toISOString();
+    const row = nearIntentsBridgedSend(live, live);
+    const { service } = arrange('near-intents-send', row);
+
+    await generateTransaction(buildTx('near-intents-send', row) as never, signCallback, false, provider as never);
+
+    expect(service.createSendProposal).toHaveBeenCalledWith('deposit-address', 'f', 1n, NoteType.Public);
+    expect(service.createCustomProposal).not.toHaveBeenCalled();
+    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+    expect(mockComplete.send).not.toHaveBeenCalled();
+  });
+
+  it('refuses an expired NEAR Intents bridged-send after proving and before submit', async () => {
+    let now = Date.now();
+    const fundingDeadline = new Date(now + 1_000).toISOString();
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const row = nearIntentsBridgedSend(fundingDeadline, new Date(now + 60_000).toISOString());
+    const { inline } = arrange('near-intents-expired-inline', row, makeResult(), () => {
+      now = Date.parse(fundingDeadline);
+    });
+
+    try {
+      await generateTransaction(
+        buildTx('near-intents-expired-inline', row) as never,
         signCallback,
         false,
         provider as never
@@ -2689,12 +2969,37 @@ describe('guardian leaf records the submit crossing', () => {
 
     expect(inline.__executeRequest).toHaveBeenCalledTimes(1);
     expect(inline.__submit).not.toHaveBeenCalled();
-    expect(mockComplete.send).not.toHaveBeenCalled();
-    const finalRow = txStore.find(item => item.id === 'one-click-expired-inline')!;
+    expect(mockComplete.bridged).not.toHaveBeenCalled();
+    const finalRow = txStore.find(item => item.id === 'near-intents-expired-inline')!;
     expect(finalRow.status).toBe(ITransactionStatus.Failed);
     expect(finalRow.mayHaveSubmitted).toBeUndefined();
-    expect(service.abandonCandidate).toHaveBeenCalledTimes(1);
-    expect(isUnconfirmedFailure(finalRow as never)).toBe(false);
+  });
+
+  it('flag ON: hands the NEAR Intents bridged-send deadline to the offscreen pipeline as required', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    const fundingDeadline = new Date(Date.now() + 60_000).toISOString();
+    const row = nearIntentsBridgedSend(fundingDeadline, new Date(Date.now() + 120_000).toISOString());
+    arrange('near-intents-offscreen', row);
+
+    await generateTransaction(buildTx('near-intents-offscreen', row) as never, signCallback, false, provider as never);
+
+    const args = mockDispatchGuardianPipeline.mock.calls.at(0) ?? [];
+    expect(args.at(-3)).toBe(fundingDeadline);
+    expect(args.at(-2)).toBe(true);
+    expect(mockComplete.bridged).toHaveBeenCalledTimes(1);
+  });
+
+  it('flag ON: an Agglayer bridged-send carries no 1Click deadline', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockDispatchGuardianPipeline.mockResolvedValue(makeResult());
+    const { row } = bridgeEarnCase('agglayer');
+    arrange('agglayer-no-deadline', row);
+
+    await generateTransaction(buildTx('agglayer-no-deadline', row) as never, signCallback, false, provider as never);
+
+    const args = mockDispatchGuardianPipeline.mock.calls.at(0) ?? [];
+    expect(args.at(-2)).toBe(false);
   });
 
   it('flag OFF: the inline leaf stamps mayHaveSubmitted', async () => {
@@ -3214,6 +3519,30 @@ type KillCase = Case & { abandons: [number, string][]; evidence: unknown };
 const bridgeEarnKillCases = (): KillCase[] => [
   { ...bridgeEarnCase('agglayer'), abandons: [], evidence: KEPT_AT_7 },
   { ...bridgeEarnCase('usdcx'), abandons: [], evidence: KEPT_AT_7 },
+  // A NEAR Intents send waits for the verdict too, and a kill never requeues it as a fresh write.
+  {
+    type: 'bridged-send',
+    row: {
+      type: 'bridged-send',
+      secondaryAccountId: 'deposit-address',
+      faucetId: 'f',
+      amount: '1',
+      extraInputs: {
+        provider: 'near-intents',
+        destinationAddress: '0x2222222222222222222222222222222222222222',
+        destinationNetwork: 1,
+        sourceFaucetId: 'f',
+        claimStatus: 'not-applicable',
+        oneClick: {
+          request: { deadline: new Date(Date.now() + 60 * 60_000).toISOString() },
+          quote: { quoteRequest: {}, quote: { deadline: new Date(Date.now() + 60 * 60_000).toISOString() } }
+        }
+      }
+    },
+    complete: mockComplete.bridged,
+    abandons: [],
+    evidence: KEPT_AT_7
+  },
   {
     ...bridgeEarnCase('earn-deposit'),
     abandons: [[7, 'prop']],
@@ -3472,6 +3801,1000 @@ describe('guardian offscreen submit gate (#1644)', () => {
     expect(await lateGate?.()).toBe(false);
     const stored = txStore.find(r => r.id === 'gate-late') as Record<string, unknown>;
     expect(stored.stage).not.toBe('submitting');
+  });
+
+  it('retracts a stale crossing, restores stage to sending, and records fresh evidence on retry (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const staleTx = `0x${'a'.repeat(64)}`;
+    const freshTx = `0x${'b'.repeat(64)}`;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    let stageAfterFirstGate: unknown;
+    let stageAfterRetract: unknown;
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) & { retract?: () => Promise<boolean> };
+      expect(await gate({ transactionId: staleTx, refBlock: 1000, expirationBlock: 1020 })).toBe(true);
+      stageAfterFirstGate = txStore.find(r => r.id === 'gate-retract-recover')?.stage;
+      expect(await gate.retract?.()).toBe(true);
+      stageAfterRetract = txStore.find(r => r.id === 'gate-retract-recover')?.stage;
+      expect(await gate({ transactionId: freshTx, refBlock: 1025, expirationBlock: 1045 })).toBe(true);
+      return makeResult();
+    });
+    const { service } = arrange('gate-retract-recover', sendRow);
+
+    await generateTransaction(
+      buildTx('gate-retract-recover', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(stageAfterFirstGate).toBe('submitting');
+    expect(stageAfterRetract).toBe('sending');
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(mockComplete.send).toHaveBeenCalledTimes(1);
+    const stored = txStore.find(r => r.id === 'gate-retract-recover') as unknown as ITransaction;
+    expect(stored.submitEvidence).toEqual([
+      expect.objectContaining({
+        source: 'stage',
+        transactionId: freshTx,
+        refBlock: 1025,
+        expirationBlock: 1045
+      })
+    ]);
+  });
+
+  it('retracting a pinned-bytes recallable send before StaleProofError clears requestBytes and keeps Retry open (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const staleTx = `0x${'c'.repeat(64)}`;
+    const pinnedRow = {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      requestBytes: new Uint8Array([4, 4])
+    };
+    mockDispatchGuardianPipeline.mockImplementation(async (...a: unknown[]) => {
+      const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) & { retract?: () => Promise<boolean> };
+      expect(await gate({ transactionId: staleTx, refBlock: 1000, expirationBlock: 1020 })).toBe(true);
+      expect(await gate.retract?.()).toBe(true);
+      throw new StaleProofError();
+    });
+    const { service } = arrange('gate-retract-pinned-stale', pinnedRow);
+
+    await generateTransaction(
+      buildTx('gate-retract-pinned-stale', pinnedRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const stored = txStore.find(r => r.id === 'gate-retract-pinned-stale') as unknown as ITransaction;
+    expect(stored).toMatchObject({ status: ITransactionStatus.Failed, stage: 'sending', error: STALE_PROOF_ERROR });
+    expect(stored.mayHaveSubmitted).toBeUndefined();
+    expect(stored.stageTimestamps).toEqual(expect.not.objectContaining({ submitting: expect.anything() }));
+    expect(stored.submitEvidence).toEqual([
+      expect.objectContaining({ source: 'pin', raisedFlag: true, preSubmitEnd: true })
+    ]);
+    expect(stored.submitEvidence?.[0]?.transactionId).toBeUndefined();
+
+    const restoreLocks = installNavigatorLocks();
+    try {
+      await requeueFailedTransaction('gate-retract-pinned-stale');
+    } finally {
+      restoreLocks();
+    }
+    expect(stored.status).toBe(ITransactionStatus.Queued);
+    expect(stored.requestBytes).toBeUndefined();
+    expect(stored.mayHaveSubmitted).toBeUndefined();
+  });
+
+  it('abandons candidate (or records unabandoned candidate on reject) when offscreen eviction occurs with a retracted or never-opened gate (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+
+    clearGuardianAccountLocks();
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) & { retract?: () => Promise<boolean> };
+      expect(await gate({ transactionId: `0x${'d'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 })).toBe(true);
+      expect(await gate.retract?.()).toBe(true);
+      throw new WasmClientPoisonedError('watchdog', new Error('evicted after retract'));
+    });
+    const { service: firstService } = arrange('gate-retract-poison', sendRow);
+    await generateTransaction(buildTx('gate-retract-poison', sendRow) as never, signCallback, false, provider as never);
+    expect(firstService.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const firstStored = txStore.find(r => r.id === 'gate-retract-poison') as unknown as ITransaction;
+    expect(firstStored.status).toBe(ITransactionStatus.Failed);
+    expect(firstStored.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+
+    clearGuardianAccountLocks();
+    mockDispatchGuardianPipeline.mockImplementationOnce(async () => {
+      throw new WasmClientPoisonedError('watchdog', new Error('evicted before gate'));
+    });
+    const { service: secondService } = arrange('gate-shut-poison-abandon-fails', sendRow);
+    secondService.abandonCandidate.mockRejectedValueOnce(new Error('guardian offline'));
+    await generateTransaction(
+      buildTx('gate-shut-poison-abandon-fails', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+    expect(secondService.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    expect(getGuardianCandidate('guardian-acc')).toEqual(expect.objectContaining({ nonce: 7, abandon: true }));
+    clearGuardianAccountLocks();
+  });
+
+  it('records unabandoned candidate on abandonCandidate failure after hasErrorBeforeSubmit even when gateShut is false (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = true;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    clearGuardianAccountLocks();
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      await gate({ transactionId: `0x${'e'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 });
+      throw new OneClickDeadlineError(ONE_CLICK_EXPIRED_ERROR);
+    });
+    const { service } = arrange('gate-open-before-submit-abandon-fails', sendRow);
+    service.abandonCandidate.mockRejectedValueOnce(new Error('guardian offline'));
+
+    await generateTransaction(
+      buildTx('gate-open-before-submit-abandon-fails', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    expect(getGuardianCandidate('guardian-acc')).toEqual(expect.objectContaining({ nonce: 7, abandon: true }));
+    clearGuardianAccountLocks();
+  });
+
+  it('retires a pinless late-landing crossing stamp when submitGate settles while stamp awaits Dexie (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    clearGuardianAccountLocks();
+    arrange('pinless-late-stamp', sendRow);
+
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parked = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          if (!parked && current) {
+            const probe = {
+              ...current,
+              submitEvidence: Array.isArray(current.submitEvidence) ? [...current.submitEvidence] : undefined
+            };
+            fn(probe);
+            const wroteStage = (probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(
+              e => e.source === 'stage'
+            );
+            if (wroteStage) {
+              parked = true;
+              stampStarted();
+              await parkedStamp;
+            }
+          }
+          return inner.modify(fn);
+        }
+      };
+    });
+
+    let gateAnswer: Promise<boolean> | undefined;
+    const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      gateAnswer = gate({ transactionId: `0x${'f'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 });
+      await enteredStamp;
+      throw markErrorBeforeSubmit(new Error("Offscreen call 'guardianPipeline' failed: aborted while stamp pending"));
+    });
+
+    try {
+      let settled = false;
+      const run = generateTransaction(
+        buildTx('pinless-late-stamp', sendRow) as never,
+        signCallback,
+        false,
+        provider as never
+      ).then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
+      expect(txStore.find(r => r.id === 'pinless-late-stamp')?.submitEvidence).toBeUndefined();
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp();
+      await run;
+      expect(await gateAnswer).toBe(false);
+
+      const finalRow = txStore.find(r => r.id === 'pinless-late-stamp')!;
+      expect(finalRow.mayHaveSubmitted).toBeUndefined();
+      expect(finalRow.submitEvidence).toEqual([
+        expect.objectContaining({ source: 'stage', preSubmitEnd: true, raisedFlag: true })
+      ]);
+      expect(finalRow.submitEvidence).toHaveLength(1);
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+      clearGuardianAccountLocks();
+    }
+  });
+
+  it('serializes concurrent gate.retract behind an in-flight stamp and keeps opened false (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    clearGuardianAccountLocks();
+    arrange('concurrent-retract-stamp', sendRow);
+
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parked = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          if (!parked && current) {
+            const probe = {
+              ...current,
+              submitEvidence: Array.isArray(current.submitEvidence) ? [...current.submitEvidence] : undefined
+            };
+            fn(probe);
+            if ((probe.submitEvidence as Array<{ source?: string }> | undefined)?.some(e => e.source === 'stage')) {
+              parked = true;
+              stampStarted();
+              await parkedStamp;
+            }
+          }
+          return inner.modify(fn);
+        }
+      };
+    });
+
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) & { retract?: () => Promise<boolean> };
+      const gateP = gate({ transactionId: `0x${'a'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 });
+      await enteredStamp;
+      let retractResolved = false;
+      const retractP = gate.retract!().then(res => {
+        retractResolved = true;
+        return res;
+      });
+      await Promise.resolve();
+      expect(retractResolved).toBe(false);
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp();
+      expect(await gateP).toBe(false);
+      expect(await retractP).toBe(true);
+      const { markErrorBeforeSubmit } = jest.requireActual('../sdk/sdk-error-code');
+      throw markErrorBeforeSubmit(new Error("Offscreen call 'guardianPipeline' failed: retracted concurrent stamp"));
+    });
+
+    try {
+      await generateTransaction(
+        buildTx('concurrent-retract-stamp', sendRow) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+      const finalRow = txStore.find(r => r.id === 'concurrent-retract-stamp')!;
+      expect(finalRow.mayHaveSubmitted).toBeUndefined();
+      expect(finalRow.submitEvidence).toBeUndefined();
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+      clearGuardianAccountLocks();
+    }
+  });
+
+  it('keeps opened true and protects candidate when retract is queued and settle runs before retractCrossing executes (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    clearGuardianAccountLocks();
+    const { service } = arrange('retract-settle-race-guardian', sendRow);
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parkSecondPass = false;
+    let parkedOnce = false;
+    let failDbWrites = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current
+            ? {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence)
+                  ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                  : undefined
+              }
+            : {};
+          fn(probe);
+          if (parkSecondPass && !parkedOnce && probe.stage === 'submitting') {
+            parkedOnce = true;
+            stampStarted();
+            await parkedStamp;
+          }
+          if (
+            failDbWrites &&
+            (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(e => e.preSubmitEnd === true)
+          ) {
+            throw new Error('QuotaExceededError while settled before retractCrossing');
+          }
+          return inner.modify(fn);
+        }
+      };
+    });
+
+    let retractPromise: Promise<boolean> | undefined;
+    let secondGatePromise: Promise<boolean> | undefined;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) & { retract?: () => Promise<boolean> };
+      expect(await gate({ transactionId: `0x${'b'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 })).toBe(true);
+      parkSecondPass = true;
+      secondGatePromise = gate({ transactionId: `0x${'c'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 });
+      await enteredStamp;
+      retractPromise = gate.retract!();
+      // Reject while second pass holds the gate queue so settle() runs before retract's enqueue callback executes.
+      throw new OperationAbortedError('op-retract-settle-race', 'deadline');
+    });
+
+    let settled = false;
+    try {
+      const runPromise = generateTransaction(
+        buildTx('retract-settle-race-guardian', sendRow) as never,
+        signCallback,
+        false,
+        provider as never
+      ).then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
+      failDbWrites = true;
+      releaseStamp();
+      await runPromise;
+      await secondGatePromise?.catch(() => undefined);
+      expect(await retractPromise).toBe(false);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      const finalRow = txStore.find(r => r.id === 'retract-settle-race-guardian')!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.mayHaveSubmitted).toBe(true);
+      expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+      expect(finalRow.submitEvidence).toEqual(
+        expect.arrayContaining([expect.objectContaining({ source: 'stage', endedBy: 'kill', candidateKept: true })])
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+      clearGuardianAccountLocks();
+    }
+  });
+
+  it('keeps opened true and protects candidate when retractCrossing throws on an offscreen Guardian kill (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    clearGuardianAccountLocks();
+    const { service } = arrange('retract-throws-guardian', sendRow);
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let openedGate = false;
+    let retractAttempted = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe = current ? { ...current } : {};
+          fn(probe);
+          if (openedGate && probe.stage === 'sending') {
+            retractAttempted = true;
+            throw new Error('QuotaExceededError during retractCrossing');
+          }
+          return inner.modify(fn);
+        }
+      };
+    });
+
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as ((evidence?: unknown) => Promise<boolean>) & { retract?: () => Promise<boolean> };
+      expect(await gate({ transactionId: `0x${'c'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 })).toBe(true);
+      openedGate = true;
+      await gate.retract!().catch(() => false);
+      throw new OperationAbortedError('op-retract-throws', 'deadline');
+    });
+
+    try {
+      await generateTransaction(
+        buildTx('retract-throws-guardian', sendRow) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+      expect(retractAttempted).toBe(true);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      const finalRow = txStore.find(r => r.id === 'retract-throws-guardian')!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.mayHaveSubmitted).toBe(true);
+      expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+      expect(finalRow.submitEvidence).toEqual(
+        expect.arrayContaining([expect.objectContaining({ source: 'stage', endedBy: 'kill', candidateKept: true })])
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      clearGuardianAccountLocks();
+    }
+  });
+
+  it('keeps opened true and protects candidate on late stamp when retireCrossing rejects inside failClosed (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    clearGuardianAccountLocks();
+    const { service } = arrange('late-stamp-retire-fail-guardian', sendRow);
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let stampStarted!: () => void;
+    const enteredStamp = new Promise<void>(resolve => {
+      stampStarted = resolve;
+    });
+    let releaseStamp!: () => void;
+    const parkedStamp = new Promise<void>(resolve => {
+      releaseStamp = resolve;
+    });
+    let parkedOnce = false;
+    let failRetire = false;
+    let retireAttempted = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current
+            ? {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence)
+                  ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                  : undefined
+              }
+            : {};
+          fn(probe);
+          if (!parkedOnce && probe.stage === 'submitting') {
+            parkedOnce = true;
+            stampStarted();
+            await parkedStamp;
+          } else if (
+            failRetire &&
+            (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(e => e.preSubmitEnd === true)
+          ) {
+            retireAttempted = true;
+            throw new Error('QuotaExceededError during late Guardian retireCrossing');
+          }
+          return inner.modify(fn);
+        }
+      };
+    });
+
+    let pendingGate: Promise<boolean> | undefined;
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      const gate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      pendingGate = gate({ transactionId: `0x${'e'.repeat(64)}`, refBlock: 1000, expirationBlock: 1020 });
+      await enteredStamp;
+      throw new OperationAbortedError('op-late-retire-guardian', 'deadline');
+    });
+
+    let settled = false;
+    try {
+      const runPromise = generateTransaction(
+        buildTx('late-stamp-retire-fail-guardian', sendRow) as never,
+        signCallback,
+        false,
+        provider as never
+      ).then(
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
+      );
+      await enteredStamp;
+      await new Promise(resolve => setTimeout(resolve, 20));
+      expect(settled).toBe(false);
+      failRetire = true;
+      releaseStamp();
+      await runPromise;
+      expect(await pendingGate).toBe(false);
+      expect(retireAttempted).toBe(true);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      const finalRow = txStore.find(r => r.id === 'late-stamp-retire-fail-guardian')!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.mayHaveSubmitted).toBe(true);
+      expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+      expect(finalRow.submitEvidence).toEqual(
+        expect.arrayContaining([expect.objectContaining({ source: 'stage', endedBy: 'kill', candidateKept: true })])
+      );
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      releaseStamp?.();
+      clearGuardianAccountLocks();
+    }
+  });
+
+  it('settles submitGate synchronously before recordLeafEnd when dispatchGuardianPipeline rejects pre-open untagged (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    clearGuardianAccountLocks();
+    arrange('preopen-untagged-guardian', sendRow);
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let capturedGate: ((evidence?: unknown) => Promise<boolean>) | undefined;
+    let settledBeforeRecordLeafEnd: boolean | undefined;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          if (query.id === 'preopen-untagged-guardian' && capturedGate && settledBeforeRecordLeafEnd === undefined) {
+            settledBeforeRecordLeafEnd = !(await capturedGate({ transactionId: `0x${'d'.repeat(64)}` }));
+          }
+          return inner.modify(fn);
+        }
+      };
+    });
+    mockDispatchGuardianPipeline.mockImplementationOnce(async (...a: unknown[]) => {
+      capturedGate = a[6] as (evidence?: unknown) => Promise<boolean>;
+      throw new Error('SW bus crashed before offscreen reply');
+    });
+
+    try {
+      await generateTransaction(
+        buildTx('preopen-untagged-guardian', sendRow) as never,
+        signCallback,
+        false,
+        provider as never
+      );
+
+      expect(settledBeforeRecordLeafEnd).toBe(true);
+      const finalRow = txStore.find(r => r.id === 'preopen-untagged-guardian')!;
+      expect(finalRow.mayHaveSubmitted).toBeUndefined();
+      expect(finalRow.submitEvidence).toEqual([expect.objectContaining({ source: 'end', preSubmitEnd: true })]);
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      clearGuardianAccountLocks();
+    }
+  });
+
+  it('marks pre-gate offscreen Guardian send kill as preSubmitKill without kill evidence and allows unacknowledged retry (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(new OperationAbortedError('op-gate-shut', 'deadline'));
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('gate-shut-kill-send', sendRow);
+
+    await generateTransaction(buildTx('gate-shut-kill-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const finalRow = txStore.find(r => r.id === 'gate-shut-kill-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.cancelledInFlightAt).toBeUndefined();
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+
+    await requeueFailedTransaction('gate-shut-kill-send');
+    const requeued = txStore.find(r => r.id === 'gate-shut-kill-send')!;
+    expect(requeued.status).toBe(ITransactionStatus.Queued);
+    expect((requeued as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+  });
+
+  it('marks pre-leaf Guardian send abort during proposal creation as preSubmitKill without kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-kill-send', sendRow);
+    service.createSendProposal.mockRejectedValueOnce(new OperationAbortedError('op-preleaf', 'deadline'));
+
+    await generateTransaction(buildTx('preleaf-kill-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 'preleaf-kill-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.cancelledInFlightAt).toBeUndefined();
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('marks pre-leaf Guardian send lock eviction as preSubmitKill without kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-evict-send', sendRow);
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('evicted pre-leaf'));
+    markLockEvictedError(evicted);
+    service.createSendProposal.mockRejectedValueOnce(evicted);
+
+    await generateTransaction(buildTx('preleaf-evict-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 'preleaf-evict-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('keeps kill evidence and candidate hold when a lock-evicted offscreen Guardian send already opened the gate (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = true;
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('post-open leaf eviction'));
+    markLockEvictedError(evicted);
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(evicted);
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('postopen-evict-send', sendRow);
+
+    await generateTransaction(buildTx('postopen-evict-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 'postopen-evict-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBe(true);
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    expect(finalRow.submitEvidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'stage', endedBy: 'kill', candidateKept: true })])
+    );
+  });
+
+  it.each([
+    ['OperationAbortedError', () => new OperationAbortedError('op-pin-retire-fail', 'deadline')],
+    [
+      'WasmClientPoisonedError',
+      () => {
+        const err = new WasmClientPoisonedError('watchdog', new Error('evicted pre-open pinned'));
+        markLockEvictedError(err);
+        return err;
+      }
+    ]
+  ] as const)(
+    'keeps candidate, sets mayHaveSubmitted, and withholds preSubmitKill when %s kills pinned offscreen Guardian send pre-open and pin retirement throws (#2325)',
+    async (label, makeKillError) => {
+      process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+      mockLeafOpensGate = false;
+      const sendRow = {
+        type: 'send',
+        secondaryAccountId: 'r',
+        faucetId: 'f',
+        amount: '1',
+        requestBytes: new Uint8Array([9, 9]),
+        extraInputs: { recallBlocks: 100 }
+      };
+      const txId = `pinned-preopen-retire-fail-${label}`;
+      const { service } = arrange(txId, sendRow);
+      const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+      const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+      let retireAttempted = false;
+      repo.transactions.where.mockImplementation((query: { id: string }) => {
+        const inner = realWhereImpl(query) as {
+          modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+          first: () => Promise<unknown>;
+        };
+        return {
+          ...inner,
+          modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+            const current = (await inner.first()) as Record<string, unknown> | undefined;
+            const probe: Record<string, unknown> = current
+              ? {
+                  ...current,
+                  submitEvidence: Array.isArray(current.submitEvidence)
+                    ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                    : undefined
+                }
+              : {};
+            fn(probe);
+            const currentPreEnd = (current?.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+              entry => entry.preSubmitEnd === true
+            );
+            const probePreEnd = (probe.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+              entry => entry.preSubmitEnd === true
+            );
+            if (!currentPreEnd && probePreEnd) {
+              retireAttempted = true;
+              throw new Error('QuotaExceededError retiring pre-dispatch pin');
+            }
+            return inner.modify(fn);
+          }
+        };
+      });
+      mockDispatchGuardianPipeline.mockRejectedValueOnce(makeKillError());
+
+      try {
+        await generateTransaction(buildTx(txId, sendRow) as never, signCallback, false, provider as never);
+      } finally {
+        repo.transactions.where.mockImplementation(realWhereImpl);
+        clearGuardianAccountLocks();
+      }
+
+      expect(retireAttempted).toBe(true);
+      expect(service.abandonCandidate).not.toHaveBeenCalled();
+      const finalRow = txStore.find(r => r.id === txId)!;
+      expect(finalRow.status).toBe(ITransactionStatus.Failed);
+      expect(finalRow.mayHaveSubmitted).toBe(true);
+      expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+      expect(finalRow.submitEvidence).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ source: 'pin', raisedFlag: true, endedBy: 'kill', candidateKept: true })
+        ])
+      );
+      expect(
+        (finalRow.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+          entry => entry.preSubmitEnd === true
+        ) ?? false
+      ).toBe(false);
+    }
+  );
+
+  it('withholds preSubmitKill and keeps candidate when kill throws right after pinGuardianCrossing write before leaf dispatch and pin retirement throws (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      requestBytes: new Uint8Array([9, 9]),
+      extraInputs: { recallBlocks: 100 }
+    };
+    const txId = 'pinned-preleaf-after-write-retire-fail';
+    const { service } = arrange(txId, sendRow);
+    const repo = jest.requireMock('lib/miden/repo') as { transactions: { where: jest.Mock } };
+    const realWhereImpl = repo.transactions.where.getMockImplementation()!;
+    let failRetire = false;
+    repo.transactions.where.mockImplementation((query: { id: string }) => {
+      const inner = realWhereImpl(query) as {
+        modify: (fn: (tx: Record<string, unknown>) => unknown) => Promise<unknown>;
+        first: () => Promise<unknown>;
+      };
+      return {
+        ...inner,
+        modify: async (fn: (tx: Record<string, unknown>) => unknown) => {
+          const current = (await inner.first()) as Record<string, unknown> | undefined;
+          const probe: Record<string, unknown> = current
+            ? {
+                ...current,
+                submitEvidence: Array.isArray(current.submitEvidence)
+                  ? current.submitEvidence.map(entry => ({ ...(entry as Record<string, unknown>) }))
+                  : undefined
+              }
+            : {};
+          fn(probe);
+          const entries = probe.submitEvidence as Array<{ source?: string; preSubmitEnd?: boolean }> | undefined;
+          const currentPreEnd = (current?.submitEvidence as Array<{ preSubmitEnd?: boolean }> | undefined)?.some(
+            entry => entry.preSubmitEnd === true
+          );
+          if (failRetire && !currentPreEnd && entries?.some(entry => entry.preSubmitEnd === true)) {
+            throw new Error('QuotaExceededError retiring pre-leaf pin');
+          }
+          const result = await inner.modify(fn);
+          if (!failRetire && entries?.some(entry => entry.source === 'pin' && entry.preSubmitEnd !== true)) {
+            failRetire = true;
+            throw new OperationAbortedError('op-pin-post-write-abort', 'deadline');
+          }
+          return result;
+        }
+      };
+    });
+
+    try {
+      await generateTransaction(buildTx(txId, sendRow) as never, signCallback, false, provider as never);
+    } finally {
+      repo.transactions.where.mockImplementation(realWhereImpl);
+      clearGuardianAccountLocks();
+    }
+
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === txId)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.mayHaveSubmitted).toBe(true);
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBeUndefined();
+    expect(finalRow.submitEvidence).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'pin', raisedFlag: true, endedBy: 'kill', candidateKept: true })
+      ])
+    );
+  });
+
+  it('retires pre-dispatch pin cleanly, sets preSubmitKill, and abandons candidate when pinned offscreen Guardian send fails pre-open (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    mockLeafOpensGate = false;
+    const sendRow = {
+      type: 'send',
+      secondaryAccountId: 'r',
+      faucetId: 'f',
+      amount: '1',
+      requestBytes: new Uint8Array([9, 9]),
+      extraInputs: { recallBlocks: 100 }
+    };
+    const txId = 'pinned-preopen-retire-clean';
+    const { service } = arrange(txId, sendRow);
+    mockDispatchGuardianPipeline.mockRejectedValueOnce(new OperationAbortedError('op-pin-retire-clean', 'deadline'));
+
+    await generateTransaction(buildTx(txId, sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const finalRow = txStore.find(r => r.id === txId)!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.submitEvidence).toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'pin', preSubmitEnd: true })])
+    );
+    expect(finalRow.submitEvidence).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+  });
+
+  it('abandons candidate, avoids candidateKept, and records unabandoned candidate when lock eviction hits after proposal creation (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-postprop-evict', sendRow);
+    const evicted = new WasmClientPoisonedError('watchdog', new Error('evicted during request signing'));
+    markLockEvictedError(evicted);
+    service.signAndCreateTransactionRequest.mockRejectedValueOnce(evicted);
+    service.abandonCandidate.mockRejectedValueOnce(new Error('guardian abandon unreachable'));
+
+    await generateTransaction(
+      buildTx('preleaf-postprop-evict', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    expect(getGuardianCandidate('guardian-acc')).toEqual(expect.objectContaining({ nonce: 7, abandon: true }));
+    const finalRow = txStore.find(r => r.id === 'preleaf-postprop-evict')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.guardianCandidate).toBeUndefined();
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('marks pre-leaf Guardian send ClientTerminatedError during proposal creation as preSubmitKill without kill evidence (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-term-send', sendRow);
+    service.createSendProposal.mockRejectedValueOnce(new Error('WebClient terminated'));
+
+    await generateTransaction(buildTx('preleaf-term-send', sendRow) as never, signCallback, false, provider as never);
+
+    expect(service.abandonCandidate).not.toHaveBeenCalled();
+    const finalRow = txStore.find(r => r.id === 'preleaf-term-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
+  });
+
+  it('abandons candidate and marks preSubmitKill when pre-leaf signAndCreateTransactionRequest fails with poisoned ClientTerminatedError (#2325)', async () => {
+    process.env.MIDEN_USE_OFFSCREEN_CLIENT = 'true';
+    const sendRow = { type: 'send', secondaryAccountId: 'r', faucetId: 'f', amount: '1' };
+    const { service } = arrange('preleaf-poison-term-send', sendRow);
+    service.signAndCreateTransactionRequest.mockRejectedValueOnce(
+      new WasmClientPoisonedError('realm-error', new Error('WebClient terminated'))
+    );
+
+    await generateTransaction(
+      buildTx('preleaf-poison-term-send', sendRow) as never,
+      signCallback,
+      false,
+      provider as never
+    );
+
+    expect(mockDispatchGuardianPipeline).not.toHaveBeenCalled();
+    expect(service.abandonCandidate).toHaveBeenCalledWith(7, 'prop');
+    const finalRow = txStore.find(r => r.id === 'preleaf-poison-term-send')!;
+    expect(finalRow.status).toBe(ITransactionStatus.Failed);
+    expect(finalRow.error).toBe(TRANSACTION_ENGINE_RECOVERED_PRE_WRITE_ERROR);
+    expect(finalRow.mayHaveSubmitted).toBeUndefined();
+    expect((finalRow as unknown as ITransaction & { preSubmitKill?: true }).preSubmitKill).toBe(true);
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ candidateKept: true })])
+    );
+    expect(finalRow.submitEvidence ?? []).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ source: 'kill' })])
+    );
   });
 });
 

@@ -10,7 +10,9 @@ import {
 } from 'lib/epoch/testing/bridge-config';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IBTC, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { USD_QUOTE_MAX_AGE_MS } from 'lib/prices/amount';
+import type { TokenPriceInfo } from 'lib/prices/binance';
 import { hasUnquotedDefaultPrice } from 'lib/prices/unquoted-default';
 import type { UsdcxBurnFeeEstimate } from 'lib/shared/types';
 import { ROUTE_DWELL_MS } from 'lib/telemetry/use-route-dwell';
@@ -19,9 +21,10 @@ import { useCommandDrafts } from 'screens/command/command-drafts';
 import { CommandShell } from 'screens/command/CommandShell';
 import { MidenAddressError } from 'utils/miden';
 
+import type { SendNetwork } from './bridge-networks';
 import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
-import { SendFlow } from './SendManager';
+import { RECIPIENT_VALIDATION_DEBOUNCE_MS, SendFlow } from './SendManager';
 import { SendFlowStep, UIToken } from './types';
 import type { EpochQuoteState } from './useEpochQuote';
 import { WalletType } from '../onboarding/types';
@@ -103,6 +106,8 @@ let mockBalancesLoading = false;
 let mockHiddenTokensLoaded = true;
 let mockHiddenTokenIds = new Set<string>();
 let mockRpcUrl = 'https://testnet.example';
+const mockEndpointListeners = new Set<() => void>();
+const nameRegistryScope = () => JSON.stringify([getEffectiveNetworkName(), mockRpcUrl]);
 const useAllTokensBaseMetadataMock = jest.fn(() => ({}) as any);
 const useFilteredContactsMock = jest.fn(() => ({ contacts: [] as any[] }));
 const useRecentRecipientsMock = jest.fn((_accountId?: string | null) => [] as any[]);
@@ -230,6 +235,7 @@ jest.mock('./SelectRecipient', () => ({
         <span data-testid="sr-valid">{String(props.isValidAddress)}</span>
         <span data-testid="sr-evidence">{JSON.stringify(props.errorDiagnostics ?? null)}</span>
         <span data-testid="sr-error">{props.error ?? ''}</span>
+        <span data-testid="sr-name">{props.recipientName ?? ''}</span>
         <textarea data-testid="sr-input" onChange={props.onAddressChange} />
         <span data-testid="sr-canadd">{String(props.canAddContact)}</span>
         <span data-testid="sr-recents">{JSON.stringify(props.recents)}</span>
@@ -310,7 +316,7 @@ jest.mock('./SelectToken', () => ({
     <div data-testid="token-drawer">
       <span data-testid="td-open">{String(props.open)}</span>
       <span data-testid="td-usdcx-only">{String(props.usdcxOnly)}</span>
-      <span data-testid="td-chain">{props.destinationChainId}</span>
+      <span data-testid="td-chain">{props.destinationNetwork?.chainId}</span>
       <button data-testid="td-select" onClick={() => props.onSelect(mockSelectedToken)} />
       <button data-testid="td-close" onClick={() => props.onOpenChange(false)} />
     </div>
@@ -350,8 +356,35 @@ jest.mock('./useRecentRecipients', () => ({
 
 let mockBridgeNetworks: Array<{ id: string; name: string; chainId: number }> = [];
 // When set, the networks every send offers, one stable array as the real list is while the snapshot holds.
-let mockOfferedNetworks: Array<{ id: string; name: string; chainId: number }> | undefined;
+// An entry with `nearIntentsChainId` is a bridge network that NEAR Intents also serves.
+let mockOfferedNetworks: Array<{ id: string; name: string; chainId: number; nearIntentsChainId?: string }> | undefined;
+// The NEAR Intents networks that the union list adds after the bridge networks. Empty while NEAR Intents is off.
+const SOLANA_NETWORK: SendNetwork = {
+  id: 'solana',
+  name: 'Solana',
+  kind: 'solana',
+  nearIntentsChainId: 'sol',
+  bridge: false
+};
+let mockNearIntentsNetworks: SendNetwork[] = [];
 jest.mock('./bridge-networks', () => {
+  // One union array per pair of source arrays, as the real list is one array per snapshot.
+  const unions = new WeakMap<object, WeakMap<object, SendNetwork[]>>();
+  const union = (
+    bridges: Array<{ id: string; name: string; chainId: number; nearIntentsChainId?: string }>,
+    near: SendNetwork[]
+  ) => {
+    const byNear = unions.get(bridges) ?? new WeakMap<object, SendNetwork[]>();
+    unions.set(bridges, byNear);
+    const cached = byNear.get(near);
+    if (cached) return cached;
+    const list: SendNetwork[] = [
+      ...bridges.map(network => ({ ...network, kind: 'evm' as const, bridge: true })),
+      ...near
+    ];
+    byNear.set(near, list);
+    return list;
+  };
   const sepolia = { id: 'sepolia', name: 'Sepolia', chainId: 11155111 };
   // The testnet USDCx destinations, in the destination table's order.
   const usdcxNetworks = [
@@ -372,8 +405,10 @@ jest.mock('./bridge-networks', () => {
     defaultUsdcxBridgeNetwork: () => usdcxNetworks[0],
     isUsdcxBridgeNetwork: (id: string | undefined) => usdcxNetworks.some(n => n.id === id),
     isEpochBridgeNetwork: (id: string | undefined) => id === sepolia.id,
-    sendBridgeNetworks: (usdcxWithdrawals: boolean) =>
-      mockOfferedNetworks ?? (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly)
+    sendNetworks: (usdcxWithdrawals: boolean) =>
+      union(mockOfferedNetworks ?? (usdcxWithdrawals ? usdcxNetworks : sepoliaOnly), mockNearIntentsNetworks),
+    isSendNetworkId: (value: string | null | undefined) =>
+      [...mockBridgeNetworks, ...mockNearIntentsNetworks].some(network => network.id === value)
   };
 });
 
@@ -382,7 +417,13 @@ const mockUnsupportedSendTokens = new Set<string>();
 // Set by a test that needs both bridge routes; unset, the token routes follow the rules below.
 let mockTokenRoutes: { epoch: boolean; agglayer: boolean } | undefined;
 jest.mock('./send-token-routes', () => ({
-  canSendTokenToChain: (_snapshot: object, faucetId: string, chainId?: number) => {
+  canSendTokenToNetwork: (
+    _snapshot: object,
+    faucetId: string,
+    network?: { bridge?: boolean; chainId?: number; nearIntentsChainId?: string }
+  ) => {
+    if (network?.nearIntentsChainId !== undefined) return true;
+    const chainId = network?.bridge ? network.chainId : undefined;
     if (chainId === undefined) return true;
     if (mockTokenRoutes) return mockTokenRoutes.epoch || mockTokenRoutes.agglayer;
     if (mockUnsupportedSendTokens.has(faucetId)) return false;
@@ -407,11 +448,34 @@ jest.mock('lib/usdcx/withdrawal', () => ({
 }));
 
 let mockEpochAmount: string | undefined;
+// The Epoch output token's contract: the test document's Sepolia Epoch USDC unless a case sets another.
+const TEST_EPOCH_USDC_ADDRESS = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
+let mockEpochAddress: `0x${string}` = TEST_EPOCH_USDC_ADDRESS;
+let mockEpochDecimals = 6;
 let mockEpochQuote: EpochQuoteState | undefined;
 const useEpochQuoteMock = jest.fn(
   (_args: { faucetId?: string; enabled: boolean }): EpochQuoteState =>
-    mockEpochQuote ?? { amount: mockEpochAmount, symbol: 'USDC', loading: false, validity: { kind: 'provider' } }
+    mockEpochQuote ?? {
+      amount: mockEpochAmount,
+      symbol: 'USDC',
+      loading: false,
+      validity: { kind: 'provider' },
+      address: mockEpochAddress,
+      decimals: mockEpochDecimals
+    }
 );
+// Output quotes a case gives by contract. Any other contract goes to the real EVM price source.
+let mockEvmOutputQuotes: Record<string, TokenPriceInfo> = {};
+jest.mock('lib/prices/evm', () => {
+  const actual = jest.requireActual<typeof import('lib/prices/evm')>('lib/prices/evm');
+  return {
+    ...actual,
+    evmQuote: (...args: Parameters<typeof actual.evmQuote>) => {
+      const [, , address] = args;
+      return (address === undefined ? undefined : mockEvmOutputQuotes[address]) ?? actual.evmQuote(...args);
+    }
+  };
+});
 jest.mock('./useEpochQuote', () => ({
   useEpochQuote: (args: any) => useEpochQuoteMock(args)
 }));
@@ -426,12 +490,20 @@ jest.mock('./SendRoute', () => ({
       <>
         <span data-testid="route-fee">{String(props.fastFeeUsd)}</span>
         <span data-testid="route-selected">{props.route}</span>
+        <span data-testid="route-bridges">{String(props.bridgeRoutesAvailable)}</span>
+        <span data-testid="route-near-intents">
+          {props.nearIntents
+            ? `${props.nearIntents.chainId}:${props.nearIntents.recipient}:${String(props.nearIntents.amount)}`
+            : ''}
+        </span>
+        <span data-testid="route-near-intents-quote">{props.nearIntentsQuote.status}</span>
         <span data-testid="route-usdcx">{String(props.usdcxAvailable)}</span>
         <span data-testid="route-usdcx-payout">
           {props.usdcxPayout ? `${props.usdcxPayout.chainId}:${props.usdcxPayout.amount}` : ''}
         </span>
         <button data-testid="route-select-slow" onClick={() => props.onRouteChange('agglayer')} />
         <button data-testid="route-select-usdcx" onClick={() => props.onRouteChange('usdcx')} />
+        <button data-testid="route-pick-near-intents" onClick={() => props.onRouteChange('near-intents')} />
         <button data-testid="route-confirm" onClick={props.onConfirm} />
       </>
     )
@@ -457,7 +529,11 @@ jest.mock('app/hooks/useHiddenTokens', () => ({
 }));
 jest.mock('lib/miden-chain/effective-endpoints', () => ({
   ...jest.requireActual('lib/miden-chain/effective-endpoints'),
-  getEffectiveRpcUrl: () => mockRpcUrl
+  getEffectiveRpcUrl: () => mockRpcUrl,
+  subscribeEffectiveEndpoints: (listener: () => void) => {
+    mockEndpointListeners.add(listener);
+    return () => mockEndpointListeners.delete(listener);
+  }
 }));
 let mockBaseFee: number | null = 0;
 jest.mock('app/hooks/useVerificationBaseFee', () => ({
@@ -520,10 +596,13 @@ jest.mock('utils/miden', () => {
       return true;
     },
     isValidEthereumAddress: (a: string) => a.startsWith('0x') && a.length > 2,
-    isValidRecipientAddress: (a: string) => isValidMidenAddressMock(a),
-    detectAddressChain: (a: string) => (a.startsWith('0x') ? 'ethereum' : 'miden')
+    // A Solana address passes by its format alone, as the real check does.
+    isValidRecipientAddress: (a: string) => a.trim() === MOCK_SOLANA_ADDRESS || isValidMidenAddressMock(a),
+    detectAddressChain: (a: string) =>
+      a.startsWith('0x') ? 'ethereum' : a.trim() === MOCK_SOLANA_ADDRESS ? 'solana' : 'miden'
   };
 });
+const MOCK_SOLANA_ADDRESS = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 jest.mock('lib/i18n/numbers', () => ({
   stringToBigInt: (...a: any[]) => (stringToBigIntMock as jest.Mock)(...a),
   // The balance check has to see the real digit shift. The stand-in above floors through parseFloat,
@@ -532,6 +611,17 @@ jest.mock('lib/i18n/numbers', () => ({
     jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').typedAmountExceedsBalance(...a),
   amountExceedsTokenDecimals: (...a: [string, number]) =>
     jest.requireActual<typeof import('lib/i18n/numbers')>('lib/i18n/numbers').amountExceedsTokenDecimals(...a)
+}));
+// The Miden Name lookup and the network deployment check. By default the network
+// has no deployment, so the suites above see the plain address behaviour.
+let mockNameSupported = false;
+const resolveMidenNameMock = jest.fn<Promise<string | null>, [string, { signal?: AbortSignal }?]>();
+jest.mock('lib/miden/name/config', () => ({
+  ...jest.requireActual('lib/miden/name/config'),
+  isMidenNameSupported: () => mockNameSupported
+}));
+jest.mock('lib/miden/name/resolver', () => ({
+  resolveMidenName: (label: string, options?: { signal?: AbortSignal }) => resolveMidenNameMock(label, options)
 }));
 // The real `./send-telemetry` is kept so the cross-route handoff it exists for is
 // exercised for real; only the reporting primitive underneath it is mocked.
@@ -558,12 +648,16 @@ beforeEach(() => {
   mockLastAmountChange = undefined;
   mockEpochAmount = undefined;
   mockEpochQuote = undefined;
+  mockEpochAddress = TEST_EPOCH_USDC_ADDRESS;
+  mockEpochDecimals = 6;
+  mockEvmOutputQuotes = {};
   mockUsdcxTokenId = undefined;
   mockUnsupportedSendTokens.clear();
   mockTokenRoutes = undefined;
   mockRouteFeatureAvailability = {};
   mockSlowStatus = 'allowed';
   mockUsdcxWithdrawalNetwork = true;
+  mockNearIntentsNetworks = [];
   mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
   mockSelectedContact = { id: '0xcontact', name: 'Alice', isOwned: false, contactType: 'external' };
   capturedBackHandler = null;
@@ -587,6 +681,7 @@ beforeEach(() => {
 
   walletStoreState.isTransactionModalOpen = false;
   walletStoreState.lastCompletedTxHash = null;
+  mockNameSupported = false;
 
   // Capture the back-button handler the way registration actually picks one. The real hook
   // registers inside `useEffect(..., [...deps, onScreen])` with `handler` deliberately excluded
@@ -897,14 +992,26 @@ describe('Command Send uses the real SendManager form', () => {
   });
 
   it.each([
-    ['pending', '/send/review?'],
-    ['admitted', '/generating-transaction-full/original-bridge-row']
-  ])('resumes the original %s bridge Send from the already-open composer', async (status, destination) => {
+    ['pending', 'bridge', '/send/review?', 'none'],
+    ['admitted', 'bridge', '/generating-transaction-full/original-bridge-row', 'none'],
+    ['pending', 'Miden Name', '/send/review?', 'matching'],
+    ['pending', 'Miden Name', '/send/review?', 'old registry'],
+    ['pending', 'Miden Name', '/send/review?', 'different address']
+  ])('resumes the original %s %s Send to %s with %s metadata', async (status, kind, destination, nameMetadata) => {
     mockTokenRoutes = { epoch: true, agglayer: true };
     useAllBalancesMock.mockReturnValue({
       data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 }]
     });
-    const intent = JSON.stringify(['original-handoff', '2', '0xrecipient', 'T1', 'sepolia', 'agglayer']);
+    const bridge = kind === 'bridge';
+    const recipientAddress = bridge ? '0xrecipient' : 'mtst1alice';
+    if (!bridge) {
+      mockNameSupported = true;
+      isValidMidenAddressMock.mockImplementation(address => address === recipientAddress);
+      if (nameMetadata === 'old registry') resolveMidenNameMock.mockResolvedValueOnce(recipientAddress);
+    }
+    const bridgeNetwork = bridge ? 'sepolia' : undefined;
+    const bridgeRoute = bridge ? 'agglayer' : undefined;
+    const intent = JSON.stringify(['original-handoff', '2', recipientAddress, 'T1', bridgeNetwork, bridgeRoute]);
     function Session() {
       const drafts = useCommandDrafts();
       const [back, setBack] = React.useState(false);
@@ -919,10 +1026,18 @@ describe('Command Send uses the real SendManager form', () => {
             drafts.writeDraft('send', {
               reviewId: 'original-handoff',
               amount: '2',
-              recipientAddress: '0xrecipient',
+              recipientAddress,
               tokenId: 'T1',
-              bridgeNetwork: 'sepolia',
-              bridgeRoute: 'agglayer'
+              bridgeNetwork,
+              bridgeRoute,
+              ...(!bridge && {
+                midenName: {
+                  label: 'alice',
+                  address: nameMetadata === 'different address' ? 'mtst1alternate' : recipientAddress,
+                  input: 'Alice.miden',
+                  registryScope: nameMetadata === 'old registry' ? 'old registry scope' : nameRegistryScope()
+                }
+              })
             });
             drafts.beginSendAdmission(intent);
             setBack(true);
@@ -947,6 +1062,12 @@ describe('Command Send uses the real SendManager form', () => {
     expect(navigateMock).toHaveBeenCalledTimes(1);
     const expected = status === 'pending' ? 'commandReviewId=original-handoff' : destination;
     expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining(expected));
+    const params = new URL(navigateMock.mock.calls[0][0], 'https://wallet.invalid').searchParams;
+    expect(params.get('to')).toBe(status === 'pending' ? recipientAddress : null);
+    expect(params.get('name')).toBe(nameMetadata === 'matching' ? 'alice.miden' : null);
+    expect(screen.getByTestId('sr-address')).toHaveTextContent(
+      bridge || nameMetadata === 'different address' ? recipientAddress : 'Alice.miden'
+    );
   });
 
   it('edits recipient and exact six-decimal amount together, then restores both after review Back', () => {
@@ -1344,14 +1465,63 @@ describe('adding an unknown recipient to contacts', () => {
 // Recipient address entry + validation.
 // ---------------------------------------------------------------------------
 describe('recipient address entry', () => {
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  const type = (value: string) =>
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value } });
+    });
+  /** The user stopped typing: the validation runs. */
+  const stopTyping = () =>
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
+    });
+
+  it('shows the recipient error only after the user stopped typing for a second', () => {
+    renderFlow();
+    type('not-an-address');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS - 1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+  });
+
+  it('restarts the wait on every keystroke', () => {
+    renderFlow();
+    type('not-an');
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS - 1);
+    });
+    type('not-an-address');
+    act(() => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS - 1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    act(() => {
+      jest.advanceTimersByTime(1);
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+  });
+
   it('binds unexpected validation to the current form error and clears it for an empty recipient', () => {
     renderFlow();
-    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
+    type('not-an-address');
+    stopTyping();
     expect(JSON.parse(screen.getByTestId('sr-evidence').textContent!)).toEqual({
       kind: 'recipient_validation',
       recipientValidationStage: 'validator_exception'
     });
-    fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '   ' } });
+    type('   ');
+    stopTyping();
     expect(screen.getByTestId('sr-evidence')).toHaveTextContent('null');
     expect(screen.getByTestId('sr-error')).toBeEmptyDOMElement();
   });
@@ -1359,41 +1529,47 @@ describe('recipient address entry', () => {
   it('sets and clears the recipient error as the address becomes invalid/valid', () => {
     renderFlow();
     // Invalid address -> manual error, isValidAddress false.
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
-    });
+    type('not-an-address');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
     expect(screen.getByTestId('sr-address')).toHaveTextContent('not-an-address');
 
-    // Valid address -> error cleared, isValidAddress true.
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xvalid' } });
-    });
+    // A new keystroke removes the error at once; a valid address keeps it away.
+    type('0xvalid');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
   });
 
-  it('clears the recipient error when the address is emptied', () => {
+  it('clears the recipient error when the address is emptied, and validates nothing', () => {
     renderFlow();
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'not-an-address' } });
-    });
+    type('not-an-address');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
 
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '   ' } });
-    });
+    type('   ');
+    stopTyping();
     expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+
+  it('clears the typing validation on unmount', () => {
+    const view = renderFlow();
+    type('not-an-address');
+    view.unmount();
+    isValidMidenAddressMock.mockClear();
+    stopTyping();
+    expect(isValidMidenAddressMock).not.toHaveBeenCalled();
   });
 
   it('rejects the current Miden account as a typed recipient', () => {
     isValidMidenAddressMock.mockImplementation((address: string) => address === 'me-pk');
     renderFlow();
 
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: 'me-pk' } });
-    });
+    type('me-pk');
+    stopTyping();
 
     expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
     expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
@@ -1402,9 +1578,8 @@ describe('recipient address entry', () => {
   it('uses the Ethereum-specific error for a malformed 0x recipient', () => {
     renderFlow();
 
-    act(() => {
-      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0x' } });
-    });
+    type('0x');
+    stopTyping();
 
     expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidEthereumAddress');
   });
@@ -2696,11 +2871,307 @@ describe('send telemetry', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Miden Name recipient (`alice.miden`), on a network with a Miden Name deployment.
+// ---------------------------------------------------------------------------
+describe('Miden Name recipient', () => {
+  const DEBOUNCE_MS = 400;
+  let warnSpy: jest.SpyInstance;
+
+  interface Deferred {
+    promise: Promise<string | null>;
+    resolve: (value: string | null) => void;
+  }
+
+  function deferredAddress(): Deferred {
+    let resolve: (value: string | null) => void = () => undefined;
+    const promise = new Promise<string | null>(res => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  const typeRecipient = (value: string) => {
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value } });
+    });
+  };
+
+  /**
+   * Let the lookup debounce and the typing validation fire, and the lookup
+   * promise settle. The typing validation waits longer than the lookup.
+   */
+  const runLookup = async () => {
+    await act(async () => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+  };
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    mockNameSupported = true;
+    resolveMidenNameMock.mockReset();
+    // Resolved bech32 addresses do not start with 0x, so they are Miden addresses here.
+    isValidMidenAddressMock.mockImplementation((addr: string) => addr.startsWith('mtst1') || addr === 'me-pk');
+    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    warnSpy.mockRestore();
+  });
+
+  it('on a network without a deployment, a name input shows the address error and does no lookup', async () => {
+    mockNameSupported = false;
+    renderFlow();
+
+    typeRecipient('alice.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('invalidMidenAccountId');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+  });
+
+  it('does no lookup for a bech32 address', async () => {
+    renderFlow();
+
+    typeRecipient('mtst1recipient');
+    await runLookup();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+  });
+
+  it('shows resolving, then the name, and sends the resolved address with the name to review', async () => {
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    const view = renderFlow();
+
+    typeRecipient('Alice.miden');
+    // No lookup state on the field while the user types.
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+
+    // The lookup waits for the debounce.
+    act(() => {
+      jest.advanceTimersByTime(DEBOUNCE_MS - 1);
+    });
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+
+    await runLookup();
+    expect(resolveMidenNameMock).toHaveBeenCalledTimes(1);
+    expect(resolveMidenNameMock.mock.calls[0]?.[0]).toBe('alice');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('alice.miden');
+
+    // Continue to the amount step and on to review.
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 1e9, fiatPrice: 1 };
+    view.rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('sa-recipient')).toHaveTextContent('alice.miden');
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+    });
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+
+    expect(navigateMock).toHaveBeenCalledTimes(1);
+    const url: string = navigateMock.mock.calls[0][0];
+    const params = new URLSearchParams(url.slice(url.indexOf('?') + 1));
+    expect(url.startsWith('/send/review?')).toBe(true);
+    expect(params.get('to')).toBe('mtst1alice');
+    expect(params.get('name')).toBe('alice.miden');
+
+    // The draft keeps the name, so backing out of review shows it again.
+    expect(consumeSendDraft()).toEqual({
+      amount: '5',
+      recipientAddress: 'Alice.miden',
+      tokenId: 'T1',
+      bridgeNetwork: undefined,
+      bridgeRoute: undefined,
+      midenName: { label: 'alice', address: 'mtst1alice', input: 'Alice.miden', registryScope: nameRegistryScope() }
+    });
+  });
+
+  it('recognizes a saved contact by the resolved name address', async () => {
+    useFilteredContactsMock.mockReturnValue({ contacts: [{ address: 'mtst1alice', name: 'Alice' }] });
+    resolveMidenNameMock.mockResolvedValue('mtst1alice');
+    renderFlow();
+    typeRecipient('alice.miden');
+    await runLookup();
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-canadd')).toHaveTextContent('false');
+  });
+
+  it('blocks a name that is not found', async () => {
+    resolveMidenNameMock.mockResolvedValue(null);
+    renderFlow();
+
+    typeRecipient('ghost.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameNotFound');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('');
+  });
+
+  it('shows the lookup failure when the lookup throws', async () => {
+    resolveMidenNameMock.mockRejectedValue(new Error('rpc down'));
+    renderFlow();
+
+    typeRecipient('alice.miden');
+    await runLookup();
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameResolveFailed');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+  });
+
+  it('ignores the result of a lookup for an input that changed', async () => {
+    const alice = deferredAddress();
+    const bob = deferredAddress();
+    resolveMidenNameMock.mockReturnValueOnce(alice.promise).mockReturnValueOnce(bob.promise);
+    renderFlow();
+
+    typeRecipient('alice.miden');
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
+    typeRecipient('bob.miden');
+    // The change aborts the first lookup.
+    expect(resolveMidenNameMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    // The user stopped typing: the field shows the lookup of bob.
+    await act(async () => {
+      jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
+    });
+
+    // The old lookup settles late: nothing changes.
+    await act(async () => {
+      alice.resolve('mtst1alice');
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('midenNameResolving');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('');
+
+    await act(async () => {
+      bob.resolve('mtst1bob');
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('bob.miden');
+  });
+
+  it('blocks a name that resolves to the current account', async () => {
+    resolveMidenNameMock.mockResolvedValue('me-pk');
+    renderFlow();
+
+    typeRecipient('me.miden');
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
+
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('cannotSendToSelf');
+    navigateToMock.mockClear();
+    fireEvent.click(screen.getByTestId('sr-confirm'));
+    expect(navigateToMock).not.toHaveBeenCalledWith(SendFlowStep.SelectAmount);
+  });
+
+  it('blocks the review handoff for a name that resolves to the current account', async () => {
+    resolveMidenNameMock.mockResolvedValue('me-pk');
+    const view = renderFlow();
+
+    typeRecipient('me.miden');
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS);
+    });
+
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }, { name: SendFlowStep.SelectAmount }];
+    mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 2, balance: 1e9, fiatPrice: 1 };
+    view.rerender(<SendFlow isLoading={false} />);
+    fireEvent.click(screen.getByTestId('td-select'));
+    fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+    navigateMock.mockClear();
+
+    fireEvent.click(screen.getByTestId('sa-confirm'));
+
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('clears the debounce timer on unmount', async () => {
+    const view = renderFlow();
+
+    typeRecipient('alice.miden');
+    view.unmount();
+    await act(async () => {
+      jest.advanceTimersByTime(DEBOUNCE_MS * 2);
+    });
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+  });
+
+  it('checks a restored name again when the RPC changes while Send stays mounted', async () => {
+    setSendDraft({
+      amount: '5',
+      recipientAddress: 'alice.miden',
+      tokenId: 'T1',
+      midenName: { label: 'alice', address: 'mtst1alice', input: 'alice.miden', registryScope: nameRegistryScope() }
+    });
+    renderFlow();
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    resolveMidenNameMock.mockResolvedValueOnce('mtst1alternate');
+    act(() => {
+      mockRpcUrl = 'https://another-rpc.example';
+      mockEndpointListeners.forEach(listener => listener());
+    });
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(screen.getByTestId('sr-name')).toBeEmptyDOMElement();
+    await runLookup();
+    expect(resolveMidenNameMock).toHaveBeenCalledWith('alice', expect.objectContaining({ signal: expect.anything() }));
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+  });
+
+  it('restores a resolved name from the draft without a new lookup', async () => {
+    setSendDraft({
+      amount: '5',
+      recipientAddress: 'alice.miden',
+      tokenId: 'T1',
+      midenName: { label: 'alice', address: 'mtst1alice', input: 'alice.miden', registryScope: nameRegistryScope() }
+    });
+    mockCardStack = [{ name: SendFlowStep.SelectRecipient }];
+    renderFlow();
+    await runLookup();
+
+    expect(resolveMidenNameMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sr-name')).toHaveTextContent('alice.miden');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Fast-route fee: only a priced token of known scale has a dollar input.
 // ---------------------------------------------------------------------------
 describe('fast-route fee', () => {
+  // The output token is priced like the input, from a ready quote: the Review's `EvmUsdValue` source.
+  const ETH_OUTPUT_ADDRESS = '0x0000000000000000000000000000000000000eth';
+  beforeEach(() => {
+    const prices = { USDC: { price: 3, observedAt: Date.now() } };
+    walletStoreState.tokenPrices = prices;
+  });
+  afterEach(() => {
+    walletStoreState.tokenPrices = { USDC: { price: 3 } };
+  });
+
   const renderRouteStep = (metadata: Record<string, unknown>, tokenId = 'T1', { amount = '5', quote = '4' } = {}) => {
-    setSendDraft({ amount, recipientAddress: '0xrecip', tokenId });
+    setSendDraft({ amount, recipientAddress: '0xrecip', tokenId, bridgeNetwork: 'sepolia' });
     mockCardStack = [{ name: SendFlowStep.Route }];
     mockEpochAmount = quote;
     useAllBalancesMock.mockReturnValue({ data: [{ tokenId, metadata, balance: 42, fiatPrice: 0 }] });
@@ -2708,8 +3179,51 @@ describe('fast-route fee', () => {
     return screen.getByTestId('route-fee');
   };
 
-  it('is the dollar input less the quoted USDC for a priced token', () => {
-    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET)).toHaveTextContent(/^11$/);
+  // 5 sent at $3 is $15; 4 USDC out at the feed's $3 is $12.
+  it('is the dollar input less the dollar value of the quoted USDC for a priced token', () => {
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET)).toHaveTextContent(/^3$/);
+  });
+
+  it('values the output at the USD price of its own token, not as dollars', () => {
+    mockEpochAddress = ETH_OUTPUT_ADDRESS;
+    mockEpochDecimals = 18;
+    mockEvmOutputQuotes = {
+      [ETH_OUTPUT_ADDRESS]: {
+        price: 2000,
+        observedAt: Date.now(),
+        change24h: 0,
+        percentageChange24h: 0,
+        kind: 'market'
+      }
+    };
+    // $15 sent, 0.006 ETH out at $2000 is $12.
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET, { quote: '0.006' })).toHaveTextContent(
+      /^3$/
+    );
+  });
+
+  it('is absent when the output token has no USD price, not the whole input', () => {
+    mockEpochAddress = ETH_OUTPUT_ADDRESS;
+    mockEpochDecimals = 18;
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET, { quote: '0.00096' })).toHaveTextContent(
+      /^undefined$/
+    );
+  });
+
+  it('is absent when the output token quote is stale', () => {
+    mockEpochAddress = ETH_OUTPUT_ADDRESS;
+    mockEvmOutputQuotes = {
+      [ETH_OUTPUT_ADDRESS]: {
+        price: 2000,
+        observedAt: Date.now() - USD_QUOTE_MAX_AGE_MS - 1,
+        change24h: 0,
+        percentageChange24h: 0,
+        kind: 'market'
+      }
+    };
+    expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET, { quote: '0.006' })).toHaveTextContent(
+      /^undefined$/
+    );
   });
 
   it('is absent for a token the feed does not price, not $0', () => {
@@ -2741,7 +3255,7 @@ describe('fast-route fee', () => {
         USDC: { price: 3, observedAt: Date.now() }
       } as typeof walletStoreState.tokenPrices;
       const fee = renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET);
-      expect(fee).toHaveTextContent(/^11$/);
+      expect(fee).toHaveTextContent(/^3$/);
 
       act(() => {
         jest.advanceTimersByTime(USD_QUOTE_MAX_AGE_MS + 1);
@@ -2757,7 +3271,7 @@ describe('fast-route fee', () => {
   it('keeps the fee of a token the feed prices while the nominal rate is on', () => {
     mockedHasUnquotedDefaultPrice.mockReturnValue(true);
     try {
-      expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET)).toHaveTextContent(/^11$/);
+      expect(renderRouteStep({ symbol: 'TKN', decimals: 2 }, MIDEN_USDC_FAUCET)).toHaveTextContent(/^3$/);
     } finally {
       mockedHasUnquotedDefaultPrice.mockReturnValue(false);
     }
@@ -3372,4 +3886,166 @@ it('clears an unsupported asset and its amount after the destination changes', (
   pickEvmRecipient('sepolia');
   expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
   expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
+});
+
+// ---------------------------------------------------------------------------
+// NEAR Intents: a Solana, Bitcoin or NEAR recipient, and the NEAR Intents route.
+// ---------------------------------------------------------------------------
+describe('NEAR Intents send wiring', () => {
+  const typeRecipient = (value: string) => {
+    act(() => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value } });
+    });
+  };
+
+  const pickContact = (id: string, network?: 'sepolia') => {
+    mockSelectedContact = { id, name: 'R', isOwned: false, contactType: 'external', network };
+    act(() => {
+      fireEvent.click(screen.getByTestId('ad-select'));
+    });
+  };
+
+  it('refuses a Solana address while NEAR Intents does not serve Solana', () => {
+    renderFlow();
+    typeRecipient(MOCK_SOLANA_ADDRESS);
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent('recipientNetworkUnsupported');
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('false');
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^$/);
+  });
+
+  it('selects the one Solana network for a Solana address and offers no "Add to contacts"', () => {
+    mockNearIntentsNetworks = [SOLANA_NETWORK];
+    renderFlow();
+    typeRecipient(` ${MOCK_SOLANA_ADDRESS}`);
+
+    expect(screen.getByTestId('sr-error')).toHaveTextContent(/^$/);
+    expect(screen.getByTestId('sr-valid')).toHaveTextContent('true');
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^solana$/);
+    expect(screen.getByTestId('sr-canadd')).toHaveTextContent('false');
+    expect(screen.getByTestId('sr-networks')).toHaveTextContent('solana');
+  });
+
+  it('starts with a Solana recipient and network handed over by a link', () => {
+    mockNearIntentsNetworks = [SOLANA_NETWORK];
+    mockSearch = `?to=${MOCK_SOLANA_ADDRESS}&network=solana`;
+    renderFlow();
+
+    expect(screen.getByTestId('sr-address')).toHaveTextContent(MOCK_SOLANA_ADDRESS);
+    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^solana$/);
+  });
+
+  it('takes a Solana send through the NEAR Intents route only and hands it to review', () => {
+    mockNearIntentsNetworks = [SOLANA_NETWORK];
+    mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+    const { rerender } = renderFlow();
+    pickContact(MOCK_SOLANA_ADDRESS);
+    act(() => {
+      fireEvent.click(screen.getByTestId('td-select'));
+    });
+    act(() => {
+      fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+    });
+    expect(screen.getByTestId('sa-network')).toHaveTextContent(/^solana$/);
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('sa-confirm'));
+    });
+    expect(navigateToMock).toHaveBeenCalledWith(SendFlowStep.Route);
+
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    rerender(<SendFlow isLoading={false} />);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
+    expect(screen.getByTestId('route-bridges')).toHaveTextContent(/^false$/);
+    expect(screen.getByTestId('route-near-intents')).toHaveTextContent(`sol:${MOCK_SOLANA_ADDRESS}:5`);
+    expect(screen.getByTestId('route-near-intents-quote')).toHaveTextContent(/^(loading|unsupported)$/);
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
+
+    act(() => {
+      fireEvent.click(screen.getByTestId('route-confirm'));
+    });
+    const [target] = navigateMock.mock.calls[navigateMock.mock.calls.length - 1];
+    const params = new URLSearchParams(String(target).split('?')[1]);
+    expect(params.get('network')).toBe('solana');
+    expect(params.get('route')).toBe('near-intents');
+    expect(params.get('to')).toBe(MOCK_SOLANA_ADDRESS);
+  });
+
+  it('goes back to the default route when a Solana recipient changes to an EVM one', () => {
+    mockNearIntentsNetworks = [SOLANA_NETWORK];
+    mockCardStack = [{ name: SendFlowStep.Route }];
+    renderFlow();
+    pickContact(MOCK_SOLANA_ADDRESS);
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
+
+    pickContact('0xrecip', 'sepolia');
+    expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
+    expect(screen.getByTestId('route-bridges')).toHaveTextContent(/^true$/);
+    expect(screen.getByTestId('route-near-intents')).toHaveTextContent(/^$/);
+  });
+
+  it('keeps a NEAR Intents route that the user picked on an EVM network, also for the USDCx token', () => {
+    mockUsdcxTokenId = 'USDCX';
+    mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111, nearIntentsChainId: 'eth' }];
+    try {
+      mockCardStack = [{ name: SendFlowStep.Route }];
+      renderFlow();
+      pickContact('0xrecip', 'sepolia');
+      mockSelectedToken = { id: 'USDCX', name: 'USDCx', decimals: 6, balance: 100, fiatPrice: 1 };
+      act(() => {
+        fireEvent.click(screen.getByTestId('td-select'));
+      });
+      expect(screen.getByTestId('route-selected')).toHaveTextContent(/^usdcx$/);
+      expect(screen.getByTestId('route-near-intents')).toHaveTextContent(/^eth:0xrecip:/);
+
+      act(() => {
+        fireEvent.click(screen.getByTestId('route-pick-near-intents'));
+      });
+      expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
+      expect(screen.getByTestId('route-bridges')).toHaveTextContent(/^true$/);
+    } finally {
+      mockOfferedNetworks = undefined;
+    }
+  });
+
+  it('keeps non-bridge tokens eligible, preselectable and non-cleared on dual-route NEAR EVM networks while rejecting bridge-only bypasses', () => {
+    mockUnsupportedSendTokens.add('T1');
+    mockSearch = '?tokenId=T1';
+    useAllBalancesMock.mockReturnValue({
+      data: [{ tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 2 }, balance: 42, fiatPrice: 1 }]
+    });
+    mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111, nearIntentsChainId: 'eth' }];
+    try {
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      const { rerender } = renderFlow();
+      pickContact('0xrecip', 'sepolia');
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
+      expect(screen.getByTestId('td-chain')).toHaveTextContent('11155111');
+
+      act(() => {
+        fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '5' } });
+      });
+      mockCardStack = [{ name: SendFlowStep.Route }];
+      rerender(<SendFlow isLoading={false} />);
+      act(() => {
+        fireEvent.click(screen.getByTestId('route-pick-near-intents'));
+      });
+      expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
+
+      const callsBefore = navigateMock.mock.calls.length;
+      // Dropping nearIntentsChainId while bridgeRoute is still 'near-intents' clears token on rerender and blocks review.
+      mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
+      rerender(<SendFlow isLoading={false} />);
+      act(() => {
+        fireEvent.click(screen.getByTestId('route-confirm'));
+      });
+      expect(navigateMock.mock.calls.length).toBe(callsBefore);
+
+      mockCardStack = [{ name: SendFlowStep.SelectAmount }];
+      rerender(<SendFlow isLoading={false} />);
+      expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
+    } finally {
+      mockOfferedNetworks = undefined;
+    }
+  });
 });

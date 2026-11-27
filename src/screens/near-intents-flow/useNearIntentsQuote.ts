@@ -1,9 +1,16 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef } from 'react';
 
 import { assertOneClickDeadline, assertOneClickFundingDeadline } from 'lib/one-click/deadline';
 import type { OneClickQuoteRequest, OneClickQuoteResponse } from 'lib/one-click/types';
 
-export type NearIntentsQuoteQuery = (request: OneClickQuoteRequest) => Promise<OneClickQuoteResponse>;
+import { usePolledPreview } from './usePolledPreview';
+
+export { PREVIEW_DEBOUNCE_MS, PREVIEW_REFRESH_MS } from './usePolledPreview';
+
+export type NearIntentsQuoteQuery = (
+  request: OneClickQuoteRequest,
+  signal: AbortSignal
+) => Promise<OneClickQuoteResponse>;
 
 export interface NearIntentsQuotePreview {
   quote?: OneClickQuoteResponse;
@@ -11,76 +18,28 @@ export interface NearIntentsQuotePreview {
   error?: Error;
 }
 
-/** The wait after the last change to the request before the hook asks for a quote. */
-export const PREVIEW_DEBOUNCE_MS = 350;
-/** The interval at which the hook asks again for the same request, while it is active. */
-export const PREVIEW_REFRESH_MS = 30_000;
-
 /**
- * A dry 1Click quote for the current request. The hook waits `PREVIEW_DEBOUNCE_MS` after a change,
- * then asks again every `PREVIEW_REFRESH_MS`. It ignores an answer for a request that is not the
- * current one. A new request clears the previous quote; a refresh of the same request keeps it.
+ * A dry 1Click quote for the current request, polled by `usePolledPreview`: it waits `PREVIEW_DEBOUNCE_MS` after a
+ * change, then asks again `PREVIEW_REFRESH_MS` after each answer. A new request, a pause or an unmount aborts the
+ * request on its way. A new request clears the previous quote; a refresh of the same request keeps it.
  */
 export function useNearIntentsQuote(
   request: OneClickQuoteRequest | undefined,
   query: NearIntentsQuoteQuery,
   active = true
 ): NearIntentsQuotePreview {
-  const [state, setState] = useState<NearIntentsQuotePreview>({ loading: false });
   const requestKey = request === undefined ? '' : JSON.stringify(request);
-  const sequence = useRef(0);
-  const currentKey = useRef(requestKey);
   const requestRef = useRef(request);
   requestRef.current = request;
+  const queryRef = useRef(query);
+  queryRef.current = query;
 
-  useEffect(() => {
-    const nextRequest = requestRef.current;
-    sequence.current += 1;
-    const sameRequest = currentKey.current === requestKey;
-    currentKey.current = requestKey;
-    setState(previous => ({
-      quote: sameRequest ? previous.quote : undefined,
-      loading: nextRequest !== undefined && active
-    }));
-    if (nextRequest === undefined || !active)
-      return () => {
-        sequence.current += 1;
-      };
-
-    let stopped = false;
-    const refresh = () => {
-      const ownRequest = ++sequence.current;
-      setState(previous => ({ ...previous, loading: true, error: undefined }));
-      query(nextRequest).then(
-        quote => {
-          if (!stopped && sequence.current === ownRequest) setState({ quote, loading: false });
-        },
-        error => {
-          if (!stopped && sequence.current === ownRequest) {
-            setState(previous => ({
-              quote: previous.quote,
-              loading: false,
-              error: error instanceof Error ? error : new Error(String(error))
-            }));
-          }
-        }
-      );
-    };
-    let interval: number | undefined;
-    const timer = window.setTimeout(() => {
-      refresh();
-      interval = window.setInterval(refresh, PREVIEW_REFRESH_MS);
-    }, PREVIEW_DEBOUNCE_MS);
-
-    return () => {
-      stopped = true;
-      window.clearTimeout(timer);
-      if (interval !== undefined) window.clearInterval(interval);
-      sequence.current += 1;
-    };
-  }, [requestKey, query, active]);
-
-  return state;
+  const preview = usePolledPreview(requestKey, active, signal => {
+    const current = requestRef.current;
+    if (current === undefined) return Promise.reject(new Error('There is no NEAR Intents quote request'));
+    return queryRef.current(current, signal);
+  });
+  return { quote: preview.value, loading: preview.loading, error: preview.error };
 }
 
 /** True when the deadline of the quote has passed, so the quote cannot be used. */

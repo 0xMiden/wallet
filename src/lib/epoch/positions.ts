@@ -202,6 +202,32 @@ interface PositionsQuery {
   lender: string;
 }
 
+interface PositionsQueryResult {
+  owner: string;
+  items: PositionsApiChainItem[];
+  error?: string;
+  stage?: EarnPositionsLoadStage;
+  retryable?: boolean;
+  retryAfterMs?: number;
+}
+
+const HTTP_DATE_FORMATS = [
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun), \d{2} (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) \d{4} \d{2}:\d{2}:\d{2} GMT$/,
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday), \d{2}-(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)-\d{2} \d{2}:\d{2}:\d{2} GMT$/,
+  /^(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun) (?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (?:\d{2}| \d) \d{2}:\d{2}:\d{2} \d{4}$/
+];
+
+function parsePositionsRetryAfter(header: string | null | undefined): number | undefined {
+  const value = header?.trim();
+  if (!value) return undefined;
+  const seconds = /^\d+$/.test(value);
+  if (!seconds && !HTTP_DATE_FORMATS.some(format => format.test(value))) return undefined;
+  const delay = seconds
+    ? Number(value) * 1000
+    : Date.parse(value.endsWith(' GMT') ? value : `${value} GMT`) - Date.now();
+  return Number.isFinite(delay) ? Math.max(0, delay) : undefined;
+}
+
 /**
  * Fetch lending positions for ONE query. Never rejects: on any failure, a
  * request or body read past `timeoutMs` included, it resolves to an empty
@@ -213,25 +239,91 @@ async function fetchPositions(
   positionsUrl: string,
   { owner, chains, lender }: PositionsQuery,
   timeoutMs = POSITIONS_REQUEST_TIMEOUT_MS
-): Promise<{ owner: string; items: PositionsApiChainItem[]; error?: string; stage?: EarnPositionsLoadStage }> {
+): Promise<PositionsQueryResult> {
   const url = `${positionsUrl}/positions?account=${owner}&chains=${chains.join(',')}&lenders=${lender}`;
   let stage: EarnPositionsLoadStage = 'request';
   try {
     return await withRequestTimeout(timeoutMs, async signal => {
       const res = await fetch(url, { signal });
       if (!res.ok) {
-        return { owner, items: [], error: `positions request failed (${res.status})`, stage };
+        const retryAfterMs =
+          res.status === 429 && typeof res.headers?.get === 'function'
+            ? parsePositionsRetryAfter(res.headers.get('retry-after'))
+            : undefined;
+        return {
+          owner,
+          items: [],
+          error: `positions request failed (${res.status})`,
+          stage,
+          retryable: res.status === 408 || res.status >= 500 || retryAfterMs !== undefined,
+          retryAfterMs
+        };
       }
       stage = 'response_decode';
-      const body: PositionsApiResponse = await res.json();
+      let body: PositionsApiResponse;
+      try {
+        body = await res.json();
+      } catch (err) {
+        // The timeout helper aborts on cleanup, so inspect the signal before that cleanup runs.
+        const timedOut = signal.aborted;
+        const reason = timedOut && signal.reason instanceof Error ? signal.reason : err;
+        return {
+          owner,
+          items: [],
+          error: reason instanceof Error ? reason.message : 'positions request threw',
+          stage,
+          retryable: timedOut
+        };
+      }
       if (!body.success || !body.data || !Array.isArray(body.data.items)) {
         return { owner, items: [], error: body.error ?? 'positions request unsuccessful', stage };
       }
       return { owner, items: body.data.items };
     });
   } catch (err) {
-    return { owner, items: [], error: err instanceof Error ? err.message : 'positions request threw', stage };
+    return {
+      owner,
+      items: [],
+      error: err instanceof Error ? err.message : 'positions request threw',
+      stage,
+      retryable: stage === 'request' || (err instanceof Error && err.name === 'TimeoutError')
+    };
   }
+}
+
+/** Reserve a request slot and retry a temporary failure once before the review expires. */
+async function fetchPositionsBeforeDeadline(
+  positionsUrl: string,
+  query: PositionsQuery,
+  deadline: number,
+  limit: number
+): Promise<PositionsQueryResult> {
+  let failure: PositionsQueryResult = {
+    owner: query.owner,
+    items: [],
+    error: 'No time left for a positions request',
+    stage: 'request'
+  };
+  let attempts = 0;
+  while (attempts < 2) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    if (!notePositionsRequests(1, limit)) {
+      const delay = positionsBudgetDelayMs(1, limit);
+      if (delay >= remaining) break;
+      await new Promise<void>(resolve => setTimeout(resolve, delay));
+      continue;
+    }
+    attempts += 1;
+    const result = await fetchPositions(positionsUrl, query, Math.min(POSITIONS_REQUEST_TIMEOUT_MS, remaining));
+    if (!result.retryable) return result;
+    failure = result;
+    if (result.retryAfterMs && attempts < 2) {
+      if (result.retryAfterMs >= deadline - Date.now()) break;
+      await new Promise<void>(resolve => setTimeout(resolve, result.retryAfterMs));
+    }
+  }
+  return failure;
 }
 
 /**
@@ -303,6 +395,8 @@ export interface FetchEarnPositionsArgs {
    * lists, then the markets of the owner's own deposits.
    */
   markets?: string[];
+  /** For a withdrawal review, the time at which both the read and its retry must stop. */
+  retryUntil?: number;
 }
 
 const LENDER_KEY_RE = /^[A-Z0-9_]+$/;
@@ -384,9 +478,15 @@ export async function fetchEarnPositions(args: FetchEarnPositionsArgs = {}): Pro
     return queriesFor(owner, markets);
   });
 
-  const pending: ReturnType<typeof fetchPositions>[] = [];
+  const pending: Promise<PositionsQueryResult>[] = [];
   const limit = args.markets ? POSITIONS_LIMIT : POSITIONS_PAGE_LIMIT;
-  for (let offset = 0; offset < queries.length; ) {
+  const { retryUntil } = args;
+  let offset = 0;
+  if (retryUntil !== undefined) {
+    pending.push(...queries.map(query => fetchPositionsBeforeDeadline(positionsUrl, query, retryUntil, limit)));
+    offset = queries.length;
+  }
+  while (offset < queries.length) {
     const count = Math.min(queries.length - offset, limit);
     let admitted = count;
     while (admitted > 0 && !notePositionsRequests(admitted, limit)) admitted -= 1;

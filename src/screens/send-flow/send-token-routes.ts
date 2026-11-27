@@ -3,6 +3,8 @@ import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import { selectEpochOutputToken } from 'lib/remote-config/values';
 import { isUsdcxWithdrawalAvailable } from 'lib/usdcx/withdrawal';
 
+import type { SendNetwork } from './bridge-networks';
+
 /** The routes that can send this faucet to the selected chain. */
 export function sendTokenRoutes(snapshot: BridgeConfigSnapshot, faucetId: string, chainId: number) {
   const bridges = Object.values(snapshot.config?.supportedEvmChains ?? {}).find(
@@ -23,4 +25,14 @@ export function sendTokenRoutes(snapshot: BridgeConfigSnapshot, faucetId: string
 export function canSendTokenToChain(snapshot: BridgeConfigSnapshot, faucetId: string, chainId?: number): boolean {
   if (chainId === undefined) return true;
   return Object.values(sendTokenRoutes(snapshot, faucetId, chainId)).some(Boolean);
+}
+
+/** A NEAR-served network takes any token; otherwise only the bridge routes on its EVM chain do. */
+export function canSendTokenToNetwork(
+  snapshot: BridgeConfigSnapshot,
+  faucetId: string,
+  network?: Pick<SendNetwork, 'bridge' | 'chainId' | 'nearIntentsChainId'>
+): boolean {
+  if (network?.nearIntentsChainId !== undefined) return true;
+  return canSendTokenToChain(snapshot, faucetId, network?.bridge ? network.chainId : undefined);
 }
