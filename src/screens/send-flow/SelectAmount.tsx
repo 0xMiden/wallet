@@ -162,7 +162,9 @@ export const SelectAmount: React.FC<SelectAmountProps> = ({
   const amountError = !hideErrorText && error && (amount || error !== 'invalidAmount') ? t(error) : undefined;
   useUserVisibleError(
     !amountError && showBalanceHelper && token && token.balance !== null && !scaleIsKnown ? 'unknownTokenScale' : null,
-    'inline'
+    'inline',
+    undefined,
+    { kind: 'token_scale', tokenScaleProducer: 'select_amount' }
   );
 
   const tokenSelector = (

@@ -105,7 +105,10 @@ export const SendAmount: React.FC<SendAmountProps> = ({
   const amountError =
     error && !feeShortfall && (amount || error !== 'invalidAmount') ? t(error, errorValues) : undefined;
   useUserVisibleError(feeShortfall ? 'insufficientFeeAsset' : null, 'notice');
-  useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline');
+  useUserVisibleError(token && !scaleIsKnown ? 'unknownTokenScale' : null, 'inline', undefined, {
+    kind: 'token_scale',
+    tokenScaleProducer: 'send_amount'
+  });
 
   // An EVM network or a NEAR Intents chain (Solana, Bitcoin, NEAR). `NetworkLogo` finds each mark by its id.
   const bridgeNetwork = network && network !== 'miden' ? getSendNetwork(network) : undefined;

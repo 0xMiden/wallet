@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Identify which amount screen showed an unknown token precision warning in opt-in diagnostics.
 - [CHORE][all] Add the exact average-cost calculation for since-arrival token profit and loss; the wallet does not record or show it yet (#2029).
 - [FIX][extension] Clear the offscreen call timeout if browser messaging fails during dispatch.
 - [FIX][extension] Distinguish browser messaging failures in opt-in diagnostics without reporting raw browser error text.
