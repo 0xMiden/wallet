@@ -1,1 +1,3400 @@
-{ "forbid": [], "buttons": {}, "facts": {}, "cards": [] }
+{
+  "forbid": [
+    "\\b(is|are|stays?|remains?|fully|completely) (anonymous|untraceable|unlinkable)\\b",
+    "\\bend[- ]to[- ]end\\b",
+    "\\b(two|2) (of|out of) (the )?(three|3)\\b",
+    "\\bonly (you|the (recipient|receiver)) can (see|read|view)\\b",
+    "\\bsafe to (retry|resend|send (it )?again|try again)\\b",
+    "\\birreversible\\b|\\b(cannot|can't) be (reversed|undone)\\b",
+    "\\btrusted (person|friend|contact|family)\\b",
+    "\\bmove (all )?(your )?(money|funds) to (a new|another) account\\b"
+  ],
+  "buttons": {
+    "Miden": {
+      "card": "miden_what",
+      "titles": [
+        "Wie funktioniert Miden?",
+        "How does Miden work?",
+        "¿Cómo funciona Miden?",
+        "Comment fonctionne Miden ?",
+        "Midenはどのように機能するのですか？",
+        "Miden은 어떻게 작동하나요?",
+        "Jak działa Miden?",
+        "Como funciona o Miden?",
+        "Как работает Miden?",
+        "Miden nasıl çalışır?",
+        "Як працює Miden?",
+        "Miden 是如何运作的？",
+        "Miden 是如何運作的？"
+      ]
+    },
+    "Privacy": {
+      "card": "privacy_overview",
+      "titles": [
+        "Wie privat ist das Ganze?",
+        "How private is it?",
+        "¿Hasta qué punto es privado?",
+        "Quel est le niveau de confidentialité ?",
+        "プライバシーはどの程度確保されていますか？",
+        "개인 정보 보호 수준은 어느 정도인가요?",
+        "Jak bardzo jest to prywatne?",
+        "Quão privado é isso?",
+        "Насколько это конфиденциально?",
+        "Ne kadar gizlidir?",
+        "Наскільки це конфіденційно?",
+        "其隐私性如何？",
+        "這有多私密？"
+      ]
+    },
+    "Verify": {
+      "card": "privacy_check",
+      "titles": [
+        "Wie kann ich überprüfen, was privat ist?",
+        "How can I check what’s private?",
+        "¿Cómo puedo comprobar qué es privado?",
+        "Comment puis-je vérifier ce qui relève de la vie privée ?",
+        "何が非公開情報かを確認するにはどうすればよいですか？",
+        "비공개 정보는 어떻게 확인할 수 있나요?",
+        "Jak mogę sprawdzić, co jest prywatne?",
+        "Como posso verificar o que é privado?",
+        "Как я могу проверить, что является конфиденциальной информацией?",
+        "Nelerin gizli olduğunu nasıl kontrol edebilirim?",
+        "Як перевірити, що є приватним?",
+        "如何查看哪些信息属于隐私信息？",
+        "我該如何確認哪些資訊屬於私有資訊？"
+      ]
+    },
+    "Bridge": {
+      "card": "bridge_what",
+      "titles": [
+        "Was ist Bridging?",
+        "What is bridging?",
+        "¿Qué es el «bridging»?",
+        "Qu’est-ce que le « bridging » ?",
+        "ブリッジングとは何ですか？",
+        "브릿징이란 무엇인가요?",
+        "Czym jest bridging?",
+        "O que é “bridging”?",
+        "Что такое «бриджинг»?",
+        "\"Bridging\" nedir?",
+        "Що таке «бріджинг»?",
+        "什么是跨链桥？",
+        "何謂「橋接」？"
+      ]
+    },
+    "Notes": {
+      "card": "notes_what",
+      "titles": [
+        "Was sind notes?",
+        "What are notes?",
+        "¿Qué son las notes?",
+        "Que sont les notes ?",
+        "notesとは何ですか？",
+        "notes란 무엇인가요?",
+        "Czym są notes?",
+        "O que são notes?",
+        "Что такое notes?",
+        "notes nedir?",
+        "Що таке notes?",
+        "什么是notes？",
+        "什麼是notes？"
+      ]
+    },
+    "Accept": {
+      "card": "accept_why",
+      "titles": [
+        "Warum muss ich Überweisungen akzeptieren?",
+        "Why do I have to accept transfers?",
+        "¿Por qué tengo que aceptar transferencias?",
+        "Pourquoi dois-je accepter les virements ?",
+        "なぜ送金を受け入れなければならないのですか？",
+        "왜 이체를 수락해야 하나요?",
+        "Dlaczego muszę akceptować przelewy?",
+        "Por que preciso aceitar transferências?",
+        "Почему я должен принимать переводы?",
+        "Neden transferleri kabul etmek zorundayım?",
+        "Чому я мушу приймати перекази?",
+        "为什么我必须接受转账？",
+        "為什麼我必須接受轉帳？"
+      ]
+    },
+    "Pending": {
+      "card": "pending_why",
+      "titles": [
+        "Warum ist eine Überweisung noch ausstehend?",
+        "Why is a transfer still pending?",
+        "¿Por qué sigue pendiente una transferencia?",
+        "Pourquoi un virement est-il toujours en attente ?",
+        "なぜ送金がまだ保留中なのですか？",
+        "이체가 왜 아직 보류 중인가요?",
+        "Dlaczego przelew nadal ma status „oczekujący”?",
+        "Por que uma transferência ainda está pendente?",
+        "Почему перевод до сих пор находится в статусе «ожидание»?",
+        "Bir transfer neden hâlâ beklemede?",
+        "Чому переказ досі перебуває в стані очікування?",
+        "为什么转账仍处于待处理状态？",
+        "為何轉帳狀態仍顯示為「待處理」？"
+      ]
+    },
+    "Decline": {
+      "card": "decline",
+      "titles": [
+        "Was passiert, wenn ich eine Überweisung ablehne?",
+        "What happens if I decline a transfer?",
+        "¿Qué ocurre si rechazo una transferencia?",
+        "Que se passe-t-il si je refuse un virement ?",
+        "送金を拒否した場合はどうなりますか？",
+        "이체를 거부하면 어떻게 되나요?",
+        "Co się stanie, jeśli odrzucę przelew?",
+        "O que acontece se eu recusar uma transferência?",
+        "Что произойдет, если я отклоню перевод?",
+        "Bir transferi reddedersem ne olur?",
+        "Що станеться, якщо я відхилю переказ?",
+        "如果我拒绝一笔转账会怎样？",
+        "如果我拒絕一筆轉帳，會發生什麼情況？"
+      ]
+    },
+    "Fees": {
+      "card": "fees_usdcx",
+      "titles": [
+        "Warum benötige ich USDCX für Gebühren?",
+        "Why do I need USDCX for fees?",
+        "¿Por qué necesito USDCX para pagar las comisiones?",
+        "Pourquoi ai-je besoin d’USDCX pour payer les frais ?",
+        "なぜ手数料の支払いにUSDCXが必要なのですか？",
+        "수수료 지불에 USDCX가 필요한 이유는 무엇인가요?",
+        "Dlaczego potrzebuję USDCX do uiszczania opłat?",
+        "Por que preciso do USDCX para pagar as taxas?",
+        "Зачем мне нужен USDCX для оплаты комиссий?",
+        "Ücretler için neden USDCX'e ihtiyacım var?",
+        "Навіщо мені потрібні USDCX для сплати комісій?",
+        "为什么我需要使用 USDCX 支付手续费？",
+        "為什麼我需要 USDCX 來支付手續費？"
+      ]
+    },
+    "Recovery": {
+      "card": "lost_device",
+      "titles": [
+        "Was passiert, wenn ich mein Gerät verliere?",
+        "What if I lose my device?",
+        "¿Qué pasa si pierdo mi dispositivo?",
+        "Que se passe-t-il si je perds mon appareil ?",
+        "デバイスを紛失した場合はどうなりますか？",
+        "기기를 분실하면 어떻게 되나요?",
+        "Co się stanie, jeśli zgubię swoje urządzenie?",
+        "E se eu perder meu dispositivo?",
+        "Что делать, если я потеряю своё устройство?",
+        "Cihazımı kaybedersem ne olur?",
+        "Що робити, якщо я втрачу свій пристрій?",
+        "如果我丢失了设备怎么办？",
+        "如果我遺失了裝置該怎麼辦？"
+      ]
+    },
+    "Network": {
+      "card": "mainnet_testnet",
+      "titles": [
+        "Was ist der Unterschied zwischen Mainnet und Testnet?",
+        "What’s the difference between mainnet and testnet?",
+        "¿Cuál es la diferencia entre la red principal (mainnet) y la red de pruebas (testnet)?",
+        "Quelle est la différence entre le mainnet et le testnet ?",
+        "メインネットとテストネットの違いは何ですか？",
+        "메인넷과 테스트넷의 차이점은 무엇인가요?",
+        "Jaka jest różnica między siecią główną (mainnet) a siecią testową (testnet)?",
+        "Qual é a diferença entre mainnet e testnet?",
+        "В чём разница между основной сетью (mainnet) и тестовой сетью (testnet)?",
+        "Mainnet ile testnet arasındaki fark nedir?",
+        "У чому полягає різниця між мейннетом і тестнетом?",
+        "主网和测试网有什么区别？",
+        "主網與測試網有何區別？"
+      ]
+    },
+    "Assistant": {
+      "card": "assistant_sees",
+      "titles": [
+        "Was sieht der Bread Assistant?",
+        "What does Bread Assistant see?",
+        "¿Qué ve Bread Assistant?",
+        "Que voit Bread Assistant ?",
+        "Bread Assistantには何が表示されますか？",
+        "Bread Assistant는 무엇을 확인하나요?",
+        "Co widzi Bread Assistant?",
+        "O que o Bread Assistant vê?",
+        "Что видит Bread Assistant?",
+        "Bread Assistant neyi görür?",
+        "Що бачить Bread Assistant?",
+        "Bread Assistant 会看到什么？",
+        "Bread Assistant 會看到什麼？"
+      ]
+    },
+    "Safety": {
+      "card": "stay_safe",
+      "titles": [
+        "Wie kann ich auf Nummer sicher gehen?",
+        "How do I stay safe?",
+        "¿Cómo puedo mantener la seguridad?",
+        "Comment assurer ma sécurité ?",
+        "安全を確保するにはどうすればよいですか？",
+        "안전을 유지하려면 어떻게 해야 하나요?",
+        "Jak zadbać o swoje bezpieczeństwo?",
+        "Como posso me manter seguro?",
+        "Как обеспечить свою безопасность?",
+        "Nasıl güvende kalabilirim?",
+        "Як забезпечити свою безпеку?",
+        "如何确保安全？",
+        "我該如何確保安全？"
+      ]
+    },
+    "Wallet": {
+      "card": "bread_overview",
+      "titles": [
+        "Was kann ich in Bread tun?",
+        "What can I do in Bread?",
+        "¿Qué puedo hacer en Bread?",
+        "Que puis-je faire sur Bread ?",
+        "Breadでは何ができるのですか？",
+        "Bread에서 무엇을 할 수 있나요?",
+        "Co mogę robić w Bread?",
+        "O que posso fazer no Bread?",
+        "Что я могу делать в Bread?",
+        "Bread'de neler yapabilirim?",
+        "Що я можу робити в Bread?",
+        "在 Bread 中我可以做什么？",
+        "在 Bread 中我可以做什麼？"
+      ]
+    }
+  },
+  "facts": {
+    "g.service": {
+      "text": "In Bread, a Guardian is an online service, usually run by a company.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g.copy": {
+      "text": "It keeps a copy of your account data and must approve your payments along with your own key.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/lib/miden/guardian/account-recipe.ts"]
+    },
+    "g.keys": {
+      "text": "It never receives your 12-word recovery phrase or private keys.",
+      "src": [
+        "owner:wallet#2359",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/miden/guardian/account.ts"
+      ]
+    },
+    "g.nomove": {
+      "text": "It cannot move your money on its own.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g.restore": {
+      "text": "While it is online, its copy and your recovery phrase can help you get your account back on a new device.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g.see": {
+      "text": "Assume the company running it can see your account and payments.",
+      "src": ["owner:wallet#2359"]
+    },
+    "g.down": {
+      "text": "If it is down or refuses, your payments stop, and you may not be able to switch right away.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g.switch": {
+      "text": "Switching without the old Guardian's approval needs a device where your account still works, your 12-word recovery phrase, a new Guardian that is online, and usually USDCx for the fee.",
+      "src": [
+        "owner:wallet#2359",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/miden/transaction/index.ts"
+      ]
+    },
+    "g.restoreonly": {
+      "text": "A restore with only your 12 words cannot switch away from a Guardian that is down or refuses.",
+      "src": ["wallet@6d0acae70:src/app/templates/HotKeyRotationGate.tsx", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "n.what": {
+      "text": "On Miden, money moves in a note: a package that holds it, with rules for who can claim it.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md"]
+    },
+    "n.twosteps": {
+      "text": "Sending a note and accepting it are two separate transactions.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/transaction.md"
+      ]
+    },
+    "n.accept": {
+      "text": "Money sent to you is not added to your balance until it is accepted.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md"
+      ]
+    },
+    "n.acceptlabel": {
+      "text": "In Activity, a payment waiting for you has the label \"Accept Transfer\".",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx"
+      ]
+    },
+    "n.auto": {
+      "text": "By default, Bread tries to accept ordinary incoming USDCx payments while the wallet is running and unlocked, but some, such as very small ones, can still wait.",
+      "src": [
+        "wallet@6d0acae70:src/lib/settings/constants.ts",
+        "wallet@6d0acae70:src/lib/miden/front/auto-managed-notes.ts"
+      ]
+    },
+    "n.autoonly": {
+      "text": "Auto-accept does not cover other tokens.",
+      "src": ["wallet@6d0acae70:src/lib/miden/front/auto-managed-notes.ts"]
+    },
+    "u.what": {
+      "text": "USDCx is a token on Miden that represents USDC held in Circle's reserve.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "u.fee": {
+      "text": "Miden network fees are paid in USDCx, even when you send another token.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "u.issuer": {
+      "text": "Circle does not issue USDCx.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "u.value": {
+      "text": "The dollar value of USDCx is not guaranteed.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "u.block": {
+      "text": "USDCx can be blocked for an address, and it can be paused.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "p.notanon": {
+      "text": "Privacy in Bread does not mean anonymity.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "p.public": {
+      "text": "Your account ID, a note's sender and the fact that a transaction happened are public.",
+      "src": [
+        "owner:wallet#2359",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "p.balance": {
+      "text": "With a private account, your balance and holdings are not published on the public chain.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:src/lib/miden/guardian/account-recipe.ts"]
+    },
+    "p.noteamount": {
+      "text": "A private note's amount stays off the public chain, and the recipient can read it.",
+      "src": ["owner:wallet#2359", "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md"]
+    },
+    "p.publicsend": {
+      "text": "A public send shows its token, amount and recipient address to anyone.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "p.validators": {
+      "text": "Today all three validators, computers that check transactions, receive each transaction's private details.",
+      "src": ["owner:wallet#2359"]
+    },
+    "p.services": {
+      "text": "The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:src/lib/settings/constants.ts"]
+    },
+    "p.proveoff": {
+      "text": "Turning off Delegate Proof Generation builds proofs on your device: slower, with a large one-time download.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "p.bridgeswap": {
+      "text": "Bridges and swaps disclose details to the services and networks involved.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/privacy/index.md"]
+    },
+    "r.move.noreset": {
+      "text": "Do not reset your wallet.",
+      "src": ["owner:wallet#2359"]
+    },
+    "r.move.where": {
+      "text": "Move your funds to a wallet with a different recovery phrase that is already written down, on another install or device.",
+      "src": ["owner:wallet#2359"]
+    },
+    "r.move.notsame": {
+      "text": "A second account in the same wallet does not count.",
+      "src": ["owner:wallet#2359"]
+    },
+    "r.move.order": {
+      "text": "Send some USDCx first and accept it in the new wallet. Then send the rest, accepting each payment.",
+      "src": ["owner:wallet#2359"]
+    },
+    "r.move.keep": {
+      "text": "Keep the old wallet until everything has arrived.",
+      "src": ["owner:wallet#2359"]
+    },
+    "r.move.nosafe": {
+      "text": "If you have no safe place to move your funds, contact support at support.miden.xyz.",
+      "src": ["owner:wallet#2359"]
+    },
+    "s.contact": {
+      "text": "For help, contact Bread support at support.miden.xyz.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:src/app/constants.ts", "https://support.miden.xyz/"]
+    },
+    "s.never": {
+      "text": "Never share your recovery phrase, private keys, password, passcode or wallet file with anyone, including support.",
+      "src": ["wallet@6d0acae70:docs/support/index.md", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "s.nochat": {
+      "text": "Never type your recovery phrase, private keys, password or passcode into this chat.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/support/index.md"]
+    },
+    "s.limits": {
+      "text": "Bread support cannot reset your password, recover your recovery phrase, recover funds on your behalf or reverse a transaction you approved.",
+      "src": ["wallet@6d0acae70:docs/support/index.md", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "s.report": {
+      "text": "When you contact support, include your device model, system version, app version and what happened, with no secrets.",
+      "src": ["wallet@6d0acae70:docs/support/index.md"]
+    },
+    "g1.private": {
+      "text": "An account with a Guardian in Bread is private, so the public network does not store its account data.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/lib/miden/guardian/account-recipe.ts"]
+    },
+    "g1.need": {
+      "text": "To use your account, you need a current copy of that data as well as your keys.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.phrase": {
+      "text": "Your 12-word recovery phrase does not hold your account data.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.nocopy": {
+      "text": "If no current copy of your account data exists anywhere, the phrase alone cannot bring your account back.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.blocks": {
+      "text": "While your Guardian is down or refuses to approve, your payments stop, even accepting money sent to you.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/lib/miden/transaction/index.ts"]
+    },
+    "g1.noquick": {
+      "text": "You may not be able to switch to another Guardian right away.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.pausewhy": {
+      "text": "A Guardian company can also pause your account, meaning it stops approving. Bread's terms expect that only for a suspected break-in or a lawful request, but the company can do it anyway.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.separate": {
+      "text": "Bread's terms say your Guardian company is a separate party from Miden, the company behind Bread.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.pick": {
+      "text": "When you create a wallet, Bread suggests the listed one that answers fastest, and you can pick another.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/screens/onboarding/common/MeetGuardian.tsx"]
+    },
+    "g1.mine": {
+      "text": "The \"Guardian Settings\" screen shows your provider.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/app/templates/GuardianSettings.tsx"]
+    },
+    "g1.rotate": {
+      "text": "To change your Guardian, look for \"Rotate Guardian\" on the \"Guardian Settings\" screen.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/app/templates/GuardianSettings.tsx"]
+    },
+    "g1.unchanged": {
+      "text": "A switch keeps your wallet address and history.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.oldcopy": {
+      "text": "Assume the old Guardian's company may keep your data.",
+      "src": [
+        "https://github.com/OpenZeppelin/guardian/blob/9fddf6b4/docs/CONCEPTS.md",
+        "wallet@6d0acae70:docs/tos/index.md"
+      ]
+    },
+    "g1.down.safe": {
+      "text": "While your Guardian is unavailable, do not reset or delete Bread, and do not send an unfinished payment again.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "owner:wallet#2359"]
+    },
+    "g1.offer": {
+      "text": "If it stays unreachable, Bread can offer \"Switch Guardian\". Switching needs a device where your account still works, your 12-word recovery phrase, a new Guardian that is online, and usually USDCx for the fee.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/components/ConnectivityIssueBanner.tsx",
+        "wallet@6d0acae70:src/lib/miden/front/guardian-sync.ts",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/miden/transaction/index.ts",
+        "owner:wallet#2359"
+      ]
+    },
+    "g1.wait.safe": {
+      "text": "Do not send a waiting payment a second time. Open it in Activity and read its message.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "owner:wallet#2359"]
+    },
+    "g1.queue": {
+      "text": "A Guardian finishes one change to your account at a time, so a new payment can wait for the one before it.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/miden/guardian/serialize.ts"]
+    },
+    "g1.retry": {
+      "text": "If Bread shows \"You can retry after\" with a time, wait until then.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/components/GuardianHoldNotice.tsx"]
+    },
+    "g1.expire": {
+      "text": "A payment that waits too long can be marked as failed. If so, read its message before you do anything else.",
+      "src": ["wallet@6d0acae70:src/lib/miden/transaction/cancel.ts", "owner:wallet#2359"]
+    },
+    "g1.cantsee": {
+      "text": "I cannot see your payment, so I cannot tell whether it went through.",
+      "src": ["owner:wallet#2359"]
+    },
+    "g1.notperson": {
+      "text": "It is not a friend, relative or contact of yours.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.otherblock": {
+      "text": "Separately, the USDCx token can be blocked for an address or paused, and the network's operator can block addresses.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.cost": {
+      "text": "Any Guardian service fee is separate from network fees, and Bread's terms say what applies.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.newcopy": {
+      "text": "The new Guardian gets a copy of your account data.",
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/miden/guardian/direct-switch.ts",
+        "owner:wallet#2359"
+      ]
+    },
+    "g1.otherwise": {
+      "text": "If you cannot switch, you may have to wait. For help, go to support.miden.xyz.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "g1.note": {
+      "text": "A note is a package that moves money on Miden.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md"]
+    },
+    "r.dev.how": {
+      "text": "On a new device, install Bread and choose \"Recover your account\".",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/pages/Welcome.tsx",
+        "wallet@6d0acae70:docs/tos/index.md"
+      ]
+    },
+    "r.dev.steps": {
+      "text": "Choose \"Import with recovery phrase\", enter your 12 words, then choose \"Import via Guardian\".",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ImportRecoveryMethod.tsx",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/SelectImportType.tsx"
+      ]
+    },
+    "r.dev.need": {
+      "text": "Restoring this way needs your 12 words and an online Guardian with a current copy of your account.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.dev.fee": {
+      "text": "Setting up the new device has a USDCx network fee; you may need to add some.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.dev.partial": {
+      "text": "Some payments or history may not come back right away, or at all.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.dev.stolen": {
+      "text": "If the old device was stolen, ask me about a stolen device.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.ph.what": {
+      "text": "Your recovery phrase is 12 words that give access to your wallet.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.ph.why": {
+      "text": "With your words and an online Guardian that has a current copy of your account, you can get back in on a new device.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.ph.keep": {
+      "text": "Write the words down on paper, in order, and keep them private, away from your device.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.ph.notenough": {
+      "text": "The 12 words alone do not bring back a private account's data.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.ph.noreplace": {
+      "text": "A lost recovery phrase cannot currently be replaced.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.ph.others": {
+      "text": "Anyone who gets your words may be able to take your money.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.key.everyday": {
+      "text": "Your everyday key is stored on your device and is used for normal payments, so they do not need your 12 words.",
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/miden/guardian/account-recipe.ts",
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:docs/support/index.md"
+      ]
+    },
+    "r.key.approve": {
+      "text": "A normal payment also needs your Guardian's approval.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.key.recovery": {
+      "text": "Your recovery key comes from your 12 words and is needed for bigger changes, such as replacing the everyday key.",
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/miden/guardian/account.ts",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "r.key.newdevice": {
+      "text": "Your 12 words do not bring back an old everyday key; after a restore, a new one can be set up with your Guardian's approval.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.key.noswap": {
+      "text": "The everyday key cannot replace a lost recovery phrase.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.key.danger": {
+      "text": "Anyone who gets your private keys may be able to control your money.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.lp.stored": {
+      "text": "If nobody else could have seen your words and Bread still shows them, write them down now.",
+      "src": ["https://support.miden.xyz/", "wallet@6d0acae70:docs/support/index.md", "owner:wallet#2359"]
+    },
+    "r.lp.else": {
+      "text": "Otherwise, act while your wallet still works.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "owner:wallet#2359"]
+    },
+    "r.lp.earn": {
+      "text": "Money in Earn is tied to the old phrase; withdraw and move it too.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "owner:wallet#2359"]
+    },
+    "r.both.keep": {
+      "text": "Do not reset, erase or uninstall Bread on any device that still has it.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "r.both.works": {
+      "text": "If your account still works on a device, your money may still be movable, so ask me what to do about a lost recovery phrase.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "owner:wallet#2359"]
+    },
+    "r.both.look": {
+      "text": "Look for your written words, and for your old device if it is only misplaced.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.both.other": {
+      "text": "A wallet file or private keys you saved earlier may help in some cases, but do not count on them; ask support first, without sending them.",
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "https://support.miden.xyz/",
+        "wallet@6d0acae70:docs/support/index.md"
+      ]
+    },
+    "r.both.gone": {
+      "text": "If your 12 words and everyday key are both lost and you have no usable wallet file, neither support nor your Guardian can restore access.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.fp.stop": {
+      "text": "Do not sign out, reset or uninstall yet.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "r.fp.noreset": {
+      "text": "Nobody, including support, can reset your Bread password or passcode.",
+      "src": ["wallet@6d0acae70:docs/support/index.md", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.fp.flow": {
+      "text": "\"Forgot password?\" or \"Forgot passcode?\" leads to signing out and restoring, which replaces the wallet saved on this device.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/pages/ForgotPassword/ForgotPassword.tsx",
+        "https://support.miden.xyz/"
+      ]
+    },
+    "r.fp.check": {
+      "text": "Continue only if you have this wallet's 12 words written down, you are online, and your Guardian is working and has your account.",
+      "src": [
+        "wallet@6d0acae70:src/app/pages/ForgotPassword/ForgotPassword.tsx",
+        "wallet@6d0acae70:src/lib/miden/back/vault.ts",
+        "wallet@6d0acae70:docs/tos/index.md"
+      ]
+    },
+    "r.fp.file": {
+      "text": "Restoring this way uses your 12 words, not a wallet file.",
+      "src": ["wallet@6d0acae70:src/app/pages/ForgotPassword/ForgotPassword.tsx"]
+    },
+    "r.fp.nowords": {
+      "text": "Without your words, do not sign out; contact support at support.miden.xyz.",
+      "src": ["https://support.miden.xyz/", "owner:wallet#2359"]
+    },
+    "r.rs.no": {
+      "text": "Do not reset, reinstall, remove the extension or clear app data to fix a problem.",
+      "src": ["https://support.miden.xyz/", "owner:wallet#2359"]
+    },
+    "r.rs.erase": {
+      "text": "Doing so can erase your keys, history, contacts and settings from this device.",
+      "src": ["https://support.miden.xyz/", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.rs.check": {
+      "text": "If a reset seems unavoidable, first make sure you have your 12 words written down, and your Guardian is working and has your account.",
+      "src": ["https://support.miden.xyz/", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.rs.unsure": {
+      "text": "If you are not sure, keep the wallet as it is and contact support at support.miden.xyz.",
+      "src": ["https://support.miden.xyz/", "owner:wallet#2359"]
+    },
+    "r.rs.pending": {
+      "text": "A reset does not cancel a payment you already sent.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "r.ng.safe": {
+      "text": "Do not reset or delete any copy of your wallet that still works.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "r.ng.pick": {
+      "text": "If Bread cannot find your Guardian, check your connection, retry, or choose the one you used.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ImportRecoveryMethod.tsx"
+      ]
+    },
+    "r.ng.custom": {
+      "text": "You can enter the web address of an unlisted Guardian you used, but never one a stranger sends you.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ImportRecoveryMethod.tsx",
+        "https://support.miden.xyz/"
+      ]
+    },
+    "r.ng.words": {
+      "text": "Check your 12 words and network too.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "https://support.miden.xyz/"]
+    },
+    "r.ng.new": {
+      "text": "Creating a new account with your phrase does not recover an old one.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.ng.help": {
+      "text": "Still stuck? Contact support at support.miden.xyz.",
+      "src": ["https://support.miden.xyz/", "wallet@6d0acae70:docs/support/index.md"]
+    },
+    "r.rm.safe": {
+      "text": "Do not reset Bread, and do not pay anyone again just because a payment is missing from your history.",
+      "src": ["https://support.miden.xyz/", "owner:wallet#2359"]
+    },
+    "r.rm.sync": {
+      "text": "After a restore, let Bread finish recovering and syncing.",
+      "src": ["https://support.miden.xyz/", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.rm.partial": {
+      "text": "A restore may not bring back every incoming payment or history entry.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.rm.check": {
+      "text": "Check your 12 words and network. Choosing \"Import public account\" can create a new, empty account.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ImportRecoveryMethod.tsx"
+      ]
+    },
+    "r.rm.help": {
+      "text": "If something is still missing, contact support at support.miden.xyz.",
+      "src": ["https://support.miden.xyz/", "wallet@6d0acae70:docs/support/index.md"]
+    },
+    "r.wf.what": {
+      "text": "An Encrypted Wallet File is an extra backup that you save yourself and lock with a password.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.wf.holds": {
+      "text": "It holds account data and, if your 12 words were stored in Bread, those words too.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/lib/miden/back/vault.ts"]
+    },
+    "r.wf.read": {
+      "text": "Anyone with the file and its password can read what is inside.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.wf.snap": {
+      "text": "It is a copy of your account as it was when you saved it.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.wf.limit": {
+      "text": "Do not rely on it to get your account back; keep your 12 words written down.",
+      "src": ["https://support.miden.xyz/", "owner:wallet#2359"]
+    },
+    "r.wf.share": {
+      "text": "Never send the file or its password to anyone, including support.",
+      "src": ["wallet@6d0acae70:docs/support/index.md", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.md.ask": {
+      "text": "In newer versions, restoring on another device lets you choose \"Add this device\" or \"Make this device the main one\".",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:CHANGELOG.md"]
+    },
+    "r.md.diff": {
+      "text": "Adding keeps other devices working; making it the main one removes them.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.md.old": {
+      "text": "In older versions, restoring elsewhere can stop the first device working with the account.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "https://support.miden.xyz/"]
+    },
+    "r.md.fee": {
+      "text": "Setting up the new device costs a network fee in USDCx.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.md.revoke": {
+      "text": "Newer versions also let you remove a device on the \"Devices\" screen.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/app/pages/Settings.tsx"]
+    },
+    "r.md.rejoin": {
+      "text": "A removed device that has your recovery phrase, even one stored on it, can get back in.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/HotKeyRotatedOutGate.tsx"
+      ]
+    },
+    "r.md.exposed": {
+      "text": "If someone may have your 12 words, removing a device is not enough; ask me about an exposed phrase.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "owner:wallet#2359"]
+    },
+    "r.ul.how": {
+      "text": "The browser extension unlocks with a password; phones use a passcode, face or fingerprint.",
+      "src": ["wallet@6d0acae70:src/app/pages/Unlock.tsx", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.ul.phonecode": {
+      "text": "With face or fingerprint unlock, your phone's passcode may also work.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.ul.passkey": {
+      "text": "On some computers the extension also offers passkey unlock, and your password still works.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/app/pages/Settings.tsx"]
+    },
+    "r.ul.phonelock": {
+      "text": "Phones lock after Bread has been in the background for a time you can set.",
+      "src": ["wallet@6d0acae70:src/lib/lock-up/index.ts", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "r.ul.extlock": {
+      "text": "The extension may stay unlocked while it is open, so lock your computer when you step away.",
+      "src": ["wallet@6d0acae70:src/lib/lock-up/checks.ts"]
+    },
+    "r.ul.notbackup": {
+      "text": "Unlocking is not a backup and cannot restore your account on another device.",
+      "src": [
+        "wallet@6d0acae70:src/lib/miden/back/vault.ts",
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "https://support.miden.xyz/"
+      ]
+    },
+    "r.ul.forgot": {
+      "text": "If you forgot your password or passcode, do not sign out or reset yet; ask me about it.",
+      "src": ["https://support.miden.xyz/", "owner:wallet#2359"]
+    },
+    "r.dev.role": {
+      "text": "If asked, \"Make this device the main one\" removes other devices; \"Add this device\" keeps all, even a lost one.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ChooseDeviceRole.tsx"
+      ]
+    },
+    "r.lp.fee": {
+      "text": "Keep USDCx for fees in the old wallet until all else has moved.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md", "owner:wallet#2359"]
+    },
+    "r.lp.delay": {
+      "text": "An Earn withdrawal can be delayed or unavailable.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.fp.imported": {
+      "text": "Accounts you added with private keys may not come back from your 12 words.",
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/miden/back/vault.ts",
+        "wallet@6d0acae70:src/app/pages/ForgotPassword/ForgotPassword.tsx"
+      ]
+    },
+    "r.wf.imported": {
+      "text": "It can also hold keys for some imported accounts.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "r.wf.nokey": {
+      "text": "It does not hold a Guardian account's everyday key, so after restoring you may still need your Guardian.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "sf.backup": {
+      "text": "To stay safe with Bread, write your recovery phrase on paper and keep it safe and offline.",
+      "src": ["https://support.miden.xyz/", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "sf.lock": {
+      "text": "Use a strong password or passcode that you do not use anywhere else.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "sf.official": {
+      "text": "Get and update Bread only from official sources, and watch for fake apps, websites and support messages.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "sf.review": {
+      "text": "Before you confirm a payment, check who gets it, the token and the amount.",
+      "src": ["wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx"]
+    },
+    "sf.neverask": {
+      "text": "Bread support and Guardian operators will never ask for your recovery phrase.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "sf.recoveryscam": {
+      "text": "Anyone who messages you first and offers to recover your funds is running a scam. So is anyone who asks for your secrets to get funds back.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "sf.shared": {
+      "text": "If you already shared your recovery phrase, a private key, or your wallet file and its password, act now, but do not reset your wallet. Ask here what to do if someone has your recovery phrase.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "sf.act": {
+      "text": "Anyone with your recovery phrase may be able to take your money, so act now.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "https://support.miden.xyz/"]
+    },
+    "sf.notenough": {
+      "text": "Changing your password, key or Guardian does not lock that person out.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/lib/miden/guardian/account-recipe.ts"]
+    },
+    "sf.earn": {
+      "text": "Money in Earn is tied to this phrase too: withdraw and move it, though this can be delayed or unavailable.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "sf.keepothers": {
+      "text": "Do not reset or delete Bread on any device you still have.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "sf.restore": {
+      "text": "If no other device has this wallet, restore it with your 12-word recovery phrase on a trusted device with no Bread wallet. This needs your Guardian online with a copy of your account data, and usually a USDCx fee.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "sf.main": {
+      "text": "If Bread asks how this device should join, choose \"Make this device the main one\" to remove all others. \"Add this device\" keeps the stolen one.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/onboarding/import-wallet-flow/ChooseDeviceRole.tsx",
+        "wallet@6d0acae70:src/app/templates/HotKeyRotationGate.tsx"
+      ]
+    },
+    "sf.remove": {
+      "text": "If another device has this wallet, your app may let you remove the stolen one there.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/app/templates/DeviceSettings.tsx"]
+    },
+    "sf.removelimit": {
+      "text": "Removal does not help if the thief has your recovery phrase.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "https://support.miden.xyz/"]
+    },
+    "sf.thiefaccess": {
+      "text": "If the thief may open Bread or see your phrase, act now: ask what to do if someone has your recovery phrase.",
+      "src": ["owner:wallet#2359", "https://support.miden.xyz/"]
+    },
+    "sf.nophrase": {
+      "text": "If you cannot get in, go to support.miden.xyz. Support cannot recover funds.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/support/index.md", "https://support.miden.xyz/"]
+    },
+    "sf.tok.safe": {
+      "text": "Do not trust a surprise token or offer, and do not share any secret to claim it.",
+      "src": ["https://support.miden.xyz/", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "sf.tok.name": {
+      "text": "A token's name proves nothing, because anyone can create a token with any name.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "sf.tok.unverified": {
+      "text": "Bread can mark a token \"Unverified\" if it is not on Miden's verified token list. No mark does not prove it is safe.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/token-list/useTokenVerification.ts",
+        "wallet@6d0acae70:src/components/AssetRow.tsx"
+      ]
+    },
+    "sf.tok.faucet": {
+      "text": "A token's faucet ID shows which account issued it, so check it before you trust the token.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/components/UnverifiedTokenSheet.tsx",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/asset.md"
+      ]
+    },
+    "sf.tok.wait": {
+      "text": "Bread does not auto-accept a surprise token other than USDCx, so you can leave it waiting.",
+      "src": ["wallet@6d0acae70:src/lib/miden/front/auto-managed-notes.ts"]
+    },
+    "sf.tok.endorse": {
+      "text": "A token showing up in Bread does not mean Miden endorses it.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "sf.tok.acceptall": {
+      "text": "\"Accept All\" takes every listed payment that can be accepted, from any sender and in any token, so do not use it while a surprise one is listed.",
+      "src": ["wallet@6d0acae70:src/app/templates/history/ActivityPendingHistory.tsx"]
+    },
+    "sf.tok.hide": {
+      "text": "\"Hide token\" takes a token off your Home list, but the token stays in your account.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/pages/TokenDetail.tsx",
+        "wallet@6d0acae70:src/app/hooks/useHiddenTokens.ts"
+      ]
+    },
+    "pay.send": {
+      "text": "To send, use Send, enter the recipient's address and check the review screen before you confirm.",
+      "src": [
+        "wallet@6d0acae70:src/screens/send-flow/SendManager.tsx",
+        "wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx"
+      ]
+    },
+    "pay.receive": {
+      "text": "To get paid, open Receive and share your address or QR code.",
+      "src": ["wallet@6d0acae70:src/app/pages/Receive/AddressTab.tsx"]
+    },
+    "pay.privdefault": {
+      "text": "A normal send starts as Private, which does not make you anonymous, and you can choose Public instead.",
+      "src": [
+        "wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "owner:wallet#2359",
+        "wallet@6d0acae70:docs/tos/index.md"
+      ]
+    },
+    "pay.samenet": {
+      "text": "For a Miden payment, both sides must use the same Miden network.",
+      "src": ["wallet@6d0acae70:src/screens/send-flow/SendManager.tsx", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.testfunds": {
+      "text": "Real money sent to a test network address cannot be recovered.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.checkaddr": {
+      "text": "Check the address and the network on the review screen before you confirm.",
+      "src": ["wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "pay.midenaddr": {
+      "text": "For a payment on Miden, use a Miden address for the network you are on.",
+      "src": ["wallet@6d0acae70:src/screens/send-flow/SendManager.tsx"]
+    },
+    "pay.addrreject": {
+      "text": "Bread rejects your own current address, and it tells you when a Miden address belongs to a different Miden network.",
+      "src": ["wallet@6d0acae70:src/screens/send-flow/SendManager.tsx", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.otherchain": {
+      "text": "An address on another network works only where Bread offers a route to it, which can change.",
+      "src": [
+        "wallet@6d0acae70:src/screens/send-flow/SendManager.tsx",
+        "wallet@6d0acae70:src/screens/send-flow/bridge-networks.ts"
+      ]
+    },
+    "pay.exchange": {
+      "text": "Before you send to an exchange, confirm with it that it accepts that token on that exact network.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/screens/send-flow/SendManager.tsx"]
+    },
+    "pay.validnot": {
+      "text": "An address that Bread accepts can still be the wrong one.",
+      "src": ["wallet@6d0acae70:src/screens/send-flow/SendManager.tsx"]
+    },
+    "pay.claimwho": {
+      "text": "The recipient takes the money in by accepting the note.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "pay.acceptfee": {
+      "text": "Accepting costs a network fee.",
+      "src": ["wallet@6d0acae70:src/lib/miden/fees/spendable.ts", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "pay.selffee": {
+      "text": "An incoming USDCx payment can cover its own accept fee if it is large enough, but accepting another token needs USDCx for the fee.",
+      "src": ["wallet@6d0acae70:src/lib/miden/fees/spendable.ts"]
+    },
+    "pay.howaccept": {
+      "text": "To accept, open Activity and choose \"Accept Transfer\" on the payment.",
+      "src": [
+        "wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "pay.autooff": {
+      "text": "You can turn this off in Settings with \"Auto-accept USDCX transfers\".",
+      "src": ["wallet@6d0acae70:src/app/templates/GeneralSettings.tsx", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.autowait": {
+      "text": "If a payment is still waiting, you can accept it yourself in Activity.",
+      "src": [
+        "wallet@6d0acae70:src/lib/miden/front/auto-managed-notes.ts",
+        "wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx"
+      ]
+    },
+    "pay.autoqueued": {
+      "text": "Turning it off does not cancel an accept that is already queued.",
+      "src": ["wallet@6d0acae70:src/lib/miden/front/auto-managed-notes.ts"]
+    },
+    "pay.readmsg": {
+      "text": "Open the payment in Activity and read its message first.",
+      "src": ["wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx"]
+    },
+    "pay.wait": {
+      "text": "If it shows a time to retry after, wait until then.",
+      "src": [
+        "wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "pay.needfee": {
+      "text": "If it says you need USDCx for the network fee, you need to receive some USDCx first.",
+      "src": [
+        "wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/miden/fees/spendable.ts"
+      ]
+    },
+    "pay.retryaccept": {
+      "text": "If it offers Retry, you can use it.",
+      "src": [
+        "wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "pay.gone": {
+      "text": "If it says \"This transfer is no longer available\", it may already have been accepted on another device or taken back by the sender.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/miden/transaction/constants.ts",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/crates/miden-standards/asm/standards/notes/p2ide.masm"
+      ]
+    },
+    "pay.import": {
+      "text": "If you see \"Incoming transfers need a retry\", Bread could not load a transfer automatically, so use \"Try again\" on that notice.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/miden/activity/notes.ts",
+        "wallet@6d0acae70:src/components/DeadletteredNotesNotice.tsx"
+      ]
+    },
+    "pay.noreset": {
+      "text": "Do not reset or delete Bread to fix it.",
+      "src": ["owner:wallet#2359", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "pay.hide": {
+      "text": "Decline only hides an incoming payment from Activity on this device.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/hooks/useActivityHiddenNotes.ts",
+        "wallet@6d0acae70:src/lib/miden/front/auto-managed-notes.ts"
+      ]
+    },
+    "pay.norefund": {
+      "text": "Decline does not send the money back or cancel the payment.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.restore": {
+      "text": "You can bring it back in Activity with \"Restore\".",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/history/ActivityPendingHistory.tsx"
+      ]
+    },
+    "pay.declineauto": {
+      "text": "Declining does not turn off auto-accept, so an ordinary USDCx payment may still be accepted.",
+      "src": [
+        "wallet@6d0acae70:src/app/hooks/useActivityHiddenNotes.ts",
+        "wallet@6d0acae70:src/lib/miden/front/auto-managed-notes.ts"
+      ]
+    },
+    "pay.pendin": {
+      "text": "If money is coming to you, check Activity for \"Accept Transfer\".",
+      "src": [
+        "wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "pay.pendout": {
+      "text": "If you sent it, it may still be in progress, the recipient may not have accepted it yet, or Activity may show a delivery warning on the payment.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/crates/miden-standards/asm/standards/notes/p2ide.masm",
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/history/TransactionStatus.tsx"
+      ]
+    },
+    "pay.pendbridge": {
+      "text": "A bridge or swap can have separate steps, so open that item in Activity to follow it.",
+      "src": ["wallet@6d0acae70:src/lib/command-ai/help-facts.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "pay.nolive": {
+      "text": "This chat cannot see the live status of your payment.",
+      "src": ["wallet@6d0acae70:src/lib/command-ai/help-facts.json"]
+    },
+    "pay.noresend": {
+      "text": "Do not send a payment again while you are unsure what happened to it.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/miden/transaction/retry.ts"]
+    },
+    "pay.openfirst": {
+      "text": "Open the payment in Activity and read its status and any message.",
+      "src": [
+        "wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "pay.confirmed": {
+      "text": "\"Confirmed\" on a send does not mean the recipient has accepted it.",
+      "src": [
+        "wallet@6d0acae70:src/app/templates/history/TransactionStatus.tsx",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md"
+      ]
+    },
+    "pay.askthem": {
+      "text": "If there is no warning, ask the recipient to check their account and network and look for \"Accept Transfer\".",
+      "src": [
+        "wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "pay.noproof": {
+      "text": "Having no warning does not prove the payment reached them.",
+      "src": ["wallet@6d0acae70:src/lib/miden/transaction/note-delivery-sweep.ts"]
+    },
+    "pay.txid": {
+      "text": "If it is still missing, save the transaction ID and contact support at support.miden.xyz.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "owner:wallet#2359"]
+    },
+    "pay.warned": {
+      "text": "If Activity shows a delivery warning on it, keep this wallet open and online.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.stuckfirst": {
+      "text": "Do not send the payment again until you have opened it in Activity, read its message and know what happened.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/miden/transaction/retry.ts"]
+    },
+    "pay.nofunds": {
+      "text": "Some messages say plainly that no funds moved.",
+      "src": ["wallet@6d0acae70:src/lib/miden/transaction/constants.ts"]
+    },
+    "pay.notconf": {
+      "text": "\"Not confirmed\" means the wallet could not tell whether it went through, so it may still complete.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.cancelbtn": {
+      "text": "Pressing Cancel does not guarantee that the payment is stopped.",
+      "src": ["wallet@6d0acae70:src/lib/miden/transaction/retry.ts"]
+    },
+    "pay.retry": {
+      "text": "Only some payments offer Retry; if it warns you could pay twice, stop unless you know the first try did not go through.",
+      "src": ["wallet@6d0acae70:src/lib/miden/transaction/retry.ts", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.dwfirst": {
+      "text": "Do not send the payment again.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.dwmean": {
+      "text": "\"Recipient not notified\" or \"Delivery unconfirmed\" means your transaction is on chain, but Bread could not confirm the private payment was passed on, so the recipient may not be able to see or spend it yet.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pay.dwopen": {
+      "text": "Keep this wallet open and online so it can retry; automatic retries stop after a while.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/miden/transaction/note-delivery-window.ts"
+      ]
+    },
+    "pay.dwsupport": {
+      "text": "If the recipient still has nothing, or retries have stopped, save the transaction ID and contact support at support.miden.xyz.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "owner:wallet#2359"]
+    },
+    "pay.dwnopromise": {
+      "text": "Recovery or arrival is not guaranteed.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "pay.ctcheck": {
+      "text": "Check the payment in Activity first.",
+      "src": ["wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx"]
+    },
+    "pay.nocancel": {
+      "text": "You cannot call back a sent payment right away, and the Cancel button does not guarantee a stop.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/crates/miden-standards/asm/standards/notes/p2ide.masm",
+        "wallet@6d0acae70:src/lib/miden/transaction/retry.ts"
+      ]
+    },
+    "pay.expiry": {
+      "text": "Bread sets an expiry on a normal Miden send unless you choose \"Never\", and the expiry time is only an estimate.",
+      "src": [
+        "wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/miden/helpers.ts"
+      ]
+    },
+    "pay.takeback": {
+      "text": "After expiry, you may be able to take back a payment that has not been accepted; it appears as a transfer for you to accept.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/crates/miden-standards/asm/standards/notes/p2ide.masm",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "pay.race": {
+      "text": "The recipient can still accept until your take-back goes through, even after expiry.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/crates/miden-standards/asm/standards/notes/p2ide.masm"]
+    },
+    "pay.never": {
+      "text": "If you chose \"Never\", only the recipient can take the payment.",
+      "src": [
+        "wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/crates/miden-standards/asm/standards/notes/p2ide.masm"
+      ]
+    },
+    "pay.tbfee": {
+      "text": "Taking it back costs a network fee.",
+      "src": ["wallet@6d0acae70:src/lib/miden/fees/spendable.ts", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "pay.otherrules": {
+      "text": "Bridges and swaps follow their own rules.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx"
+      ]
+    },
+    "pay.wafirst": {
+      "text": "Open the payment in Activity before sending anything else.",
+      "src": ["wallet@6d0acae70:src/app/templates/history/PendingActivityCard.tsx"]
+    },
+    "pay.wasecond": {
+      "text": "A new send to the right address is a separate payment and does not cancel the first.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md"]
+    },
+    "pay.watake": {
+      "text": "If it was a normal Miden send with an expiry that has not been accepted, you may be able to take it back after it expires.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/crates/miden-standards/asm/standards/notes/p2ide.masm",
+        "wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx"
+      ]
+    },
+    "pay.warace": {
+      "text": "Until a take-back goes through, whoever controls that address can accept the payment, even after expiry.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/crates/miden-standards/asm/standards/notes/p2ide.masm"]
+    },
+    "pay.wagone": {
+      "text": "If it was accepted, or you chose \"Never\", you cannot take it back yourself.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/crates/miden-standards/asm/standards/notes/p2ide.masm",
+        "wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx"
+      ]
+    },
+    "pay.norev": {
+      "text": "Bread support cannot reverse a transaction you approved.",
+      "src": ["wallet@6d0acae70:docs/support/index.md", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "pay.async": {
+      "text": "This lets sending and accepting happen at different times.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md"]
+    },
+    "pay.autofee": {
+      "text": "An automatic accept pays a network fee, just like accepting it yourself.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/miden/fees/spendable.ts"]
+    },
+    "pay.keepwallet": {
+      "text": "Do not reset or delete Bread while the payment is missing.",
+      "src": [
+        "owner:wallet#2359",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/miden/transaction/note-delivery-window.ts"
+      ]
+    },
+    "fee.each": {
+      "text": "Miden transactions normally pay a small network fee, and accepting a payment is a transaction too.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/lib/miden/fees/spendable.ts"]
+    },
+    "fee.nocoin": {
+      "text": "Apart from USDCx, you do not need another coin for Miden network fees.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.noown": {
+      "text": "Bread's terms say Bread adds no fee of its own.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.extra": {
+      "text": "Swaps, bridges and Earn can have other fees, and a swap's fee may be built into its quoted rate.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.short": {
+      "text": "Without enough USDCx for the fee, a transaction can be blocked or fail.",
+      "src": ["wallet@6d0acae70:src/lib/miden/fees/spendable.ts", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "fee.review": {
+      "text": "Fees can change, so check the review screen before you confirm.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.norefund": {
+      "text": "Under Bread's terms, fees on a submitted transaction are not refunded, even if it later fails, unless the law requires it.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.nosend.lead": {
+      "text": "If you have too little USDCx for the fee, get some USDCx first.",
+      "src": ["wallet@6d0acae70:src/lib/miden/fees/spendable.ts", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "fee.nosend.msg": {
+      "text": "Bread may say \"You need USDCX to pay the network fee. Receive some USDCX to continue.\"",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "fee.nosend.get": {
+      "text": "Ask someone to send you USDCx, or, if Bread offers it, bring USDC from another network by a route that gives you USDCx.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/usdcx/constant.ts"]
+    },
+    "fee.nosend.self": {
+      "text": "Incoming USDCx can pay its own accept fee if it is large enough, even if you have none yet.",
+      "src": ["wallet@6d0acae70:src/lib/miden/fees/spendable.ts"]
+    },
+    "fee.nosend.other": {
+      "text": "Accepting another token needs USDCx for the fee.",
+      "src": ["wallet@6d0acae70:src/lib/miden/fees/spendable.ts"]
+    },
+    "fee.nosend.faucet": {
+      "text": "On Miden Mainnet, the live network, Bread has no free faucet that hands out USDCx.",
+      "src": ["wallet@6d0acae70:src/lib/miden-chain/networks-config.ts"]
+    },
+    "fee.nosend.extra": {
+      "text": "Bringing money from another network can cost extra, so check the cost and the token you will get on the review screen.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.usdcx.separate": {
+      "text": "It is not the same token as USDC.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.usdcx.blocked": {
+      "text": "Blocked, or frozen, USDCx cannot be sent, received or moved to another network.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.usdcx.pause": {
+      "text": "While USDCx is paused, ordinary Miden transactions stop too, because fees are paid in USDCx.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.usdcx.insured": {
+      "text": "It is not a bank deposit or government insured.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.usdcx.redeem": {
+      "text": "Turning it back into USDC can be delayed or unavailable.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.usdcx.claim": {
+      "text": "Holding it does not give you a contractual claim against Circle.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.missing.keep": {
+      "text": "If money seems to be missing, do not reset, reinstall or delete Bread, or clear its data.",
+      "src": ["owner:wallet#2359"]
+    },
+    "fee.missing.where": {
+      "text": "Check that you are looking at the account and network where the money should be.",
+      "src": ["wallet@6d0acae70:src/app/pages/Explore.tsx", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "fee.missing.hidden": {
+      "text": "Tokens you hid are left out of the home total and listed under \"Hidden assets\".",
+      "src": [
+        "wallet@6d0acae70:src/app/pages/Explore.tsx",
+        "wallet@6d0acae70:src/app/templates/Balance.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "fee.missing.node": {
+      "text": "If Bread shows \"Cannot reach the Miden node\", your balance may be out of date.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/components/ConnectivityIssueBanner.tsx"
+      ]
+    },
+    "fee.missing.update": {
+      "text": "If this began after an update, check for a newer version of Bread.",
+      "src": ["wallet@6d0acae70:CHANGELOG.md"]
+    },
+    "fee.missing.cantsee": {
+      "text": "I can't see your balance or tell why it looks wrong.",
+      "src": ["owner:wallet#2359"]
+    },
+    "fee.usdcx.below": {
+      "text": "It can be worth less than one US dollar.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "fee.missing.dust": {
+      "text": "With \"Hide dust tokens\" on, as it is by default, the home list also leaves out tokens worth very little.",
+      "src": [
+        "wallet@6d0acae70:src/lib/settings/constants.ts",
+        "wallet@6d0acae70:src/lib/miden/front/dust.ts",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "fee.missing.noprice": {
+      "text": "A token with no price is not counted in the dollar total.",
+      "src": ["wallet@6d0acae70:src/lib/miden/front/fiat-total.ts"]
+    },
+    "pv.default": {
+      "text": "A Bread send to a Miden address is private by default.",
+      "src": ["wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx"]
+    },
+    "pv.publicacct": {
+      "text": "On either side, a public account's balance changes can reveal that amount.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/state.md"]
+    },
+    "pv.checktype": {
+      "text": "Before you confirm a send to a Miden address, look at \"Advanced options\": its \"Transfer type\" is \"Private\" or \"Public\".",
+      "src": [
+        "wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx",
+        "wallet@6d0acae70:src/screens/send-flow/TransferTypeDrawer.tsx",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "pv.explorer": {
+      "text": "A block explorer shows only what was published. It cannot show who else saw details.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/state.md",
+        "wallet@6d0acae70:src/lib/command-ai/help-facts.json",
+        "owner:wallet#2359"
+      ]
+    },
+    "pv.proof": {
+      "text": "By default, an online service makes each transaction's proof (math showing it follows the rules), so private details leave your device.",
+      "src": [
+        "wallet@6d0acae70:src/lib/settings/constants.ts",
+        "https://github.com/0xMiden/node/blob/v0.18.0/proto/proto/remote_prover.proto",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/transaction.md"
+      ]
+    },
+    "pv.provekeys": {
+      "text": "Your keys stay on your device.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "pv.offlimit": {
+      "text": "Turning it off does not hide payments from your Guardian or the validators.",
+      "src": ["owner:wallet#2359"]
+    },
+    "pv.operators": {
+      "text": "The services handling a swap or bridge see the tokens, amounts and addresses they process.",
+      "src": ["wallet@6d0acae70:docs/privacy/index.md"]
+    },
+    "pv.swappublic": {
+      "text": "A swap on Miden places a public order, so anyone can see your account ID and the tokens and amounts.",
+      "src": [
+        "wallet@6d0acae70:src/lib/miden/sdk/miden-client-interface.ts",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md"
+      ]
+    },
+    "pv.outpublic": {
+      "text": "Some transfers to other networks also make details public on Miden, such as the destination address.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/epoch/collateral-note.ts"]
+    },
+    "pv.othernet": {
+      "text": "Activity on the other network may be public too.",
+      "src": ["wallet@6d0acae70:docs/privacy/index.md"]
+    },
+    "pv.viewers": {
+      "text": "People you pay, swap and bridge services, and apps you allow can see details.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md",
+        "wallet@6d0acae70:docs/privacy/index.md",
+        "wallet@6d0acae70:src/app/confirm/ConnectRequest.tsx"
+      ]
+    },
+    "x.br.what": {
+      "text": "A bridge moves money between Miden and another network, such as Ethereum.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.br.party": {
+      "text": "Bridges are run by others, and while money is on the way, the bridge's programs or an outside trading service hold it, not Bread.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.br.steps": {
+      "text": "A bridge has two sides, so a confirmation on one network does not yet mean the money has arrived on the other.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/history/BridgeClaimSection.tsx"
+      ]
+    },
+    "x.br.norecover": {
+      "text": "Support can help trace a failed transfer but cannot promise to recover money held by a bridge or another network.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.br.check": {
+      "text": "Check the network, address, fees and amount to receive before you approve.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.in.how": {
+      "text": "To bring money in from another network, you connect the outside wallet that holds it, pick a network, coin and amount, check the route and fees, and approve in that wallet.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "x.in.accept": {
+      "text": "The money may need to be accepted when it arrives, and accepting costs a fee in USDCx, so without any USDCx you may not be able to accept another coin.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/miden/front/auto-managed-notes.ts",
+        "wallet@6d0acae70:src/lib/miden/fees/spendable.ts"
+      ]
+    },
+    "x.in.cap": {
+      "text": "Bread can refuse a bridge deposit that would put your account over a value limit shown on screen.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/bridge/core/balance-cap.ts"]
+    },
+    "x.out.how": {
+      "text": "To send money to another network, use a recipient address on that network.",
+      "src": [
+        "wallet@6d0acae70:src/screens/send-flow/SendManager.tsx",
+        "wallet@6d0acae70:src/screens/send-flow/send-token-routes.ts"
+      ]
+    },
+    "x.out.less": {
+      "text": "Less can arrive than you send, because of a route fee that may not be known exactly in advance.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "x.out.noback": {
+      "text": "Once sent, you may not be able to get it back.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.out.public": {
+      "text": "Anyone may see the destination address and amount.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:docs/privacy/index.md",
+        "owner:wallet#2359"
+      ]
+    },
+    "x.out.time": {
+      "text": "Arrival time varies by route and network, and delays can happen.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.out.claim": {
+      "text": "Some Slow withdrawals show \"Claim Asset\" in Activity, which uses the receiving wallet and may cost a fee there.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/history/BridgeClaimSection.tsx"
+      ]
+    },
+    "x.rt.picker": {
+      "text": "The bridge and send screens show which routes, networks and coins you can use right now.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/remote-config/availability.ts",
+        "wallet@6d0acae70:src/screens/send-flow/send-token-routes.ts"
+      ]
+    },
+    "x.rt.diff": {
+      "text": "Routes such as Fast and Slow differ in speed, in fees and in which coins they carry.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.rt.est": {
+      "text": "Times shown are estimates, not promises.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.rt.limit": {
+      "text": "A route can be unavailable, and minimum or maximum amounts can apply, so check the screen before you approve.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/bridge/core/balance-cap.ts"]
+    },
+    "x.cw.nosecret": {
+      "text": "Never enter a recovery phrase or private key to connect a wallet.",
+      "src": ["wallet@6d0acae70:src/lib/walletconnect/config.ts", "wallet@6d0acae70:docs/support/index.md"]
+    },
+    "x.cw.which": {
+      "text": "For bridging, you can connect MetaMask, Rainbow or another WalletConnect wallet.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/walletconnect/appkit.tsx"]
+    },
+    "x.cw.ext": {
+      "text": "In the browser extension, scan the QR code with a wallet on your phone, as browser wallet extensions do not work there.",
+      "src": ["wallet@6d0acae70:src/lib/walletconnect/appkit.tsx"]
+    },
+    "x.cw.fail": {
+      "text": "If connecting keeps failing, contact Bread support at support.miden.xyz.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/pages/BridgeDeposit.tsx",
+        "owner:wallet#2359"
+      ]
+    },
+    "x.cw.risk": {
+      "text": "Read each request: approving a token lets a program spend up to the approved amount, and a Fast bridge can use money you locked earlier without a new wallet transaction.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "x.st.first": {
+      "text": "Open the transfer in Activity and read its status, and do not send it again while it is unresolved, or you could pay twice.",
+      "src": ["wallet@6d0acae70:src/app/templates/history/BridgeClaimSection.tsx", "owner:wallet#2359"]
+    },
+    "x.st.buttons": {
+      "text": "Depending on the case, Bread may offer a button such as \"Claim Asset\", \"Reclaim funds\", \"Retry bridge\" or \"Withdraw deposit\".",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/history/BridgeClaimSection.tsx",
+        "wallet@6d0acae70:src/app/templates/EvmConnectModal/EpochLockedDepositAction.tsx"
+      ]
+    },
+    "x.st.reclaim": {
+      "text": "\"Reclaim funds\" is not automatic, shows only for some unfinished transfers after a set point, needs the sending account selected, and costs a network fee.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/history/BridgeClaimSection.tsx"
+      ]
+    },
+    "x.st.limit": {
+      "text": "Recovery is not guaranteed.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.lk.first": {
+      "text": "If Bread shows \"Deposit locked\", deal with this deposit before making another one to replace it.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "owner:wallet#2359"]
+    },
+    "x.lk.what": {
+      "text": "It means a program on the network you sent from holds your deposit, because the bridge did not start.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/epoch/bridge-in-recovery.ts"]
+    },
+    "x.lk.options": {
+      "text": "In Activity, Bread can offer \"Retry bridge\" with the money already held, or \"Withdraw deposit\" back to the same outside wallet, which you must connect.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/EvmConnectModal/EpochLockedDepositAction.tsx",
+        "wallet@6d0acae70:src/lib/epoch/bridge-in-recovery.ts"
+      ]
+    },
+    "x.lk.two": {
+      "text": "Both can cost network fees, and to withdraw you request it, wait, then finish it.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/epoch/bridge-in-recovery.ts"]
+    },
+    "x.lk.blocks": {
+      "text": "A withdrawal request blocks new Fast deposits of that coin from that wallet until you use \"Disable withdrawal\" after getting the money back.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/EvmConnectModal/EpochWithdrawalGate.tsx"
+      ]
+    },
+    "x.sw.what": {
+      "text": "A swap trades one coin on Miden for another through an outside trading service, not Bread.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.sw.rate": {
+      "text": "Its fee is in the rate, and a Miden network fee in USDCx is extra.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.sw.slip": {
+      "text": "Slippage is how much worse than the current rate you accept: with less, the order may not fill; with more, you can get a worse price.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/miden/swap/slippage-bounds.ts",
+        "wallet@6d0acae70:src/lib/miden/swap/quote.ts"
+      ]
+    },
+    "x.sw.exact": {
+      "text": "If you set the exact amount to receive, slippage changes what you pay.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/miden/swap/quote.ts"]
+    },
+    "x.sw.partial": {
+      "text": "An order can fill fully, partly or not at all.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "x.sw.public": {
+      "text": "The swap order is public on Miden.",
+      "src": ["wallet@6d0acae70:src/lib/miden/sdk/miden-client-interface.ts"]
+    },
+    "x.nf.first": {
+      "text": "Check the swap in Activity before placing it again, or you could trade twice.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "owner:wallet#2359"]
+    },
+    "x.nf.expiry": {
+      "text": "When your waiting time ends, Bread tries to take back the unfilled part, and the filled part stays traded.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/swap-flow/expiry.ts",
+        "wallet@6d0acae70:src/lib/miden/swap/settlement.ts"
+      ]
+    },
+    "x.nf.needs": {
+      "text": "The automatic return needs \"Auto accept\" on for that swap, Bread running and unlocked, USDCx for the fee, and any Guardian's approval.",
+      "src": [
+        "wallet@6d0acae70:src/lib/miden/swap/classification.ts",
+        "wallet@6d0acae70:src/lib/miden/swap/cancel-order.ts",
+        "wallet@6d0acae70:src/lib/miden/guardian/account-recipe.ts",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/app/templates/history/swapReceipt.ts",
+        "wallet@6d0acae70:src/lib/miden/back/sync-manager.ts"
+      ]
+    },
+    "x.nf.race": {
+      "text": "Until the money is back, the order can still fill.",
+      "src": ["wallet@6d0acae70:src/screens/swap-flow/expiry.ts", "wallet@6d0acae70:src/lib/miden/swap/cancel-order.ts"]
+    },
+    "x.nf.cancel": {
+      "text": "With \"Auto accept\" on, an open order may offer \"Cancel swap\".",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/miden/swap/cancel-order.ts",
+        "wallet@6d0acae70:src/app/templates/history/SwapDetail.tsx",
+        "wallet@6d0acae70:src/app/templates/history/swapReceipt.ts"
+      ]
+    },
+    "x.nf.payout": {
+      "text": "If you see \"Payout stuck\", read the reason, then you can use \"Retry payout\".",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/history/SwapDetail.tsx",
+        "wallet@6d0acae70:src/app/templates/history/useTransactionActions.ts"
+      ]
+    },
+    "x.ea.what": {
+      "text": "Earn uses your USDCx to open a deposit in a lending market on another network, such as Ethereum, and an outside company carries out deposits and withdrawals.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/lib/epoch/earn-collateral.ts"]
+    },
+    "x.ea.benefit": {
+      "text": "It can earn a return, but the rate changes, can fall to zero and is not guaranteed.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.ea.risk": {
+      "text": "Earn is risky and not insured: you may get back less than you put in, and withdrawals can be delayed or unavailable.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.ea.paused": {
+      "text": "New deposits may be paused.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:public/_locales/en/en.json", "owner:wallet#2359"]
+    },
+    "x.ea.public": {
+      "text": "A deposit's amount and your Miden account are public, the outside company receives details of your Earn activity, and your address and amounts show on the other network.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:docs/privacy/index.md"]
+    },
+    "x.ep.first": {
+      "text": "Check the status in Activity before you start another Earn deposit or withdrawal, and do not repeat one that is unresolved.",
+      "src": ["wallet@6d0acae70:src/app/templates/history/HistoryDetails.tsx", "owner:wallet#2359"]
+    },
+    "x.ep.one": {
+      "text": "Only one withdrawal at a time can run from each Earn market.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/lib/epoch/earn-withdraw.ts"]
+    },
+    "x.ep.retry": {
+      "text": "Activity may offer a retry for a failed withdrawal, or say it cannot be retried safely.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/history/HistoryDetails.tsx"
+      ]
+    },
+    "x.ep.market": {
+      "text": "The lending market can delay or block a withdrawal.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.ep.partial": {
+      "text": "If a withdrawal partly fails, money can stay on the other network instead of reaching Miden.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "x.in.wait": {
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"],
+      "text": "Keep that screen open while it confirms, because your wallet may ask more than once."
+    },
+    "x.out.wait": {
+      "src": ["wallet@6d0acae70:src/app/templates/history/BridgeClaimSection.tsx", "owner:wallet#2359"],
+      "text": "If it is slow, check Activity before sending again, or you could pay twice."
+    },
+    "x.cw.off": {
+      "src": [
+        "wallet@6d0acae70:src/app/pages/BridgeDeposit.tsx",
+        "wallet@6d0acae70:src/lib/remote-config/availability.ts"
+      ],
+      "text": "The connect button can be greyed out while bringing money in is unavailable."
+    },
+    "x.sw.how": {
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/screens/swap-flow/ReviewSwap.tsx"],
+      "text": "To swap, pick both coins and an amount, then check the review screen."
+    },
+    "x.nf.off": {
+      "src": [
+        "wallet@6d0acae70:src/lib/miden/swap/settlement.ts",
+        "wallet@6d0acae70:src/app/templates/history/swapReceipt.ts",
+        "owner:wallet#2359"
+      ],
+      "text": "With it off, Bread will not take it back for you; for help, use support.miden.xyz."
+    },
+    "m.network": {
+      "text": "Miden is a network for digital money and assets, and Bread is a wallet app for it.",
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/index.md"
+      ]
+    },
+    "m.differs": {
+      "text": "Unlike on many blockchains, your wallet works out each transaction, and a math proof lets a private account's contents stay off the public chain.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/index.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/transaction.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/state.md"
+      ]
+    },
+    "m.noteth": {
+      "text": "Miden is not Ethereum, and its addresses are not Ethereum addresses.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/address.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/id.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/index.md"
+      ]
+    },
+    "m.early": {
+      "text": "Don't use money in Bread that you can't afford to lose.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "m.proof": {
+      "text": "A zero-knowledge proof is math showing that a transaction followed the rules, without putting a private account's data on the public chain.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/index.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/transaction.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/blockchain.md"
+      ]
+    },
+    "m.local": {
+      "text": "Your wallet works out the transaction using your account's data, and a proof is made before it is submitted.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/transaction.md"]
+    },
+    "m.wait": {
+      "text": "Sending can take some time: making the proof is real computing work, and the network must then confirm.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/transaction.md",
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/generating-transaction/helper.ts"
+      ]
+    },
+    "m.stages": {
+      "text": "While you wait, Bread may show \"Generating proof\".",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/generating-transaction/helper.ts"
+      ]
+    },
+    "m.proofnotpayee": {
+      "text": "A proof does not show that you paid the right person.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/transaction.md"]
+    },
+    "m.account": {
+      "text": "A Miden account is a small program that holds assets and has rules, such as who must approve a payment.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/index.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/transaction.md"
+      ]
+    },
+    "m.accountid": {
+      "text": "An account ID is the unique code that identifies your account.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/id.md"]
+    },
+    "m.address": {
+      "text": "A Miden address points to your account, so people can send to you.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/address.md"]
+    },
+    "m.prefix": {
+      "text": "A Mainnet address starts with mm1 and a Testnet address starts with mtst1.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/id.md",
+        "wallet@6d0acae70:src/utils/miden.ts"
+      ]
+    },
+    "m.typo": {
+      "text": "An address has a built-in check that helps catch typing mistakes, but it cannot show that it belongs to the right person.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/id.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/address.md"
+      ]
+    },
+    "m.addrnet": {
+      "text": "Check that an address is for the network you are using before you send.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/utils/miden.ts"]
+    },
+    "m.types": {
+      "text": "A Miden account is public or private, fixed when it is created.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/id.md"]
+    },
+    "m.public": {
+      "text": "A public account's data is openly visible on the network.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/id.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/state.md"
+      ]
+    },
+    "m.private": {
+      "text": "For a private account, the public chain stores only a fingerprint of the account's data.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/id.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/state.md",
+        "wallet@6d0acae70:docs/tos/index.md"
+      ]
+    },
+    "m.breadtypes": {
+      "text": "A Bread Guardian account is private; some imported accounts can be public.",
+      "src": [
+        "wallet@6d0acae70:src/lib/miden/guardian/account-recipe.ts",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:public/_locales/en/en.json"
+      ]
+    },
+    "m.needdata": {
+      "text": "To use a private account, you need your keys and a current copy of its data.",
+      "src": [
+        "wallet@6d0acae70:docs/tos/index.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/state.md"
+      ]
+    },
+    "m.privlimit": {
+      "text": "Private does not hide your account ID. Assume your Guardian company can see your account and payments.",
+      "src": [
+        "owner:wallet#2359",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md"
+      ]
+    },
+    "m.guardianstop": {
+      "text": "If your Guardian, a service that must approve payments, is down or refuses, your payments stop, and you may not be able to switch right away.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "m.noreverse": {
+      "text": "Bread cannot reverse a transaction you approved.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "m.rollback": {
+      "text": "During partner mainnet, the network operator can halt the network and rewind it, which may undo payments you sent or received.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "m.nodeblock": {
+      "text": "The operator can also block addresses.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "m.regions": {
+      "text": "Bread blocks all wallet access, even withdrawals, from some places.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "m.mainnet": {
+      "text": "Mainnet is the live network, where assets are real.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:docs/tos/index.md",
+        "wallet@6d0acae70:src/lib/command-ai/help-facts.json"
+      ]
+    },
+    "m.testnet": {
+      "text": "Testnet is for practice with test tokens that have no money value.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "m.testreset": {
+      "text": "A test network can be reset, which clears balances and history. Test balances never carry over to Mainnet.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "m.partner": {
+      "text": "Mainnet is currently an early, closed partner network run by a single network operator.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "m.code": {
+      "text": "Bread may ask for a Mainnet access code for a new wallet, so follow what the app shows.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "m.testlost": {
+      "text": "Anything sent from a real network to a test address is lost.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "m.switch": {
+      "text": "Switching a test wallet to Mainnet clears this wallet, its balances and history from the device, so save your recovery details first.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "m.takeback": {
+      "text": "If a payment has a take-back date and is not accepted, you may be able to take it back after that date.",
+      "src": [
+        "https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/note.md",
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/screens/send-flow/ReviewTransaction.tsx"
+      ]
+    },
+    "m.pausestops": {
+      "text": "A USDCx pause also stops ordinary transactions.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "m.addrforms": {
+      "text": "One account can have more than one address form.",
+      "src": ["https://github.com/0xMiden/protocol/blob/v0.18.0/docs/src/account/address.md"]
+    },
+    "app.what": {
+      "text": "Bread is a wallet app for Miden, a network for digital money and assets.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "app.custody": {
+      "text": "Self-custody means the company behind Bread cannot move your assets.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "app.does": {
+      "text": "You can send and receive money; swaps, bridges and Earn depend on region and version.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "https://support.miden.xyz/"]
+    },
+    "app.guardian": {
+      "text": "A standard new account uses a Guardian, which keeps a copy of your account data.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "wallet@6d0acae70:src/screens/onboarding/navigator.tsx"]
+    },
+    "app.selfduty": {
+      "text": "Keep your 12-word recovery phrase safe: Bread cannot recover it.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "app.early": {
+      "text": "Bread and Miden are early-stage, so do not use money you cannot afford to lose.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "app.as.does": {
+      "text": "The Bread assistant answers questions and prepares actions, like a send, for you to review.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:src/screens/command/CommandAiBar.tsx"]
+    },
+    "app.as.sends": {
+      "text": "Your messages go to Bread's AI service and the AI provider behind it.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/command-ai/client.ts",
+        "wallet@6d0acae70:services/command-ai/src/index.ts"
+      ]
+    },
+    "app.as.context": {
+      "text": "Some context can go too, like the last help topic or an unfinished action.",
+      "src": [
+        "wallet@6d0acae70:src/screens/command/CommandAiBar.tsx",
+        "wallet@6d0acae70:src/lib/command-ai/orchestrator.ts"
+      ]
+    },
+    "app.as.removes": {
+      "text": "Bread first tries to hide addresses, contact names, amounts and some token names.",
+      "src": ["wallet@6d0acae70:src/lib/command-ai/redactor.ts", "wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "app.as.miss": {
+      "text": "This can miss details, so leave out anything private.",
+      "src": ["wallet@6d0acae70:src/lib/command-ai/redactor.ts", "wallet@6d0acae70:src/lib/command-ai/help.ts"]
+    },
+    "app.as.nostatus": {
+      "text": "In help answers, the assistant cannot see your account or check a payment.",
+      "src": ["wallet@6d0acae70:src/lib/command-ai/client.ts", "wallet@6d0acae70:services/command-ai/src/index.ts"]
+    },
+    "app.c.sees": {
+      "text": "A connected site gets your account ID. It can ask for private data and ask you to approve actions.",
+      "src": ["wallet@6d0acae70:src/lib/miden/back/dapp.ts", "wallet@6d0acae70:src/app/confirm/ConnectRequest.tsx"]
+    },
+    "app.c.private": {
+      "text": "Some permissions let it read private data without asking again, so read the connect screen.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/lib/dapp-browser/private-data-scope.ts"
+      ]
+    },
+    "app.c.disconnect": {
+      "text": "To disconnect a site, find it under \"Authorized DApps\", \"See connected\", and choose \"Disconnect\".",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/templates/DAppDrawerSettings.tsx",
+        "wallet@6d0acae70:src/app/templates/DAppSettings.tsx"
+      ]
+    },
+    "app.c.error": {
+      "text": "If a site will not connect, check your internet and that it uses your wallet's network.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "wallet@6d0acae70:src/app/pages/Browser/DappActive.tsx",
+        "https://support.miden.xyz/"
+      ]
+    },
+    "app.c.trust": {
+      "text": "Only connect sites you trust. A bad request that you approve can lose money.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "wallet@6d0acae70:docs/tos/index.md"]
+    },
+    "app.c.keep": {
+      "text": "Disconnecting cannot take back data a site got or undo what you approved.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "https://support.miden.xyz/"]
+    },
+    "app.c.nosecret": {
+      "text": "Never type your recovery phrase, private keys or password into a site.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "app.p.which": {
+      "text": "Bread is offered as a Chrome browser extension, an iPhone app and an Android app.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "app.p.other": {
+      "text": "The help center says other browsers and platforms are not supported right now.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "app.p.differ": {
+      "text": "Features can differ between platforms and app versions.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "app.p.official": {
+      "text": "Get Bread only from official sources, such as the store links at support.miden.xyz.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "app.i.what": {
+      "text": "If Bread asks for an access code for a new wallet, use the code from your invite email.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json"]
+    },
+    "app.i.how": {
+      "text": "Choose \"I have a code\" and enter it exactly, including capital and small letters.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "https://support.miden.xyz/",
+        "wallet@6d0acae70:src/screens/onboarding/common/Welcome.tsx"
+      ]
+    },
+    "app.i.recover": {
+      "text": "A Mainnet account you already registered needs no new code: use \"Recover your account\". For a standard account, this needs your 12-word recovery phrase and your Guardian's copy of your account data.",
+      "src": [
+        "wallet@6d0acae70:public/_locales/en/en.json",
+        "https://support.miden.xyz/",
+        "wallet@6d0acae70:docs/tos/index.md"
+      ]
+    },
+    "app.i.none": {
+      "text": "If you have no invite or the code does not work, contact support at support.miden.xyz.",
+      "src": ["wallet@6d0acae70:public/_locales/en/en.json", "https://support.miden.xyz/"]
+    },
+    "app.i.noerase": {
+      "text": "Do not reset or delete a working wallet just to enter a code.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "app.i.private": {
+      "text": "Keep your code private: leave it out of posts, screenshots and support reports.",
+      "src": ["https://support.miden.xyz/"]
+    },
+    "app.sup.nochat": {
+      "text": "This chat cannot contact support for you or open a ticket.",
+      "src": ["wallet@6d0acae70:src/lib/command-ai/schema.ts", "wallet@6d0acae70:services/command-ai/src/index.ts"]
+    },
+    "app.as.local": {
+      "text": "Balance and history answers are worked out on your device.",
+      "src": [
+        "wallet@6d0acae70:src/lib/command-ai/local-query.ts",
+        "wallet@6d0acae70:src/screens/command/CommandAiBar.tsx"
+      ]
+    },
+    "app.sup.can": {
+      "text": "Support can help you look into a problem, such as tracing a swap or bridge transfer, but cannot promise a fix.",
+      "src": ["wallet@6d0acae70:docs/tos/index.md", "https://support.miden.xyz/"]
+    },
+    "app.g.see": {
+      "text": "Assume the company running your Guardian can see your account and payments.",
+      "src": ["owner:wallet#2359"]
+    }
+  },
+  "cards": [
+    {
+      "id": "guardian_what",
+      "pick": "what is a Guardian; a person I pick?",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["g.service", "g.restore", "g1.notperson", "g.copy", "g.keys", "g.nomove"],
+      "limit": ["g.see", "g.down"],
+      "required": ["g.see", "g.down"],
+      "forbid": [],
+      "answer": "In Bread, a Guardian is an online service, usually run by a company. While it is online, its copy and your recovery phrase can help you get your account back on a new device. It is not a friend, relative or contact of yours. It keeps a copy of your account data and must approve your payments along with your own key. It never receives your 12-word recovery phrase or private keys. It cannot move your money on its own. Assume the company running it can see your account and payments. If it is down or refuses, your payments stop, and you may not be able to switch right away."
+    },
+    {
+      "id": "guardian_why",
+      "pick": "why does my account need a Guardian?",
+      "topic": "Recovery",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["g1.private", "g1.need", "g1.phrase", "g.service", "g.restore"],
+      "limit": ["g1.nocopy", "g.see"],
+      "required": ["g1.nocopy", "g.see"],
+      "forbid": [],
+      "answer": "An account with a Guardian in Bread is private, so the public network does not store its account data. To use your account, you need a current copy of that data as well as your keys. Your 12-word recovery phrase does not hold your account data. In Bread, a Guardian is an online service, usually run by a company. While it is online, its copy and your recovery phrase can help you get your account back on a new device. If no current copy of your account data exists anywhere, the phrase alone cannot bring your account back. Assume the company running it can see your account and payments."
+    },
+    {
+      "id": "guardian_see",
+      "pick": "what can the Guardian company see?",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "checked",
+      "urgent": false,
+      "lead": [],
+      "facts": ["g.service", "g.see", "p.validators", "p.services", "g1.note", "p.public", "p.bridgeswap"],
+      "limit": [],
+      "required": ["g.see", "p.validators", "p.services", "p.public"],
+      "forbid": [],
+      "answer": "In Bread, a Guardian is an online service, usually run by a company. Assume the company running it can see your account and payments. Today all three validators, computers that check transactions, receive each transaction's private details. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details. A note is a package that moves money on Miden. Your account ID, a note's sender and the fact that a transaction happened are public. Bridges and swaps disclose details to the services and networks involved."
+    },
+    {
+      "id": "guardian_funds",
+      "pick": "can Guardian take, freeze or block money",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["g.service", "g.nomove", "g1.pausewhy", "g1.otherblock"],
+      "limit": ["g1.blocks", "g1.noquick"],
+      "required": ["g1.blocks", "g1.noquick"],
+      "forbid": [],
+      "answer": "In Bread, a Guardian is an online service, usually run by a company. It cannot move your money on its own. A Guardian company can also pause your account, meaning it stops approving. Bread's terms expect that only for a suspected break-in or a lawful request, but the company can do it anyway. Separately, the USDCx token can be blocked for an address or paused, and the network's operator can block addresses. While your Guardian is down or refuses to approve, your payments stop, even accepting money sent to you. You may not be able to switch to another Guardian right away."
+    },
+    {
+      "id": "guardian_who_cost",
+      "pick": "who runs Guardians; which is mine; cost",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["g.service", "g1.separate", "g1.pick", "g1.mine", "g1.cost", "u.fee"],
+      "limit": ["g.see"],
+      "required": ["g.see"],
+      "forbid": [],
+      "answer": "In Bread, a Guardian is an online service, usually run by a company. Bread's terms say your Guardian company is a separate party from Miden, the company behind Bread. When you create a wallet, Bread suggests the listed one that answers fastest, and you can pick another. The \"Guardian Settings\" screen shows your provider. Any Guardian service fee is separate from network fees, and Bread's terms say what applies. Miden network fees are paid in USDCx, even when you send another token. Assume the company running it can see your account and payments."
+    },
+    {
+      "id": "guardian_switch",
+      "pick": "how to change or switch my Guardian",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["g.service", "g1.rotate", "g1.unchanged", "g1.newcopy", "g1.oldcopy"],
+      "limit": ["g.switch", "g.restoreonly"],
+      "required": ["g.switch", "g.restoreonly"],
+      "forbid": [],
+      "answer": "In Bread, a Guardian is an online service, usually run by a company. To change your Guardian, look for \"Rotate Guardian\" on the \"Guardian Settings\" screen. A switch keeps your wallet address and history. The new Guardian gets a copy of your account data. Assume the old Guardian's company may keep your data. Switching without the old Guardian's approval needs a device where your account still works, your 12-word recovery phrase, a new Guardian that is online, and usually USDCx for the fee. A restore with only your 12 words cannot switch away from a Guardian that is down or refuses."
+    },
+    {
+      "id": "guardian_down",
+      "pick": "Guardian down, unreachable or refusing",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["g1.down.safe"],
+      "facts": ["g1.blocks", "g1.offer", "g1.otherwise"],
+      "limit": ["g.restoreonly"],
+      "required": ["g1.down.safe", "g.restoreonly"],
+      "forbid": [],
+      "answer": "While your Guardian is unavailable, do not reset or delete Bread, and do not send an unfinished payment again. While your Guardian is down or refuses to approve, your payments stop, even accepting money sent to you. If it stays unreachable, Bread can offer \"Switch Guardian\". Switching needs a device where your account still works, your 12-word recovery phrase, a new Guardian that is online, and usually USDCx for the fee. If you cannot switch, you may have to wait. For help, go to support.miden.xyz. A restore with only your 12 words cannot switch away from a Guardian that is down or refuses."
+    },
+    {
+      "id": "guardian_waiting",
+      "pick": "payment waiting on Guardian; retry time",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["g1.wait.safe"],
+      "facts": ["g.service", "g1.queue", "g1.retry", "g1.expire"],
+      "limit": ["g1.cantsee"],
+      "required": ["g1.wait.safe", "g1.cantsee"],
+      "forbid": [],
+      "answer": "Do not send a waiting payment a second time. Open it in Activity and read its message. In Bread, a Guardian is an online service, usually run by a company. A Guardian finishes one change to your account at a time, so a new payment can wait for the one before it. If Bread shows \"You can retry after\" with a time, wait until then. A payment that waits too long can be marked as failed. If so, read its message before you do anything else. I cannot see your payment, so I cannot tell whether it went through."
+    },
+    {
+      "id": "lost_device",
+      "pick": "lost phone or computer; new device",
+      "topic": "Recovery",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["r.dev.how", "r.dev.steps", "r.dev.role", "r.dev.fee", "r.dev.stolen"],
+      "limit": ["r.dev.need", "g.restoreonly", "r.dev.partial"],
+      "required": ["r.dev.need", "g.restoreonly", "r.dev.partial"],
+      "forbid": [],
+      "answer": "On a new device, install Bread and choose \"Recover your account\". Choose \"Import with recovery phrase\", enter your 12 words, then choose \"Import via Guardian\". If asked, \"Make this device the main one\" removes other devices; \"Add this device\" keeps all, even a lost one. If the old device was stolen, ask me about a stolen device. Some payments or history may not come back right away, or at all. Restoring this way needs your 12 words and an online Guardian with a current copy of your account. A restore with only your 12 words cannot switch away from a Guardian that is down or refuses."
+    },
+    {
+      "id": "recovery_phrase",
+      "pick": "what are the 12 words; are they enough",
+      "topic": "Recovery",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["r.ph.what", "r.ph.why", "r.ph.keep", "s.never"],
+      "limit": ["r.ph.others", "r.ph.notenough", "r.ph.noreplace"],
+      "required": ["r.ph.others", "r.ph.notenough", "r.ph.noreplace"],
+      "forbid": [],
+      "answer": "Your recovery phrase is 12 words that give access to your wallet. With your words and an online Guardian that has a current copy of your account, you can get back in on a new device. Write the words down on paper, in order, and keep them private, away from your device. Never share your recovery phrase, private keys, password, passcode or wallet file with anyone, including support. Anyone who gets your words may be able to take your money. The 12 words alone do not bring back a private account's data. A lost recovery phrase cannot currently be replaced."
+    },
+    {
+      "id": "keys_explained",
+      "pick": "everyday key vs recovery key",
+      "topic": "Recovery",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["r.key.everyday", "r.key.approve", "r.key.recovery", "r.key.newdevice"],
+      "limit": ["r.key.danger", "r.key.noswap"],
+      "required": ["r.key.danger", "r.key.noswap"],
+      "forbid": [],
+      "answer": "Your everyday key is stored on your device and is used for normal payments, so they do not need your 12 words. A normal payment also needs your Guardian's approval. Your recovery key comes from your 12 words and is needed for bigger changes, such as replacing the everyday key. Your 12 words do not bring back an old everyday key; after a restore, a new one can be set up with your Guardian's approval. Anyone who gets your private keys may be able to control your money. The everyday key cannot replace a lost recovery phrase."
+    },
+    {
+      "id": "lost_phrase",
+      "pick": "I lost my recovery phrase",
+      "topic": "Recovery",
+      "kind": "problem",
+      "mode": "fixed",
+      "urgent": true,
+      "lead": ["r.move.noreset"],
+      "facts": [
+        "r.lp.stored",
+        "r.lp.else",
+        "r.move.where",
+        "r.move.notsame",
+        "r.move.order",
+        "r.lp.fee",
+        "r.lp.earn",
+        "r.lp.delay",
+        "r.move.keep",
+        "r.move.nosafe",
+        "r.ph.noreplace"
+      ],
+      "limit": [],
+      "required": [
+        "r.move.noreset",
+        "r.move.where",
+        "r.move.notsame",
+        "r.move.order",
+        "r.move.keep",
+        "r.lp.earn",
+        "r.move.nosafe",
+        "r.lp.fee"
+      ],
+      "forbid": [],
+      "answer": "Do not reset your wallet. If nobody else could have seen your words and Bread still shows them, write them down now. Otherwise, act while your wallet still works. Move your funds to a wallet with a different recovery phrase that is already written down, on another install or device. A second account in the same wallet does not count. Send some USDCx first and accept it in the new wallet. Then send the rest, accepting each payment. Keep USDCx for fees in the old wallet until all else has moved. Money in Earn is tied to the old phrase; withdraw and move it too. An Earn withdrawal can be delayed or unavailable. Keep the old wallet until everything has arrived. If you have no safe place to move your funds, contact support at support.miden.xyz."
+    },
+    {
+      "id": "lost_phrase_and_device",
+      "pick": "lost both the 12 words and the device",
+      "topic": "Recovery",
+      "kind": "problem",
+      "mode": "fixed",
+      "urgent": true,
+      "lead": ["r.both.keep"],
+      "facts": ["r.both.works", "r.both.look", "r.both.other", "r.both.gone", "s.contact", "s.nochat"],
+      "limit": [],
+      "required": ["r.both.keep", "r.both.gone", "s.contact"],
+      "forbid": [],
+      "answer": "Do not reset, erase or uninstall Bread on any device that still has it. If your account still works on a device, your money may still be movable, so ask me what to do about a lost recovery phrase. Look for your written words, and for your old device if it is only misplaced. A wallet file or private keys you saved earlier may help in some cases, but do not count on them; ask support first, without sending them. If your 12 words and everyday key are both lost and you have no usable wallet file, neither support nor your Guardian can restore access. For help, contact Bread support at support.miden.xyz. Never type your recovery phrase, private keys, password or passcode into this chat."
+    },
+    {
+      "id": "forgot_password",
+      "pick": "forgot my password or passcode",
+      "topic": "Recovery",
+      "kind": "problem",
+      "mode": "fixed",
+      "urgent": true,
+      "lead": ["r.fp.stop"],
+      "facts": [
+        "r.fp.noreset",
+        "r.fp.flow",
+        "r.fp.check",
+        "r.fp.imported",
+        "r.rm.partial",
+        "r.fp.file",
+        "r.fp.nowords",
+        "s.nochat"
+      ],
+      "limit": [],
+      "required": ["r.fp.stop", "r.fp.flow", "r.fp.check", "r.fp.nowords", "r.fp.imported", "r.rm.partial"],
+      "forbid": ["\\bwallet file (is enough|will restore|always restores)\\b"],
+      "answer": "Do not sign out, reset or uninstall yet. Nobody, including support, can reset your Bread password or passcode. \"Forgot password?\" or \"Forgot passcode?\" leads to signing out and restoring, which replaces the wallet saved on this device. Continue only if you have this wallet's 12 words written down, you are online, and your Guardian is working and has your account. Accounts you added with private keys may not come back from your 12 words. A restore may not bring back every incoming payment or history entry. Restoring this way uses your 12 words, not a wallet file. Without your words, do not sign out; contact support at support.miden.xyz. Never type your recovery phrase, private keys, password or passcode into this chat."
+    },
+    {
+      "id": "reset_reinstall",
+      "pick": "should I reset, reinstall or clear data",
+      "topic": "Safety",
+      "kind": "problem",
+      "mode": "fixed",
+      "urgent": true,
+      "lead": ["r.rs.no"],
+      "facts": ["r.rs.erase", "r.rs.check", "r.fp.imported", "r.rm.partial", "r.rs.pending", "r.rs.unsure", "s.nochat"],
+      "limit": [],
+      "required": ["r.rs.no", "r.rs.erase", "r.rs.check", "r.rs.unsure", "r.fp.imported", "r.rm.partial"],
+      "forbid": [],
+      "answer": "Do not reset, reinstall, remove the extension or clear app data to fix a problem. Doing so can erase your keys, history, contacts and settings from this device. If a reset seems unavoidable, first make sure you have your 12 words written down, and your Guardian is working and has your account. Accounts you added with private keys may not come back from your 12 words. A restore may not bring back every incoming payment or history entry. A reset does not cancel a payment you already sent. If you are not sure, keep the wallet as it is and contact support at support.miden.xyz. Never type your recovery phrase, private keys, password or passcode into this chat."
+    },
+    {
+      "id": "no_guardian_found",
+      "pick": "restore finds no Guardian or backup",
+      "topic": "Recovery",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["r.ng.safe"],
+      "facts": ["r.ng.pick", "r.ng.custom", "r.ng.words", "r.ng.help", "s.nochat"],
+      "limit": ["r.ng.new", "r.ph.notenough"],
+      "required": ["r.ng.safe", "r.ng.new", "r.ph.notenough"],
+      "forbid": [],
+      "answer": "Do not reset or delete any copy of your wallet that still works. If Bread cannot find your Guardian, check your connection, retry, or choose the one you used. You can enter the web address of an unlisted Guardian you used, but never one a stranger sends you. Check your 12 words and network too. Still stuck? Contact support at support.miden.xyz. Never type your recovery phrase, private keys, password or passcode into this chat. Creating a new account with your phrase does not recover an old one. The 12 words alone do not bring back a private account's data."
+    },
+    {
+      "id": "restore_missing",
+      "pick": "restored but empty or history missing",
+      "topic": "Recovery",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["r.rm.safe"],
+      "facts": ["r.rm.sync", "n.accept", "n.acceptlabel", "r.rm.check", "r.rm.help"],
+      "limit": ["r.rm.partial"],
+      "required": ["r.rm.safe", "r.rm.partial"],
+      "forbid": [],
+      "answer": "Do not reset Bread, and do not pay anyone again just because a payment is missing from your history. After a restore, let Bread finish recovering and syncing. Money sent to you is not added to your balance until it is accepted. In Activity, a payment waiting for you has the label \"Accept Transfer\". Check your 12 words and network. Choosing \"Import public account\" can create a new, empty account. If something is still missing, contact support at support.miden.xyz. A restore may not bring back every incoming payment or history entry."
+    },
+    {
+      "id": "wallet_file",
+      "pick": "what is the encrypted wallet file",
+      "topic": "Recovery",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["r.wf.what", "r.wf.holds", "r.wf.imported", "r.wf.snap", "r.wf.nokey", "r.wf.share"],
+      "limit": ["r.wf.read", "r.wf.limit"],
+      "required": ["r.wf.read", "r.wf.limit"],
+      "forbid": ["\\bwallet file (is enough|will restore|always restores)\\b"],
+      "answer": "An Encrypted Wallet File is an extra backup that you save yourself and lock with a password. It holds account data and, if your 12 words were stored in Bread, those words too. It can also hold keys for some imported accounts. It is a copy of your account as it was when you saved it. It does not hold a Guardian account's everyday key, so after restoring you may still need your Guardian. Never send the file or its password to anyone, including support. Anyone with the file and its password can read what is inside. Do not rely on it to get your account back; keep your 12 words written down."
+    },
+    {
+      "id": "multi_device",
+      "pick": "use two devices; remove a device",
+      "topic": "Recovery",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["r.md.ask", "r.md.diff", "r.md.old", "r.md.fee", "r.md.revoke"],
+      "limit": ["r.md.rejoin", "r.md.exposed"],
+      "required": ["r.md.rejoin", "r.md.exposed"],
+      "forbid": [],
+      "answer": "In newer versions, restoring on another device lets you choose \"Add this device\" or \"Make this device the main one\". Adding keeps other devices working; making it the main one removes them. In older versions, restoring elsewhere can stop the first device working with the account. Setting up the new device costs a network fee in USDCx. Newer versions also let you remove a device on the \"Devices\" screen. A removed device that has your recovery phrase, even one stored on it, can get back in. If someone may have your 12 words, removing a device is not enough; ask me about an exposed phrase."
+    },
+    {
+      "id": "unlock_lock",
+      "pick": "password, Face ID, passkey, auto-lock",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": [
+        "r.ul.how",
+        "r.ul.phonecode",
+        "r.ul.passkey",
+        "r.ul.phonelock",
+        "r.ul.extlock",
+        "r.ul.forgot",
+        "s.limits"
+      ],
+      "limit": ["r.ul.notbackup"],
+      "required": ["r.ul.notbackup"],
+      "forbid": [],
+      "answer": "The browser extension unlocks with a password; phones use a passcode, face or fingerprint. With face or fingerprint unlock, your phone's passcode may also work. On some computers the extension also offers passkey unlock, and your password still works. Phones lock after Bread has been in the background for a time you can set. The extension may stay unlocked while it is open, so lock your computer when you step away. If you forgot your password or passcode, do not sign out or reset yet; ask me about it. Unlocking is not a backup and cannot restore your account on another device."
+    },
+    {
+      "id": "stay_safe",
+      "pick": "general tips to stay safe",
+      "topic": "Safety",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["sf.backup", "sf.lock", "sf.official", "sf.review"],
+      "limit": ["s.never", "s.limits"],
+      "required": ["s.never", "s.limits"],
+      "forbid": [],
+      "answer": "To stay safe with Bread, write your recovery phrase on paper and keep it safe and offline. Use a strong password or passcode that you do not use anywhere else. Get and update Bread only from official sources, and watch for fake apps, websites and support messages. Before you confirm a payment, check who gets it, the token and the amount. Never share your recovery phrase, private keys, password, passcode or wallet file with anyone, including support. Bread support cannot reset your password, recover your recovery phrase, recover funds on your behalf or reverse a transaction you approved."
+    },
+    {
+      "id": "secrets_scams",
+      "pick": "asked for secrets; fake support; scams",
+      "topic": "Safety",
+      "kind": "problem",
+      "mode": "fixed",
+      "urgent": true,
+      "lead": ["s.never"],
+      "facts": ["s.nochat", "sf.neverask", "sf.recoveryscam", "sf.shared", "s.contact"],
+      "limit": [],
+      "required": ["s.never", "s.nochat", "sf.recoveryscam", "sf.shared"],
+      "forbid": [],
+      "answer": "Never share your recovery phrase, private keys, password, passcode or wallet file with anyone, including support. Never type your recovery phrase, private keys, password or passcode into this chat. Bread support and Guardian operators will never ask for your recovery phrase. Anyone who messages you first and offers to recover your funds is running a scam. So is anyone who asks for your secrets to get funds back. If you already shared your recovery phrase, a private key, or your wallet file and its password, act now, but do not reset your wallet. Ask here what to do if someone has your recovery phrase. For help, contact Bread support at support.miden.xyz."
+    },
+    {
+      "id": "phrase_exposed",
+      "pick": "someone saw or has my recovery phrase",
+      "topic": "Safety",
+      "kind": "problem",
+      "mode": "fixed",
+      "urgent": true,
+      "lead": ["sf.act", "r.move.noreset"],
+      "facts": [
+        "r.move.where",
+        "r.move.notsame",
+        "r.move.order",
+        "r.lp.fee",
+        "sf.earn",
+        "r.move.keep",
+        "r.move.nosafe",
+        "sf.notenough"
+      ],
+      "limit": [],
+      "required": [
+        "r.move.noreset",
+        "r.move.where",
+        "r.move.notsame",
+        "r.move.order",
+        "r.lp.fee",
+        "r.move.keep",
+        "r.move.nosafe",
+        "sf.earn"
+      ],
+      "forbid": [],
+      "answer": "Anyone with your recovery phrase may be able to take your money, so act now. Do not reset your wallet. Move your funds to a wallet with a different recovery phrase that is already written down, on another install or device. A second account in the same wallet does not count. Send some USDCx first and accept it in the new wallet. Then send the rest, accepting each payment. Keep USDCx for fees in the old wallet until all else has moved. Money in Earn is tied to this phrase too: withdraw and move it, though this can be delayed or unavailable. Keep the old wallet until everything has arrived. If you have no safe place to move your funds, contact support at support.miden.xyz. Changing your password, key or Guardian does not lock that person out."
+    },
+    {
+      "id": "device_stolen",
+      "pick": "my phone or computer was stolen",
+      "topic": "Safety",
+      "kind": "problem",
+      "mode": "fixed",
+      "urgent": true,
+      "lead": ["sf.keepothers"],
+      "facts": ["sf.restore", "sf.main", "sf.remove", "sf.removelimit", "sf.thiefaccess", "sf.nophrase"],
+      "limit": [],
+      "required": ["sf.keepothers", "sf.restore", "sf.main", "sf.removelimit", "sf.thiefaccess"],
+      "forbid": [],
+      "answer": "Do not reset or delete Bread on any device you still have. If no other device has this wallet, restore it with your 12-word recovery phrase on a trusted device with no Bread wallet. This needs your Guardian online with a copy of your account data, and usually a USDCx fee. If Bread asks how this device should join, choose \"Make this device the main one\" to remove all others. \"Add this device\" keeps the stolen one. If another device has this wallet, your app may let you remove the stolen one there. Removal does not help if the thief has your recovery phrase. If the thief may open Bread or see your phrase, act now: ask what to do if someone has your recovery phrase. If you cannot get in, go to support.miden.xyz. Support cannot recover funds."
+    },
+    {
+      "id": "unexpected_tokens",
+      "pick": "surprise token, airdrop or odd offer",
+      "topic": "Safety",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["sf.tok.safe"],
+      "facts": [
+        "sf.tok.unverified",
+        "sf.tok.faucet",
+        "sf.tok.name",
+        "sf.tok.endorse",
+        "n.accept",
+        "sf.tok.wait",
+        "sf.tok.hide"
+      ],
+      "limit": ["sf.tok.acceptall"],
+      "required": ["sf.tok.safe", "sf.tok.acceptall"],
+      "forbid": [],
+      "answer": "Do not trust a surprise token or offer, and do not share any secret to claim it. Bread can mark a token \"Unverified\" if it is not on Miden's verified token list. No mark does not prove it is safe. A token's faucet ID shows which account issued it, so check it before you trust the token. Bread does not auto-accept a surprise token other than USDCx, so you can leave it waiting. \"Accept All\" takes every listed payment that can be accepted, from any sender and in any token, so do not use it while a surprise one is listed."
+    },
+    {
+      "id": "send_receive",
+      "pick": "how to send or receive money, QR",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["pay.send", "pay.receive", "pay.privdefault", "n.twosteps"],
+      "limit": ["pay.samenet", "pay.testfunds"],
+      "required": ["pay.samenet", "pay.testfunds"],
+      "forbid": [],
+      "answer": "To send, use Send, enter the recipient's address and check the review screen before you confirm. To get paid, open Receive and share your address or QR code. A normal send starts as Private, which does not make you anonymous, and you can choose Public instead. Sending a note and accepting it are two separate transactions. For a Miden payment, both sides must use the same Miden network. Real money sent to a test network address cannot be recovered."
+    },
+    {
+      "id": "send_addresses",
+      "pick": "which addresses work; exchanges",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["pay.midenaddr", "pay.addrreject", "pay.otherchain", "pay.exchange"],
+      "limit": ["pay.checkaddr", "pay.validnot"],
+      "required": ["pay.checkaddr", "pay.validnot"],
+      "forbid": [],
+      "answer": "For a payment on Miden, use a Miden address for the network you are on. Bread rejects your own current address, and it tells you when a Miden address belongs to a different Miden network. An address on another network works only where Bread offers a route to it, which can change. Before you send to an exchange, confirm with it that it accepts that token on that exact network. Check the address and the network on the review screen before you confirm. An address that Bread accepts can still be the wrong one."
+    },
+    {
+      "id": "notes_what",
+      "pick": "what is a note",
+      "topic": "Notes",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["n.what", "n.twosteps", "pay.claimwho", "pay.async"],
+      "limit": ["n.accept"],
+      "required": ["n.accept"],
+      "forbid": [],
+      "answer": "On Miden, money moves in a note: a package that holds it, with rules for who can claim it. Sending a note and accepting it are two separate transactions. The recipient takes the money in by accepting the note. This lets sending and accepting happen at different times. Money sent to you is not added to your balance until it is accepted."
+    },
+    {
+      "id": "accept_why",
+      "pick": "why must I accept a payment",
+      "topic": "Accept",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["n.what", "n.twosteps", "pay.claimwho", "pay.howaccept", "pay.selffee"],
+      "limit": ["n.accept", "pay.acceptfee"],
+      "required": ["n.accept", "pay.acceptfee"],
+      "forbid": [],
+      "answer": "On Miden, money moves in a note: a package that holds it, with rules for who can claim it. Sending a note and accepting it are two separate transactions. The recipient takes the money in by accepting the note. To accept, open Activity and choose \"Accept Transfer\" on the payment. An incoming USDCx payment can cover its own accept fee if it is large enough, but accepting another token needs USDCx for the fee. Money sent to you is not added to your balance until it is accepted. Accepting costs a network fee."
+    },
+    {
+      "id": "accept_auto",
+      "pick": "auto-accept; turn it off",
+      "topic": "Accept",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["n.auto", "pay.autofee", "pay.autooff", "pay.autowait", "pay.autoqueued"],
+      "limit": ["n.autoonly"],
+      "required": ["n.autoonly"],
+      "forbid": [],
+      "answer": "By default, Bread tries to accept ordinary incoming USDCx payments while the wallet is running and unlocked, but some, such as very small ones, can still wait. An automatic accept pays a network fee, just like accepting it yourself. You can turn this off in Settings with \"Auto-accept USDCX transfers\". If a payment is still waiting, you can accept it yourself in Activity. Turning it off does not cancel an accept that is already queued. Auto-accept does not cover other tokens."
+    },
+    {
+      "id": "accept_stuck",
+      "pick": "accept fails or will not go through",
+      "topic": "Accept",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["pay.readmsg"],
+      "facts": ["pay.wait", "pay.needfee", "pay.retryaccept", "pay.gone", "pay.import", "s.contact"],
+      "limit": ["pay.noreset"],
+      "required": ["pay.readmsg", "pay.noreset"],
+      "forbid": [],
+      "answer": "Open the payment in Activity and read its message first. If it shows a time to retry after, wait until then. If it says you need USDCx for the network fee, you need to receive some USDCx first. If it offers Retry, you can use it. If it says \"This transfer is no longer available\", it may already have been accepted on another device or taken back by the sender. If you see \"Incoming transfers need a retry\", Bread could not load a transfer automatically, so use \"Try again\" on that notice. For help, contact Bread support at support.miden.xyz. Do not reset or delete Bread to fix it."
+    },
+    {
+      "id": "decline",
+      "pick": "what Decline does; refuse a payment",
+      "topic": "Decline",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["pay.hide", "pay.restore", "pay.declineauto"],
+      "limit": ["pay.norefund"],
+      "required": ["pay.norefund"],
+      "forbid": [],
+      "answer": "Decline only hides an incoming payment from Activity on this device. You can bring it back in Activity with \"Restore\". Declining does not turn off auto-accept, so an ordinary USDCx payment may still be accepted. Decline does not send the money back or cancel the payment."
+    },
+    {
+      "id": "pending_why",
+      "pick": "why is something pending or waiting",
+      "topic": "Pending",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["pay.pendin", "pay.pendout", "pay.pendbridge", "n.twosteps"],
+      "limit": ["pay.noresend", "pay.nolive"],
+      "required": ["pay.noresend", "pay.nolive"],
+      "forbid": [],
+      "answer": "If money is coming to you, check Activity for \"Accept Transfer\". If you sent it, it may still be in progress, the recipient may not have accepted it yet, or Activity may show a delivery warning on the payment. A bridge or swap can have separate steps, so open that item in Activity to follow it. Sending a note and accepting it are two separate transactions. Do not send a payment again while you are unsure what happened to it. This chat cannot see the live status of your payment."
+    },
+    {
+      "id": "send_not_arrived",
+      "pick": "sent it, recipient does not see it",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["pay.noresend"],
+      "facts": ["pay.openfirst", "pay.confirmed", "pay.warned", "pay.askthem", "pay.txid"],
+      "limit": ["pay.noproof", "pay.keepwallet"],
+      "required": ["pay.noresend", "pay.noproof", "pay.keepwallet"],
+      "forbid": [],
+      "answer": "Do not send a payment again while you are unsure what happened to it. Open the payment in Activity and read its status and any message. \"Confirmed\" on a send does not mean the recipient has accepted it. If Activity shows a delivery warning on it, keep this wallet open and online. If there is no warning, ask the recipient to check their account and network and look for \"Accept Transfer\". If it is still missing, save the transaction ID and contact support at support.miden.xyz. Having no warning does not prove the payment reached them. Do not reset or delete Bread while the payment is missing."
+    },
+    {
+      "id": "send_stuck_failed",
+      "pick": "my send is stuck, failed or unconfirmed",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "fixed",
+      "urgent": false,
+      "lead": ["pay.stuckfirst"],
+      "facts": ["pay.notconf", "pay.nofunds", "pay.retry", "pay.wait", "s.contact"],
+      "limit": ["pay.cancelbtn", "pay.noreset"],
+      "required": ["pay.stuckfirst", "pay.cancelbtn", "pay.noreset"],
+      "forbid": [],
+      "answer": "Do not send the payment again until you have opened it in Activity, read its message and know what happened. \"Not confirmed\" means the wallet could not tell whether it went through, so it may still complete. Some messages say plainly that no funds moved. Only some payments offer Retry; if it warns you could pay twice, stop unless you know the first try did not go through. If it shows a time to retry after, wait until then. For help, contact Bread support at support.miden.xyz. Pressing Cancel does not guarantee that the payment is stopped. Do not reset or delete Bread to fix it."
+    },
+    {
+      "id": "delivery_warning",
+      "pick": "delivery unconfirmed or not notified",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["pay.dwfirst"],
+      "facts": ["pay.dwmean", "pay.dwopen", "pay.dwsupport"],
+      "limit": ["pay.dwnopromise", "pay.keepwallet"],
+      "required": ["pay.dwfirst", "pay.dwnopromise", "pay.keepwallet"],
+      "forbid": [],
+      "answer": "Do not send the payment again. \"Recipient not notified\" or \"Delivery unconfirmed\" means your transaction is on chain, but Bread could not confirm the private payment was passed on, so the recipient may not be able to see or spend it yet. Keep this wallet open and online so it can retry; automatic retries stop after a while. If the recipient still has nothing, or retries have stopped, save the transaction ID and contact support at support.miden.xyz. Recovery or arrival is not guaranteed. Do not reset or delete Bread while the payment is missing."
+    },
+    {
+      "id": "cancel_take_back",
+      "pick": "cancel, take back or expire a payment",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["pay.ctcheck"],
+      "facts": ["pay.expiry", "pay.takeback", "pay.never", "pay.tbfee", "pay.otherrules"],
+      "limit": ["pay.nocancel", "pay.race"],
+      "required": ["pay.nocancel", "pay.race"],
+      "forbid": [],
+      "answer": "Check the payment in Activity first. Bread sets an expiry on a normal Miden send unless you choose \"Never\", and the expiry time is only an estimate. After expiry, you may be able to take back a payment that has not been accepted; it appears as a transfer for you to accept. If you chose \"Never\", only the recipient can take the payment. Taking it back costs a network fee. Bridges and swaps follow their own rules. You cannot call back a sent payment right away, and the Cancel button does not guarantee a stop. The recipient can still accept until your take-back goes through, even after expiry."
+    },
+    {
+      "id": "wrong_address",
+      "pick": "I sent money to the wrong address",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["pay.wafirst"],
+      "facts": ["pay.watake", "pay.wagone", "pay.otherrules", "s.contact", "pay.norev"],
+      "limit": ["pay.wasecond", "pay.warace"],
+      "required": ["pay.wasecond", "pay.warace"],
+      "forbid": [],
+      "answer": "Open the payment in Activity before sending anything else. If it was a normal Miden send with an expiry that has not been accepted, you may be able to take it back after it expires. If it was accepted, or you chose \"Never\", you cannot take it back yourself. Bridges and swaps follow their own rules. For help, contact Bread support at support.miden.xyz. Bread support cannot reverse a transaction you approved. A new send to the right address is a separate payment and does not cancel the first. Until a take-back goes through, whoever controls that address can accept the payment, even after expiry."
+    },
+    {
+      "id": "fees_usdcx",
+      "pick": "network fees: which token, cost, refunds",
+      "topic": "Fees",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["u.fee", "fee.each", "fee.nocoin", "fee.noown", "fee.extra"],
+      "limit": ["fee.short", "fee.review", "fee.norefund"],
+      "required": ["fee.short", "fee.review", "fee.norefund"],
+      "forbid": ["\\b\\d+\\.\\d+\\b", "\\bfree of (charge|fees)\\b"],
+      "answer": "Miden network fees are paid in USDCx, even when you send another token. Miden transactions normally pay a small network fee, and accepting a payment is a transaction too. Bread's terms say Bread adds no fee of its own. Swaps, bridges and Earn can have other fees, and a swap's fee may be built into its quoted rate. Without enough USDCx for the fee, a transaction can be blocked or fail. Fees can change, so check the review screen before you confirm. Under Bread's terms, fees on a submitted transaction are not refunded, even if it later fails, unless the law requires it."
+    },
+    {
+      "id": "no_usdcx",
+      "pick": "no USDCx to pay fee: can't send/accept",
+      "topic": "Fees",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["fee.nosend.lead"],
+      "facts": [
+        "fee.nosend.msg",
+        "u.fee",
+        "fee.nosend.get",
+        "fee.nosend.self",
+        "fee.nosend.other",
+        "fee.nosend.faucet"
+      ],
+      "limit": ["fee.nosend.extra"],
+      "required": ["fee.nosend.lead", "fee.nosend.extra"],
+      "forbid": ["\\buse (the|a) faucet\\b", "\\bfund now\\b"],
+      "answer": "If you have too little USDCx for the fee, get some USDCx first. Miden network fees are paid in USDCx, even when you send another token. Ask someone to send you USDCx, or, if Bread offers it, bring USDC from another network by a route that gives you USDCx. Incoming USDCx can pay its own accept fee if it is large enough, even if you have none yet. Accepting another token needs USDCx for the fee. On Miden Mainnet, the live network, Bread has no free faucet that hands out USDCx. Bringing money from another network can cost extra, so check the cost and the token you will get on the review screen."
+    },
+    {
+      "id": "usdcx",
+      "pick": "what is USDCx; vs USDC; freeze, value",
+      "topic": "Fees",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": [
+        "u.what",
+        "fee.usdcx.separate",
+        "u.fee",
+        "fee.usdcx.below",
+        "fee.usdcx.blocked",
+        "fee.usdcx.redeem",
+        "fee.usdcx.claim"
+      ],
+      "limit": ["u.issuer", "u.value", "fee.usdcx.insured", "u.block", "fee.usdcx.pause"],
+      "required": ["u.issuer", "u.value", "fee.usdcx.insured", "u.block", "fee.usdcx.pause"],
+      "forbid": [
+        "\\b1:1\\b|\\bone[- ]for[- ]one\\b",
+        "\\balways worth\\b",
+        "\\b(is|are) guaranteed\\b",
+        "\\b(fully|government)[- ]backed\\b"
+      ],
+      "answer": "USDCx is a token on Miden that represents USDC held in Circle's reserve. It is not the same token as USDC. Circle does not issue USDCx. The dollar value of USDCx is not guaranteed. It can be worth less than one US dollar. It is not a bank deposit or government insured. USDCx can be blocked for an address, and it can be paused. Blocked, or frozen, USDCx cannot be sent, received or moved to another network. While USDCx is paused, ordinary Miden transactions stop too, because fees are paid in USDCx. Turning it back into USDC can be delayed or unavailable."
+    },
+    {
+      "id": "money_missing",
+      "pick": "balance zero or low; money/token missing",
+      "topic": "Wallet",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["fee.missing.keep"],
+      "facts": [
+        "n.accept",
+        "n.acceptlabel",
+        "fee.missing.where",
+        "fee.missing.hidden",
+        "fee.missing.dust",
+        "fee.missing.noprice",
+        "fee.missing.node",
+        "fee.missing.update"
+      ],
+      "limit": ["fee.missing.cantsee", "s.contact"],
+      "required": ["fee.missing.keep", "fee.missing.cantsee", "s.contact"],
+      "forbid": ["\\byour (money|funds) (is|are) safe\\b", "\\b(try|should) (reset|reinstall)"],
+      "answer": "If money seems to be missing, do not reset, reinstall or delete Bread, or clear its data. Money sent to you is not added to your balance until it is accepted. In Activity, a payment waiting for you has the label \"Accept Transfer\". Check that you are looking at the account and network where the money should be. Tokens you hid are left out of the home total and listed under \"Hidden assets\". If Bread shows \"Cannot reach the Miden node\", your balance may be out of date. I can't see your balance or tell why it looks wrong. For help, contact Bread support at support.miden.xyz."
+    },
+    {
+      "id": "privacy_overview",
+      "pick": "is Bread private or anonymous?",
+      "topic": "Privacy",
+      "kind": "explain",
+      "mode": "checked",
+      "urgent": false,
+      "lead": [],
+      "facts": ["p.notanon", "p.balance", "p.publicsend", "p.public", "p.validators", "p.services", "p.bridgeswap"],
+      "limit": [],
+      "required": ["p.notanon", "p.public", "p.validators", "p.services"],
+      "forbid": [],
+      "answer": "Privacy in Bread does not mean anonymity. With a private account, your balance and holdings are not published on the public chain. A public send shows its token, amount and recipient address to anyone. Your account ID, a note's sender and the fact that a transaction happened are public. Today all three validators, computers that check transactions, receive each transaction's private details. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details. Bridges and swaps disclose details to the services and networks involved."
+    },
+    {
+      "id": "privacy_check",
+      "pick": "how to check what is private",
+      "topic": "Verify",
+      "kind": "explain",
+      "mode": "checked",
+      "urgent": false,
+      "lead": [],
+      "facts": ["pv.checktype", "p.publicsend", "pv.explorer", "p.public", "p.validators", "p.services"],
+      "limit": [],
+      "required": ["p.public", "p.validators", "p.services"],
+      "forbid": [],
+      "answer": "Before you confirm a send to a Miden address, look at \"Advanced options\": its \"Transfer type\" is \"Private\" or \"Public\". A public send shows its token, amount and recipient address to anyone. A block explorer shows only what was published. It cannot show who else saw details. Your account ID, a note's sender and the fact that a transaction happened are public. Today all three validators, computers that check transactions, receive each transaction's private details. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details."
+    },
+    {
+      "id": "who_sees_payment",
+      "pick": "private vs public send; what payee sees",
+      "topic": "Privacy",
+      "kind": "explain",
+      "mode": "checked",
+      "urgent": false,
+      "lead": [],
+      "facts": [
+        "pv.default",
+        "p.noteamount",
+        "pv.publicacct",
+        "p.publicsend",
+        "p.public",
+        "p.validators",
+        "p.services"
+      ],
+      "limit": [],
+      "required": ["p.publicsend", "p.public", "p.validators", "p.services"],
+      "forbid": [],
+      "answer": "A Bread send to a Miden address is private by default. A private note's amount stays off the public chain, and the recipient can read it. On either side, a public account's balance changes can reveal that amount. A public send shows its token, amount and recipient address to anyone. Your account ID, a note's sender and the fact that a transaction happened are public. Today all three validators, computers that check transactions, receive each transaction's private details. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details."
+    },
+    {
+      "id": "validators",
+      "pick": "who can see my transactions?",
+      "topic": "Privacy",
+      "kind": "explain",
+      "mode": "checked",
+      "urgent": false,
+      "lead": [],
+      "facts": ["p.validators", "g.service", "g.see", "p.services", "p.publicsend", "p.public", "pv.viewers"],
+      "limit": [],
+      "required": ["p.validators", "p.services", "g.see", "p.public"],
+      "forbid": [],
+      "answer": "Today all three validators, computers that check transactions, receive each transaction's private details. In Bread, a Guardian is an online service, usually run by a company. Assume the company running it can see your account and payments. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details. A public send shows its token, amount and recipient address to anyone. Your account ID, a note's sender and the fact that a transaction happened are public. People you pay, swap and bridge services, and apps you allow can see details."
+    },
+    {
+      "id": "delegated_proving",
+      "pick": "proving: what leaves my device?",
+      "topic": "Privacy",
+      "kind": "explain",
+      "mode": "checked",
+      "urgent": false,
+      "lead": [],
+      "facts": ["pv.proof", "pv.provekeys", "p.services", "p.proveoff", "pv.offlimit", "p.validators"],
+      "limit": [],
+      "required": ["p.services", "p.validators"],
+      "forbid": [],
+      "answer": "By default, an online service makes each transaction's proof (math showing it follows the rules), so private details leave your device. Your keys stay on your device. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details. Turning off Delegate Proof Generation builds proofs on your device: slower, with a large one-time download. Turning it off does not hide payments from your Guardian or the validators. Today all three validators, computers that check transactions, receive each transaction's private details."
+    },
+    {
+      "id": "swap_bridge_privacy",
+      "pick": "are swaps and bridges private?",
+      "topic": "Privacy",
+      "kind": "explain",
+      "mode": "checked",
+      "urgent": false,
+      "lead": [],
+      "facts": [
+        "p.bridgeswap",
+        "pv.operators",
+        "pv.swappublic",
+        "pv.outpublic",
+        "pv.othernet",
+        "p.notanon",
+        "p.balance"
+      ],
+      "limit": [],
+      "required": ["p.bridgeswap", "pv.swappublic", "p.notanon"],
+      "forbid": [],
+      "answer": "Bridges and swaps disclose details to the services and networks involved. The services handling a swap or bridge see the tokens, amounts and addresses they process. A swap on Miden places a public order, so anyone can see your account ID and the tokens and amounts. Some transfers to other networks also make details public on Miden, such as the destination address. Activity on the other network may be public too. Privacy in Bread does not mean anonymity. With a private account, your balance and holdings are not published on the public chain."
+    },
+    {
+      "id": "bridge_what",
+      "pick": "what is a bridge; moving across chains",
+      "topic": "Bridge",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["x.br.what", "x.br.party", "x.br.steps", "x.br.check"],
+      "limit": ["p.bridgeswap", "x.br.norecover"],
+      "required": ["p.bridgeswap", "x.br.norecover"],
+      "forbid": [],
+      "answer": "A bridge moves money between Miden and another network, such as Ethereum. Bridges are run by others, and while money is on the way, the bridge's programs or an outside trading service hold it, not Bread. A bridge has two sides, so a confirmation on one network does not yet mean the money has arrived on the other. Check the network, address, fees and amount to receive before you approve. Bridges and swaps disclose details to the services and networks involved. Support can help trace a failed transfer but cannot promise to recover money held by a bridge or another network."
+    },
+    {
+      "id": "bridge_in",
+      "pick": "bring money in from another network",
+      "topic": "Bridge",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["x.in.how", "x.in.wait", "x.in.cap"],
+      "limit": ["x.br.check", "x.in.accept"],
+      "required": ["x.br.check", "x.in.accept"],
+      "forbid": [],
+      "answer": "To bring money in from another network, you connect the outside wallet that holds it, pick a network, coin and amount, check the route and fees, and approve in that wallet. Keep that screen open while it confirms, because your wallet may ask more than once. Bread can refuse a bridge deposit that would put your account over a value limit shown on screen. Check the network, address, fees and amount to receive before you approve. The money may need to be accepted when it arrives, and accepting costs a fee in USDCx, so without any USDCx you may not be able to accept another coin."
+    },
+    {
+      "id": "bridge_out",
+      "pick": "bridge out; less arrived; slow arrival",
+      "topic": "Bridge",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["x.out.how", "x.out.time", "x.out.wait", "x.out.claim", "x.out.public"],
+      "limit": ["x.out.less", "x.br.check", "x.out.noback"],
+      "required": ["x.out.less", "x.br.check", "x.out.noback"],
+      "forbid": [],
+      "answer": "To send money to another network, use a recipient address on that network. Arrival time varies by route and network, and delays can happen. If it is slow, check Activity before sending again, or you could pay twice. Some Slow withdrawals show \"Claim Asset\" in Activity, which uses the receiving wallet and may cost a fee there. Anyone may see the destination address and amount. Less can arrive than you send, because of a route fee that may not be known exactly in advance. Check the network, address, fees and amount to receive before you approve. Once sent, you may not be able to get it back."
+    },
+    {
+      "id": "bridge_routes_limits",
+      "pick": "which networks, coins, routes, limits",
+      "topic": "Bridge",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["x.rt.picker", "x.rt.diff", "x.rt.est"],
+      "limit": ["x.rt.limit"],
+      "required": ["x.rt.limit"],
+      "forbid": [],
+      "answer": "The bridge and send screens show which routes, networks and coins you can use right now. Routes such as Fast and Slow differ in speed, in fees and in which coins they carry. Times shown are estimates, not promises. A route can be unavailable, and minimum or maximum amounts can apply, so check the screen before you approve."
+    },
+    {
+      "id": "connect_outside_wallet",
+      "pick": "MetaMask to bridge; connect button dead",
+      "topic": "Bridge",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["x.cw.nosecret"],
+      "facts": ["x.cw.which", "x.cw.ext", "x.cw.off", "x.cw.fail"],
+      "limit": ["x.cw.risk"],
+      "required": ["x.cw.nosecret", "x.cw.risk"],
+      "forbid": [],
+      "answer": "Never enter a recovery phrase or private key to connect a wallet. For bridging, you can connect MetaMask, Rainbow or another WalletConnect wallet. In the browser extension, scan the QR code with a wallet on your phone, as browser wallet extensions do not work there. The connect button can be greyed out while bringing money in is unavailable. If connecting keeps failing, contact Bread support at support.miden.xyz. Read each request: approving a token lets a program spend up to the approved amount, and a Fast bridge can use money you locked earlier without a new wallet transaction."
+    },
+    {
+      "id": "bridge_stuck",
+      "pick": "bridge stuck, missing or failed",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["x.st.first"],
+      "facts": ["x.br.steps", "x.st.buttons", "x.st.reclaim", "s.contact"],
+      "limit": ["x.st.limit"],
+      "required": ["x.st.first", "x.st.limit"],
+      "forbid": [],
+      "answer": "Open the transfer in Activity and read its status, and do not send it again while it is unresolved, or you could pay twice. A bridge has two sides, so a confirmation on one network does not yet mean the money has arrived on the other. Depending on the case, Bread may offer a button such as \"Claim Asset\", \"Reclaim funds\", \"Retry bridge\" or \"Withdraw deposit\". \"Reclaim funds\" is not automatic, shows only for some unfinished transfers after a set point, needs the sending account selected, and costs a network fee. For help, contact Bread support at support.miden.xyz. Recovery is not guaranteed."
+    },
+    {
+      "id": "bridge_deposit_locked",
+      "pick": "\"Deposit locked\" bridge deposit",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["x.lk.first"],
+      "facts": ["x.lk.what", "x.lk.options", "x.lk.two"],
+      "limit": ["x.lk.blocks"],
+      "required": ["x.lk.first", "x.lk.blocks"],
+      "forbid": [],
+      "answer": "If Bread shows \"Deposit locked\", deal with this deposit before making another one to replace it. It means a program on the network you sent from holds your deposit, because the bridge did not start. In Activity, Bread can offer \"Retry bridge\" with the money already held, or \"Withdraw deposit\" back to the same outside wallet, which you must connect. Both can cost network fees, and to withdraw you request it, wait, then finish it. A withdrawal request blocks new Fast deposits of that coin from that wallet until you use \"Disable withdrawal\" after getting the money back."
+    },
+    {
+      "id": "swap_how",
+      "pick": "how to swap tokens; slippage",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["x.sw.how", "x.sw.what", "x.sw.rate", "x.sw.slip", "x.sw.exact"],
+      "limit": ["x.sw.partial", "x.sw.public", "p.bridgeswap"],
+      "required": ["x.sw.partial", "x.sw.public", "p.bridgeswap"],
+      "forbid": [],
+      "answer": "To swap, pick both coins and an amount, then check the review screen. A swap trades one coin on Miden for another through an outside trading service, not Bread. Its fee is in the rate, and a Miden network fee in USDCx is extra. Slippage is how much worse than the current rate you accept: with less, the order may not fill; with more, you can get a worse price. If you set the exact amount to receive, slippage changes what you pay. An order can fill fully, partly or not at all. The swap order is public on Miden. Bridges and swaps disclose details to the services and networks involved."
+    },
+    {
+      "id": "swap_not_filled",
+      "pick": "swap not filling, returning or cancel",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["x.nf.first"],
+      "facts": ["x.nf.expiry", "x.nf.cancel", "x.nf.off", "x.nf.payout"],
+      "limit": ["x.nf.needs", "x.nf.race"],
+      "required": ["x.nf.first", "x.nf.needs", "x.nf.race"],
+      "forbid": [],
+      "answer": "Check the swap in Activity before placing it again, or you could trade twice. When your waiting time ends, Bread tries to take back the unfilled part, and the filled part stays traded. With \"Auto accept\" on, an open order may offer \"Cancel swap\". With it off, Bread will not take it back for you; for help, use support.miden.xyz. If you see \"Payout stuck\", read the reason, then you can use \"Retry payout\". The automatic return needs \"Auto accept\" on for that swap, Bread running and unlocked, USDCx for the fee, and any Guardian's approval. Until the money is back, the order can still fill."
+    },
+    {
+      "id": "earn_what",
+      "pick": "what is Earn; is it risky or insured",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["x.ea.what", "x.ea.benefit", "x.ea.public"],
+      "limit": ["x.ea.risk", "x.ea.paused"],
+      "required": ["x.ea.risk", "x.ea.paused"],
+      "forbid": [],
+      "answer": "Earn uses your USDCx to open a deposit in a lending market on another network, such as Ethereum, and an outside company carries out deposits and withdrawals. It can earn a return, but the rate changes, can fall to zero and is not guaranteed. A deposit's amount and your Miden account are public, the outside company receives details of your Earn activity, and your address and amounts show on the other network. Earn is risky and not insured: you may get back less than you put in, and withdrawals can be delayed or unavailable. New deposits may be paused."
+    },
+    {
+      "id": "earn_problem",
+      "pick": "Earn deposit or withdrawal problem",
+      "topic": "Pending",
+      "kind": "problem",
+      "mode": "write",
+      "urgent": false,
+      "lead": ["x.ep.first"],
+      "facts": ["x.ep.one", "x.ep.retry", "x.ep.market", "s.contact"],
+      "limit": ["x.ep.partial"],
+      "required": ["x.ep.first", "x.ep.partial"],
+      "forbid": [],
+      "answer": "Check the status in Activity before you start another Earn deposit or withdrawal, and do not repeat one that is unresolved. Only one withdrawal at a time can run from each Earn market. Activity may offer a retry for a failed withdrawal, or say it cannot be retried safely. The lending market can delay or block a withdrawal. For help, contact Bread support at support.miden.xyz. If a withdrawal partly fails, money can stay on the other network instead of reaching Miden."
+    },
+    {
+      "id": "miden_what",
+      "pick": "what Miden is; how it differs",
+      "topic": "Miden",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["m.network", "m.differs", "m.noteth", "m.early"],
+      "limit": ["p.notanon", "p.validators", "m.partner"],
+      "required": ["p.notanon", "p.validators", "m.partner"],
+      "forbid": ["\\bquantum\\b", "\\bdecentrali[sz]ed\\b"],
+      "answer": "Miden is a network for digital money and assets, and Bread is a wallet app for it. Unlike on many blockchains, your wallet works out each transaction, and a math proof lets a private account's contents stay off the public chain. Miden is not Ethereum, and its addresses are not Ethereum addresses. Don't use money in Bread that you can't afford to lose. Privacy in Bread does not mean anonymity. Today all three validators, computers that check transactions, receive each transaction's private details. Mainnet is currently an early, closed partner network run by a single network operator."
+    },
+    {
+      "id": "miden_proofs",
+      "pick": "zero-knowledge proofs; why sends wait",
+      "topic": "Miden",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["m.proof", "m.local", "m.wait", "m.stages", "g.service"],
+      "limit": ["m.proofnotpayee", "p.validators", "p.services"],
+      "required": ["m.proofnotpayee", "p.validators", "p.services"],
+      "forbid": [
+        "\\bquantum\\b",
+        "\\b(network|validators?) never (sees?|re-?runs?|re-?executes?)\\b",
+        "\\bseconds?\\b|\\bminutes?\\b"
+      ],
+      "answer": "A zero-knowledge proof is math showing that a transaction followed the rules, without putting a private account's data on the public chain. Sending can take some time: making the proof is real computing work, and the network must then confirm. While you wait, Bread may show \"Generating proof\". A proof does not show that you paid the right person. Today all three validators, computers that check transactions, receive each transaction's private details. The Guardian, the proving service (on by default) and private-note delivery can see some or all of a transaction's details."
+    },
+    {
+      "id": "accounts_addresses",
+      "pick": "account, account ID, address meaning",
+      "topic": "Miden",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["m.account", "m.accountid", "m.address", "m.addrforms", "m.prefix", "m.typo", "n.what"],
+      "limit": ["p.public", "m.addrnet"],
+      "required": ["p.public", "m.addrnet"],
+      "forbid": [],
+      "answer": "A Miden account is a small program that holds assets and has rules, such as who must approve a payment. An account ID is the unique code that identifies your account. A Miden address points to your account, so people can send to you. A Mainnet address starts with mm1 and a Testnet address starts with mtst1. An address has a built-in check that helps catch typing mistakes, but it cannot show that it belongs to the right person. Your account ID, a note's sender and the fact that a transaction happened are public. Check that an address is for the network you are using before you send."
+    },
+    {
+      "id": "public_private_accounts",
+      "pick": "public vs private account type",
+      "topic": "Miden",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["m.types", "m.public", "m.private", "p.balance", "m.breadtypes", "g.service"],
+      "limit": ["m.needdata", "m.privlimit", "p.validators"],
+      "required": ["m.needdata", "m.privlimit", "p.validators"],
+      "forbid": ["\\bfully private\\b", "\\bno one (else )?(sees|can see)\\b"],
+      "answer": "A Miden account is public or private, fixed when it is created. A public account's data is openly visible on the network. With a private account, your balance and holdings are not published on the public chain. A Bread Guardian account is private; some imported accounts can be public. To use a private account, you need your keys and a current copy of its data. Private does not hide your account ID. Assume your Guardian company can see your account and payments. Today all three validators, computers that check transactions, receive each transaction's private details."
+    },
+    {
+      "id": "finality_blocking",
+      "pick": "undo a payment? can I be blocked?",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["m.noreverse", "m.takeback", "m.regions", "m.guardianstop", "m.pausestops", "g.service", "u.what"],
+      "limit": ["m.rollback", "m.nodeblock", "u.block"],
+      "required": ["m.rollback", "m.nodeblock", "u.block"],
+      "forbid": ["\\bpayments? (is|are) final\\b", "\\b(nobody|no one) can (block|freeze|stop) you\\b"],
+      "answer": "Bread cannot reverse a transaction you approved. If a payment has a take-back date and is not accepted, you may be able to take it back after that date. If your Guardian, a service that must approve payments, is down or refuses, your payments stop, and you may not be able to switch right away. Bread blocks all wallet access, even withdrawals, from some places. During partner mainnet, the network operator can halt the network and rewind it, which may undo payments you sent or received. The operator can also block addresses. USDCx can be blocked for an address, and it can be paused."
+    },
+    {
+      "id": "mainnet_testnet",
+      "pick": "Mainnet vs Testnet; test tokens",
+      "topic": "Network",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["m.mainnet", "m.testnet", "m.testreset", "m.code"],
+      "limit": ["m.partner", "m.testlost", "m.switch"],
+      "required": ["m.partner", "m.testlost", "m.switch"],
+      "forbid": [],
+      "answer": "Mainnet is the live network, where assets are real. Testnet is for practice with test tokens that have no money value. A test network can be reset, which clears balances and history. Test balances never carry over to Mainnet. Bread may ask for a Mainnet access code for a new wallet, so follow what the app shows. Mainnet is currently an early, closed partner network run by a single network operator. Anything sent from a real network to a test address is lost. Switching a test wallet to Mainnet clears this wallet, its balances and history from the device, so save your recovery details first."
+    },
+    {
+      "id": "bread_overview",
+      "pick": "what is Bread; what can I do; custody",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["app.what", "app.custody", "app.does", "g.service", "app.guardian"],
+      "limit": ["app.g.see", "app.selfduty", "app.early"],
+      "required": ["app.g.see", "app.selfduty", "app.early"],
+      "forbid": [],
+      "answer": "Bread is a wallet app for Miden, a network for digital money and assets. Self-custody means the company behind Bread cannot move your assets. You can send and receive money; swaps, bridges and Earn depend on region and version. In Bread, a Guardian is an online service, usually run by a company. A standard new account uses a Guardian, which keeps a copy of your account data. Assume the company running your Guardian can see your account and payments. Keep your 12-word recovery phrase safe: Bread cannot recover it. Bread and Miden are early-stage, so do not use money you cannot afford to lose."
+    },
+    {
+      "id": "assistant_sees",
+      "pick": "what the assistant receives and can do",
+      "topic": "Assistant",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["app.as.does", "app.as.nostatus", "app.as.local", "app.as.sends", "app.as.context", "app.as.removes"],
+      "limit": ["app.as.miss", "s.nochat"],
+      "required": ["app.as.miss", "s.nochat"],
+      "forbid": [],
+      "answer": "The Bread assistant answers questions and prepares actions, like a send, for you to review. In help answers, the assistant cannot see your account or check a payment. Balance and history answers are worked out on your device. Your messages go to Bread's AI service and the AI provider behind it. Some context can go too, like the last help topic or an unfinished action. Bread first tries to hide addresses, contact names, amounts and some token names. This can miss details, so leave out anything private. Never type your recovery phrase, private keys, password or passcode into this chat."
+    },
+    {
+      "id": "apps_connect",
+      "pick": "connect sites or apps; safe; disconnect",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["app.c.sees", "app.c.private", "app.c.disconnect", "app.c.error"],
+      "limit": ["app.c.nosecret", "app.c.trust", "app.c.keep"],
+      "required": ["app.c.nosecret", "app.c.trust", "app.c.keep"],
+      "forbid": [],
+      "answer": "A connected site gets your account ID. It can ask for private data and ask you to approve actions. Some permissions let it read private data without asking again, so read the connect screen. To disconnect a site, find it under \"Authorized DApps\", \"See connected\", and choose \"Disconnect\". If a site will not connect, check your internet and that it uses your wallet's network. Never type your recovery phrase, private keys or password into a site. Only connect sites you trust. A bad request that you approve can lose money. Disconnecting cannot take back data a site got or undo what you approved."
+    },
+    {
+      "id": "platforms",
+      "pick": "which phones, browsers or computers work",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["app.p.which", "app.p.other"],
+      "limit": ["app.p.differ", "app.p.official"],
+      "required": ["app.p.differ", "app.p.official"],
+      "forbid": [],
+      "answer": "Bread is offered as a Chrome browser extension, an iPhone app and an Android app. The help center says other browsers and platforms are not supported right now. Features can differ between platforms and app versions. Get Bread only from official sources, such as the store links at support.miden.xyz."
+    },
+    {
+      "id": "invite_code",
+      "pick": "invite or access code; code not working",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["app.i.what", "app.i.how", "app.i.recover", "app.i.none"],
+      "limit": ["app.i.noerase", "app.i.private"],
+      "required": ["app.i.noerase", "app.i.private"],
+      "forbid": [],
+      "answer": "If Bread asks for an access code for a new wallet, use the code from your invite email. Choose \"I have a code\" and enter it exactly, including capital and small letters. A Mainnet account you already registered needs no new code: use \"Recover your account\". For a standard account, this needs your 12-word recovery phrase and your Guardian's copy of your account data. If you have no invite or the code does not work, contact support at support.miden.xyz. Do not reset or delete a working wallet just to enter a code. Keep your code private: leave it out of posts, screenshots and support reports."
+    },
+    {
+      "id": "support_contact",
+      "pick": "reach a person; what can support do",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "write",
+      "urgent": false,
+      "lead": [],
+      "facts": ["s.contact", "app.sup.can", "s.report", "app.sup.nochat"],
+      "limit": ["s.never", "s.limits"],
+      "required": ["s.never", "s.limits"],
+      "forbid": [],
+      "answer": "For help, contact Bread support at support.miden.xyz. Support can help you look into a problem, such as tracing a swap or bridge transfer, but cannot promise a fix. When you contact support, include your device model, system version, app version and what happened, with no secrets. This chat cannot contact support for you or open a ticket. Never share your recovery phrase, private keys, password, passcode or wallet file with anyone, including support. Bread support cannot reset your password, recover your recovery phrase, recover funds on your behalf or reverse a transaction you approved."
+    },
+    {
+      "id": "not_covered",
+      "pick": "no card answers the question",
+      "topic": "Wallet",
+      "kind": "explain",
+      "mode": "fixed",
+      "urgent": false,
+      "lead": [],
+      "facts": [],
+      "limit": [],
+      "required": [],
+      "forbid": [],
+      "answer": "I don't know the answer to that. For help with your wallet, go to support.miden.xyz. Never share your recovery phrase."
+    },
+    {
+      "id": "cannot_diagnose",
+      "pick": "unmatched error or money problem",
+      "topic": "Wallet",
+      "kind": "problem",
+      "mode": "fixed",
+      "urgent": false,
+      "lead": [],
+      "facts": [],
+      "limit": [],
+      "required": [],
+      "forbid": [],
+      "answer": "I can't tell what went wrong from here. Don't reset or delete Bread. If it was a payment, don't send it again while you are unsure what happened to it. Open it in Activity and read its message. For help, go to support.miden.xyz. Never share your recovery phrase."
+    }
+  ]
+}
