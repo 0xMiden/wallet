@@ -270,7 +270,7 @@ export function CommandPortfolio({
     });
   return (
     <div className="mx-auto grid w-full min-w-0 max-w-[90rem] grid-cols-1 gap-6 px-4 py-6 sm:px-8 lg:grid-cols-12 lg:px-[4vw] lg:py-10">
-      <CommandAiBar scope={scope} assets={portfolio.assets} tokenPrices={portfolio.tokenPrices} />
+      <CommandAiBar scope={scope} assets={portfolio.actionBalances} tokenPrices={portfolio.livePrices} />
       <div
         data-testid="command-portfolio-surface"
         className="relative isolate grid min-w-0 overflow-hidden rounded-3xl border border-hairline bg-linear-to-b from-fill/65 to-page lg:col-span-12 lg:grid-cols-12"
@@ -546,7 +546,7 @@ export function CommandPortfolio({
           assets={portfolio.assets}
           prices={portfolio.tokenPrices}
           hidden={hidden}
-          current={portfolio.current}
+          current={portfolio.shown}
         />
       </div>
       {recentActions && <div className="min-w-0 lg:col-span-5">{recentActions}</div>}
