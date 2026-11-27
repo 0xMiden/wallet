@@ -3,6 +3,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 import type { DecryptedWalletFile } from 'lib/miden/backup-file';
+import { withWalletRecoveryLifetime } from 'lib/miden/guardian/history-storage';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { ENCRYPTED_WALLET_FILE_PASSWORD_CHECK } from 'screens/shared';
 
@@ -926,6 +927,30 @@ describe('decryption flow', () => {
     expect(mockWithWasmClientLock).toHaveBeenCalledWith(expect.any(Function), {
       label: 'onboarding-restore-import-store'
     });
+  });
+
+  it('keeps the same recovery turn through both restore writes', async () => {
+    const order: string[] = [];
+    let nextTurn: Promise<void> | undefined;
+    mockImportStore.mockImplementationOnce(async () => {
+      nextTurn = withWalletRecoveryLifetime(async () => {
+        order.push('next turn');
+      });
+      await new Promise(resolve => setTimeout(resolve, 0));
+      order.push('client store replaced');
+    });
+    mockImportDb.mockImplementationOnce(async () => {
+      order.push('history replaced');
+    });
+    const onSubmit = jest.fn();
+    const { container } = renderScreen({ onSubmit });
+    loadFile(container);
+
+    await submit(container);
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+    await nextTurn;
+
+    expect(order).toEqual(['client store replaced', 'history replaced', 'next turn']);
   });
 
   it('defaults filePassword to an empty string when the watched value is undefined', async () => {
