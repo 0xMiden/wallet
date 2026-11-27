@@ -181,6 +181,9 @@ describe('secure-hot-key facade', () => {
     ['AUTH_UNAVAILABLE'],
     ['AUTH_FAILED'],
     ['BIOMETRIC_BUSY'],
+    // A one-use reveal approval that lapsed or named another key.
+    ['APPROVAL_EXPIRED'],
+    ['APPROVAL_MISMATCH'],
     ['DEVICE_LOCKED'],
     // Caller/input fault — must not read as a hardware failure.
     ['INVALID_INPUT']

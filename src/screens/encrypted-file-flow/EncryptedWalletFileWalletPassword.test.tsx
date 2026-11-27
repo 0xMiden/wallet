@@ -284,16 +284,18 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(screen.getByTestId('action-button')).toHaveTextContent('continue');
   });
 
-  it('unlocks through the hardware protector when the hardware read fails and no password key exists', async () => {
+  it('takes the hardware path when the hardware read fails and no password key exists', async () => {
     mockHasHardwareProtector.mockRejectedValue(new Error('hw-boom'));
     mockHasPasswordProtector.mockResolvedValue(false);
-    render(<EncryptedWalletFileWalletPassword {...makeProps()} />);
+    const onGoNext = jest.fn();
+    render(<EncryptedWalletFileWalletPassword {...makeProps({ onGoNext })} />);
 
-    expect(await screen.findByTestId('action-button')).toHaveTextContent('unlock');
+    expect(await screen.findByTestId('action-button')).toHaveTextContent('continue');
     expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
     clickConfirm();
     fireEvent.click(screen.getByTestId('action-button'));
-    await waitFor(() => expect(mockUnlock).toHaveBeenCalledWith(undefined));
+    await waitFor(() => expect(onGoNext).toHaveBeenCalledTimes(1));
+    expect(mockUnlock).not.toHaveBeenCalled();
   });
 
   it('shows an error and offers no credential step when both protector reads fail', async () => {
@@ -355,15 +357,15 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(screen.getByTestId('encrypted-file-wallet-password-input')).toHaveAttribute('type', 'password');
   });
 
-  it('renders the hardware-unlock UI (unlock button, no password field)', async () => {
+  it('renders the hardware UI (continue button, no password field)', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     await renderComp(makeProps());
     expect(screen.queryByTestId('encrypted-file-wallet-password-input')).not.toBeInTheDocument();
     const button = screen.getByTestId('action-button');
-    expect(button).toHaveTextContent('unlock');
+    expect(button).toHaveTextContent('continue');
     // continueEnabled = confirmed && !isSubmitting -> disabled before confirming.
     expect(button).toBeDisabled();
-    expect(screen.getByText('encryptedWalletFileDescriptionHardware')).toBeInTheDocument();
+    expect(screen.getByText('encryptedWalletFileDescriptionExportAuth')).toBeInTheDocument();
   });
 
   it('toggles password visibility via the eye button', async () => {
@@ -455,7 +457,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     expect(mockStore[ATTEMPT_KEY]).toBe(1);
   });
 
-  it('unlocks without a password on the hardware path', async () => {
+  it('asks for no authentication on the hardware path, so the export prompts once', async () => {
     mockHasHardwareProtector.mockResolvedValue(true);
     const onGoNext = jest.fn();
     await renderComp(makeProps({ onGoNext }));
@@ -463,31 +465,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
     fireEvent.click(screen.getByTestId('action-button'));
 
     await waitFor(() => expect(onGoNext).toHaveBeenCalledTimes(1));
-    expect(mockUnlock).toHaveBeenCalledWith(undefined);
-  });
-
-  it('surfaces a hardware-unlock failure in the alert', async () => {
-    mockHasHardwareProtector.mockResolvedValue(true);
-    mockUnlock.mockRejectedValue(new Error('hw-fail'));
-    await renderComp(makeProps());
-    clickConfirm();
-    fireEvent.click(screen.getByTestId('action-button'));
-
-    await waitFor(() => expect(noticeBody()).toHaveTextContent('hw-fail'));
-    // Hardware failures skip the attempt/time-lock accounting.
-    expect(mockStore[ATTEMPT_KEY]).toBeUndefined();
-    expect(mockStore[TIMELOCK_KEY]).toBeUndefined();
-  });
-
-  it('falls back to an empty alert description when the hardware error has no message', async () => {
-    mockHasHardwareProtector.mockResolvedValue(true);
-    mockUnlock.mockRejectedValue(new Error('')); // message '' -> `|| ''` fallback
-    await renderComp(makeProps());
-    clickConfirm();
-    fireEvent.click(screen.getByTestId('action-button'));
-
-    await waitFor(() => expect(noticePart('title')).toHaveTextContent('error'));
-    expect(noticeBody()).toHaveTextContent('');
+    expect(mockUnlock).not.toHaveBeenCalled();
   });
 
   it('forwards a failed passcode unlock error into the numpad', async () => {
@@ -697,8 +675,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
       mockRealTelemetrySurfaces = false;
     });
 
-    it.each([false, true])('reports a raw credential failure hardware=%s', async hardware => {
-      mockHasHardwareProtector.mockResolvedValue(hardware);
+    it('reports a raw credential failure', async () => {
       mockUnlock.mockRejectedValueOnce(new Error(privateErrorFixture));
       await renderComp(makeProps({ walletPassword: 'pw' }));
       clickConfirm();
@@ -711,7 +688,7 @@ describe('EncryptedWalletFileWalletPassword', () => {
       expect(screen.getByRole('alert')).toHaveTextContent(privateErrorFixture);
       expect(reportUserVisibleError).not.toHaveBeenCalled();
       dwellForError();
-      expectDisplayReport('raw_encrypted_file_unlock_failed', hardware ? 'notice' : 'field');
+      expectDisplayReport('raw_encrypted_file_unlock_failed', 'field');
     });
     it('reports a raw passcode failure through the real passcode entry', async () => {
       mockIsMobile = true;

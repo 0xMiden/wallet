@@ -47,6 +47,7 @@ const RotateGuardianReview: FC = () => {
   const { endpoint: currentEndpoint } = useCurrentGuardianEndpoint();
   const currentAccount = useWalletStore(s => s.currentAccount);
   const { unlock, signTransaction } = useMidenContext();
+  const verifyStrictActionAuthentication = useWalletStore(s => s.verifyStrictActionAuthentication);
   // The picker is this screen's only parent, and the screen rebuilds its whole
   // state from the query string, so a cold load belongs back at the picker rather
   // than dumped at the wallet home.
@@ -177,7 +178,12 @@ const RotateGuardianReview: FC = () => {
           setErrorId('guardianSwitchAlreadyInProgress');
           return;
         }
-        await unlock(credential);
+        // A hardware wallet is already unlocked here, so it is asked to approve the switch by name.
+        if (hasHardwareProtector) {
+          await verifyStrictActionAuthentication(undefined, 'switch-guardian');
+        } else {
+          await unlock(credential);
+        }
         const txId = await initiateSwitchGuardianTransaction(
           currentAccount.publicKey,
           newEndpoint,
@@ -258,7 +264,17 @@ const RotateGuardianReview: FC = () => {
         setSubmitting(false);
       }
     },
-    [currentAccount, newEndpoint, endpointUnchanged, endpointInvalid, unlock, signTransaction, t]
+    [
+      currentAccount,
+      newEndpoint,
+      endpointUnchanged,
+      endpointInvalid,
+      unlock,
+      verifyStrictActionAuthentication,
+      hasHardwareProtector,
+      signTransaction,
+      t
+    ]
   );
 
   const handleContinue = useCallback(() => {

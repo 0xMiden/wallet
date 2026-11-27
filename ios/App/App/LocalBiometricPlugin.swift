@@ -2,14 +2,114 @@ import Foundation
 import Capacitor
 import LocalAuthentication
 import Security
+import UIKit
 import os.log
 import CryptoKit
 import CommonCrypto
 
 private let logger = OSLog(subsystem: "com.miden.wallet", category: "LocalBiometric")
 
-// Tag for the Secure Enclave key
-private let kHardwareKeyTag = "com.miden.wallet.hardware.key"
+// The original Secure Enclave key, kept to open wrappers made with it. Secure Enclave access control
+// cannot be changed, so those wrappers are re-wrapped under a new key.
+private let kLegacyKeyTag = "com.miden.wallet.hardware.key"
+// Each presence-gated wrapper has its own key, tagged with this prefix plus the id in the wrapper.
+// A key is never reused or replaced, so no saved wrapper can lose the key it points to.
+private let kPresenceKeyTagPrefix = "com.miden.wallet.hardware.key.up."
+// "up1:<key id>:<base64>". A legacy wrapper is bare base64, which cannot contain ":".
+private let kPresenceWrapperPrefix = "up1:"
+
+// Prompt text when the caller sends none, and the one prompt that also approves a hot key reveal.
+// The second is never taken from JS, so another action's wording cannot obtain that approval.
+private let kFallbackReason = "Authenticate to access your wallet"
+let kRevealHotKeyReason = "Reveal your everyday key"
+private let kMaxReasonLength = 120
+
+private func promptReason(_ requested: String?, fallback: String) -> String {
+    let trimmed = requested?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return trimmed.isEmpty || trimmed.count > kMaxReasonLength ? fallback : trimmed
+}
+
+/// Revealing the everyday key reads the vault key and then the hot key. The vault prompt names that
+/// action, and the approval issued here lets HotKey skip a second prompt for that one reveal. It
+/// holds no LAContext, so it cannot open any keychain key.
+///
+/// At most one approval exists. It works once, for one public key, for 15 seconds, and is dropped
+/// when another prompt starts, on lock and when the app goes to the background.
+final class RevealApprovalStore {
+    static let shared = RevealApprovalStore()
+    static let lifetimeNanoseconds: UInt64 = 15_000_000_000
+
+    private let lock = NSLock()
+    private let now: () -> UInt64
+    private var latestTicket: UInt64 = 0
+    private var approval: (id: String, publicKeyHex: String, issuedAt: UInt64)?
+    private var openContexts: [LAContext] = []
+    private var backgroundObserver: NSObjectProtocol?
+
+    // CLOCK_MONOTONIC_RAW keeps counting while the device sleeps.
+    init(now: @escaping () -> UInt64 = { clock_gettime_nsec_np(CLOCK_MONOTONIC_RAW) },
+         notifications: NotificationCenter = .default) {
+        self.now = now
+        backgroundObserver = notifications.addObserver(
+            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil
+        ) { [weak self] _ in self?.invalidateAll() }
+    }
+
+    /// Call before every prompt. Drops any approval and supersedes every earlier ticket.
+    func begin(_ context: LAContext) -> UInt64 {
+        lock.lock()
+        defer { lock.unlock() }
+        latestTicket += 1
+        approval = nil
+        openContexts.append(context)
+        return latestTicket
+    }
+
+    /// Call once the prompt's work is over, however it ended. The context cannot be used again.
+    func end(_ context: LAContext) {
+        lock.lock()
+        openContexts.removeAll { $0 === context }
+        lock.unlock()
+        context.invalidate()
+    }
+
+    /// Nil when a newer prompt, a lock or a background came after `ticket`.
+    func issue(ticket: UInt64, publicKeyHex: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard ticket == latestTicket else { return nil }
+        let id = UUID().uuidString
+        approval = (id: id, publicKeyHex: publicKeyHex, issuedAt: now())
+        return id
+    }
+
+    /// The approved public key, once. Removed under the lock, so of two concurrent calls one gets nil.
+    func consume(_ id: String) -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let current = approval, current.id == id else { return nil }
+        approval = nil
+        guard now() &- current.issuedAt <= Self.lifetimeNanoseconds else { return nil }
+        return current.publicKeyHex
+    }
+
+    func discard(_ id: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        if approval?.id == id { approval = nil }
+    }
+
+    /// Lock and background: no approval survives, none can still be issued, and open prompts close.
+    func invalidateAll() {
+        lock.lock()
+        latestTicket += 1
+        approval = nil
+        let contexts = openContexts
+        openContexts = []
+        lock.unlock()
+        contexts.forEach { $0.invalidate() }
+    }
+}
 
 @objc(LocalBiometricPlugin)
 public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -27,6 +127,7 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "generateHardwareKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "encryptWithHardwareKey", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "decryptWithHardwareKey", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "discardRevealApproval", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "deleteHardwareKey", returnType: CAPPluginReturnPromise)
     ]
 
@@ -72,7 +173,9 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let policy: LAPolicy = useFallback ? .deviceOwnerAuthentication : .deviceOwnerAuthenticationWithBiometrics
 
+        _ = RevealApprovalStore.shared.begin(context)
         context.evaluatePolicy(policy, localizedReason: reason) { success, error in
+            defer { RevealApprovalStore.shared.end(context) }
             if success {
                 os_log("[LocalBiometric] verifyIdentity SUCCESS", log: logger, type: .debug)
                 call.resolve()
@@ -222,22 +325,14 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
     @objc func hasHardwareKey(_ call: CAPPluginCall) {
         os_log("[LocalBiometric] hasHardwareKey called", log: logger, type: .debug)
 
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: kHardwareKeyTag.data(using: .utf8)!,
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecReturnRef as String: false
-        ]
-
-        let status = SecItemCopyMatching(query as CFDictionary, nil)
-        let exists = status == errSecSuccess
+        let exists = !hardwareKeyTags().isEmpty
 
         os_log("[LocalBiometric] hasHardwareKey: %{public}@", log: logger, type: .debug, String(describing: exists))
         call.resolve(["exists": exists])
     }
 
-    /// Generate a new key for vault protection using Secure Enclave
-    /// Only works on real devices - returns error on simulator
+    /// Kept for the cross-platform plugin contract. `encryptWithHardwareKey` makes its own key,
+    /// so there is nothing to create here, and nothing may be deleted.
     @objc func generateHardwareKey(_ call: CAPPluginCall) {
         os_log("[LocalBiometric] generateHardwareKey called", log: logger, type: .debug)
 
@@ -247,58 +342,10 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
             call.reject("Secure Enclave not available")
             return
         }
-
-        // First delete any existing key
-        let deleteQuery: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: kHardwareKeyTag.data(using: .utf8)!
-        ]
-        SecItemDelete(deleteQuery as CFDictionary)
-
-        // Create access control - only require auth when USING the private key
-        // Using only .privateKeyUsage (not .userPresence) to avoid double FaceID prompt
-        // .privateKeyUsage triggers auth when key is used for signing/ECDH
-        // .userPresence would trigger auth when key is retrieved, causing double prompt
-        var accessError: Unmanaged<CFError>?
-        guard let accessControl = SecAccessControlCreateWithFlags(
-            kCFAllocatorDefault,
-            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
-            .privateKeyUsage,
-            &accessError
-        ) else {
-            let errorMsg = accessError?.takeRetainedValue().localizedDescription ?? "Unknown error"
-            os_log("[LocalBiometric] Failed to create access control: %{public}@", log: logger, type: .error, errorMsg)
-            call.reject("Failed to create access control: \(errorMsg)")
-            return
-        }
-
-        // Key generation attributes with Secure Enclave
-        let attributes: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecAttrKeySizeInBits as String: 256,
-            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
-            kSecPrivateKeyAttrs as String: [
-                kSecAttrIsPermanent as String: true,
-                kSecAttrApplicationTag as String: kHardwareKeyTag.data(using: .utf8)!,
-                kSecAttrAccessControl as String: accessControl
-            ]
-        ]
-
-        var keyError: Unmanaged<CFError>?
-        guard SecKeyCreateRandomKey(attributes as CFDictionary, &keyError) != nil else {
-            let errorMsg = keyError?.takeRetainedValue().localizedDescription ?? "Unknown error"
-            os_log("[LocalBiometric] Failed to generate key: %{public}@", log: logger, type: .error, errorMsg)
-            call.reject("Failed to generate key: \(errorMsg)")
-            return
-        }
-
-        os_log("[LocalBiometric] Secure Enclave key generated successfully", log: logger, type: .debug)
         call.resolve()
     }
 
-    /// Encrypt data using the hardware-backed key (ECIES)
-    /// Triggers biometric auth for consistency with Android (even though iOS encryption
-    /// technically only needs the public key which doesn't require auth)
+    /// Wrap data under a new presence-gated Secure Enclave key, after the owner authenticates.
     @objc func encryptWithHardwareKey(_ call: CAPPluginCall) {
         os_log("[LocalBiometric] encryptWithHardwareKey called", log: logger, type: .debug)
 
@@ -307,110 +354,37 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        // Get the public key (doesn't require biometric auth technically, but we verify anyway)
-        guard let publicKey = getHardwarePublicKey() else {
-            call.reject("Hardware key not found")
-            return
-        }
-
         guard let dataBytes = data.data(using: .utf8) else {
             call.reject("Failed to encode data")
             return
         }
 
-        // Trigger biometric authentication for consistency with Android
-        // On Android, the symmetric key requires auth for both encrypt and decrypt
-        // On iOS, we use asymmetric ECIES where only decrypt needs auth, but we
-        // verify identity during encrypt too for consistent UX across platforms
         let context = LAContext()
-        let policy = LAPolicy.deviceOwnerAuthentication
-
-        os_log("[LocalBiometric] Triggering biometric authentication for encryption...", log: logger, type: .debug)
-
-        context.evaluatePolicy(policy, localizedReason: "Set up wallet security") { success, error in
+        let reason = promptReason(call.getString("reason"), fallback: "Set up wallet security")
+        _ = RevealApprovalStore.shared.begin(context)
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, error in
+            defer { RevealApprovalStore.shared.end(context) }
             if !success {
-                let errorCode = (error as NSError?)?.code ?? 0
-                os_log("[LocalBiometric] Biometric auth failed during encryption: %{public}@", log: logger, type: .error, error?.localizedDescription ?? "unknown")
-                if errorCode == LAError.userCancel.rawValue {
-                    call.reject("Authentication cancelled", "USER_CANCELLED")
-                } else if errorCode == LAError.authenticationFailed.rawValue {
-                    call.reject("Authentication failed", "AUTH_FAILED")
-                } else {
-                    call.reject("Authentication failed: \(error?.localizedDescription ?? "unknown")")
-                }
+                self.rejectAuthentication(call, error)
                 return
             }
 
-            os_log("[LocalBiometric] Biometric auth successful, proceeding with encryption...", log: logger, type: .debug)
-
-            // ECIES encryption:
-            // 1. Generate ephemeral key pair
-            // 2. ECDH to derive shared secret
-            // 3. Derive AES key from shared secret
-            // 4. Encrypt with AES-GCM
-
-            // Generate ephemeral key pair
-            let ephemeralAttributes: [String: Any] = [
-                kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-                kSecAttrKeySizeInBits as String: 256
-            ]
-
-            var ephemeralError: Unmanaged<CFError>?
-            guard let ephemeralPrivateKey = SecKeyCreateRandomKey(ephemeralAttributes as CFDictionary, &ephemeralError),
-                  let ephemeralPublicKey = SecKeyCopyPublicKey(ephemeralPrivateKey) else {
-                let errorMsg = ephemeralError?.takeRetainedValue().localizedDescription ?? "Unknown error"
-                call.reject("Failed to create ephemeral key: \(errorMsg)")
-                return
-            }
-
-            // ECDH to derive shared secret
-            var dhError: Unmanaged<CFError>?
-            guard let sharedSecret = SecKeyCopyKeyExchangeResult(
-                ephemeralPrivateKey,
-                .ecdhKeyExchangeStandard,
-                publicKey,
-                [:] as CFDictionary,
-                &dhError
-            ) as Data? else {
-                let errorMsg = dhError?.takeRetainedValue().localizedDescription ?? "Unknown error"
-                call.reject("Failed to perform ECDH: \(errorMsg)")
-                return
-            }
-
-            // Derive AES-256 key from shared secret using SHA-256
-            let aesKey = self.deriveAESKey(from: sharedSecret)
-
-            // Generate random IV (12 bytes for GCM)
-            var iv = Data(count: 12)
-            _ = iv.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 12, $0.baseAddress!) }
-
-            // Encrypt with AES-GCM
-            guard let encrypted = self.aesGCMEncrypt(data: dataBytes, key: aesKey, iv: iv) else {
+            guard let wrapper = self.makePresenceWrapper(dataBytes, context: context) else {
                 call.reject("Failed to encrypt data")
                 return
             }
 
-            // Export ephemeral public key
-            var exportError: Unmanaged<CFError>?
-            guard let ephemeralPubKeyData = SecKeyCopyExternalRepresentation(ephemeralPublicKey, &exportError) as Data? else {
-                let errorMsg = exportError?.takeRetainedValue().localizedDescription ?? "Unknown error"
-                call.reject("Failed to export ephemeral public key: \(errorMsg)")
-                return
-            }
-
-            // Pack: ephemeralPubKey (65 bytes) + IV (12 bytes) + ciphertext + tag (16 bytes)
-            var result = Data()
-            result.append(ephemeralPubKeyData)
-            result.append(iv)
-            result.append(encrypted)
-
-            let base64Result = result.base64EncodedString()
             os_log("[LocalBiometric] encryptWithHardwareKey success", log: logger, type: .debug)
-            call.resolve(["encrypted": base64Result])
+            call.resolve(["encrypted": wrapper])
         }
     }
 
-    /// Decrypt data using the hardware-backed key (triggers biometric auth)
+    /// Decrypt a wrapper after the owner authenticates with Face ID, Touch ID or the device passcode.
+    /// A legacy wrapper also resolves `rewrapped`, a verified presence-gated replacement for the
+    /// caller to persist.
+    /// shortcut: the legacy key is kept. App storage is UserDefaults, so reading the replacement back
+    /// does not prove it reached disk, and a lost write after deleting the key would strand the
+    /// wallet. Delete it in a later release, once migrated installs have restarted many times.
     @objc func decryptWithHardwareKey(_ call: CAPPluginCall) {
         os_log("[LocalBiometric] decryptWithHardwareKey called", log: logger, type: .debug)
 
@@ -419,140 +393,254 @@ public class LocalBiometricPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        guard let encryptedData = Data(base64Encoded: encrypted) else {
+        let tag: String
+        let payload: String
+        let isLegacy: Bool
+        if encrypted.hasPrefix(kPresenceWrapperPrefix) {
+            let parts = encrypted.dropFirst(kPresenceWrapperPrefix.count).split(separator: ":")
+            guard parts.count == 2 else {
+                call.reject("Invalid wrapper")
+                return
+            }
+            tag = kPresenceKeyTagPrefix + String(parts[0])
+            payload = String(parts[1])
+            isLegacy = false
+        } else {
+            tag = kLegacyKeyTag
+            payload = encrypted
+            isLegacy = true
+        }
+
+        guard let encryptedData = Data(base64Encoded: payload) else {
             call.reject("Invalid base64 data")
             return
         }
 
-        // Unpack: ephemeralPubKey (65 bytes) + IV (12 bytes) + ciphertext + tag
-        guard encryptedData.count > 65 + 12 + 16 else {
-            call.reject("Encrypted data too short")
-            return
-        }
+        let revealPublicKey = call.getString("revealHotKeyPublicKey")
+        let reason = revealPublicKey == nil
+            ? promptReason(call.getString("reason"), fallback: kFallbackReason)
+            : kRevealHotKeyReason
 
-        let ephemeralPubKeyData = encryptedData.prefix(65)
-        let iv = encryptedData.dropFirst(65).prefix(12)
-        let ciphertextAndTag = encryptedData.dropFirst(65 + 12)
-
-        // Import ephemeral public key
-        let keyAttributes: [String: Any] = [
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecAttrKeyClass as String: kSecAttrKeyClassPublic,
-            kSecAttrKeySizeInBits as String: 256
-        ]
-
-        var importError: Unmanaged<CFError>?
-        guard let ephemeralPublicKey = SecKeyCreateWithData(
-            ephemeralPubKeyData as CFData,
-            keyAttributes as CFDictionary,
-            &importError
-        ) else {
-            let errorMsg = importError?.takeRetainedValue().localizedDescription ?? "Unknown error"
-            call.reject("Failed to import ephemeral public key: \(errorMsg)")
-            return
-        }
-
-        // Don't pass any LAContext - let iOS handle auth automatically
-        // With only .privateKeyUsage on the key, auth should only trigger
-        // when SecKeyCopyKeyExchangeResult uses the private key
-        os_log("[LocalBiometric] Accessing hardware key...", log: logger, type: .debug)
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: kHardwareKeyTag.data(using: .utf8)!,
-            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
-            kSecReturnRef as String: true
-        ]
-
-        var keyRef: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &keyRef)
-
-        guard status == errSecSuccess, let privateKey = keyRef else {
-            os_log("[LocalBiometric] Failed to get private key: %{public}d", log: logger, type: .error, status)
-            if status == errSecUserCanceled {
-                call.reject("Authentication cancelled", "USER_CANCELLED")
-            } else if status == errSecAuthFailed {
-                call.reject("Authentication failed", "AUTH_FAILED")
-            } else {
-                call.reject("Failed to access hardware key: \(status)")
+        // A fresh context per call, never kept, so one approval never covers a later decrypt.
+        let context = LAContext()
+        let ticket = RevealApprovalStore.shared.begin(context)
+        context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: reason) { success, error in
+            defer { RevealApprovalStore.shared.end(context) }
+            // With no device passcode there is no prompt to show for a legacy wrapper, and refusing
+            // would leave that wallet with only the reset path.
+            let noPasscode = isLegacy && (error as NSError?)?.code == LAError.passcodeNotSet.rawValue
+            if !success && !noPasscode {
+                self.rejectAuthentication(call, error)
+                return
             }
-            return
-        }
 
-        // ECDH to derive shared secret - this is where FaceID will be triggered
-        // because the key has .privateKeyUsage access control
-        os_log("[LocalBiometric] Performing ECDH (biometric prompt expected here)...", log: logger, type: .debug)
-        var dhError: Unmanaged<CFError>?
-        guard let sharedSecret = SecKeyCopyKeyExchangeResult(
-            privateKey as! SecKey,
-            .ecdhKeyExchangeStandard,
-            ephemeralPublicKey,
-            [:] as CFDictionary,
-            &dhError
-        ) as Data? else {
-            let nsError = dhError?.takeRetainedValue() as? NSError
-            let errorMsg = nsError?.localizedDescription ?? "Unknown error"
-            os_log("[LocalBiometric] ECDH failed: %{public}@", log: logger, type: .error, errorMsg)
-
-            // Check if user cancelled
-            if nsError?.domain == LAError.errorDomain && nsError?.code == LAError.userCancel.rawValue {
-                call.reject("Authentication cancelled", "USER_CANCELLED")
-            } else if nsError?.domain == LAError.errorDomain && nsError?.code == LAError.authenticationFailed.rawValue {
-                call.reject("Authentication failed", "AUTH_FAILED")
-            } else {
-                call.reject("Failed to perform ECDH: \(errorMsg)")
+            guard let decrypted = self.unwrap(encryptedData, tag: tag, context: context),
+                  let decryptedString = String(data: decrypted, encoding: .utf8) else {
+                call.reject("Failed to decrypt data")
+                return
             }
-            return
+
+            var response: [String: Any] = ["decrypted": decryptedString]
+            if isLegacy, success, let rewrapped = self.makePresenceWrapper(decrypted, context: context) {
+                response["rewrapped"] = rewrapped
+            }
+            if success, let publicKey = revealPublicKey {
+                // Superseded, locked or backgrounded since the prompt began: end the reveal here,
+                // so HotKey cannot put up a second prompt for it.
+                guard let approval = RevealApprovalStore.shared.issue(ticket: ticket, publicKeyHex: publicKey) else {
+                    call.reject("Authentication expired. Try again.", "APPROVAL_EXPIRED")
+                    return
+                }
+                response["revealApproval"] = approval
+            }
+
+            os_log("[LocalBiometric] decryptWithHardwareKey success", log: logger, type: .debug)
+            call.resolve(response)
         }
-
-        os_log("[LocalBiometric] ECDH successful, decrypting...", log: logger, type: .debug)
-
-        // Derive AES key from shared secret
-        let aesKey = self.deriveAESKey(from: sharedSecret)
-
-        // Decrypt with AES-GCM
-        guard let decrypted = self.aesGCMDecrypt(data: Data(ciphertextAndTag), key: aesKey, iv: Data(iv)),
-              let decryptedString = String(data: decrypted, encoding: .utf8) else {
-            call.reject("Failed to decrypt data")
-            return
-        }
-
-        os_log("[LocalBiometric] decryptWithHardwareKey success", log: logger, type: .debug)
-        call.resolve(["decrypted": decryptedString])
     }
 
-    /// Delete the hardware-backed key
+    /// With `approval`, drop that one. Without it (lock), drop everything and close open prompts.
+    @objc func discardRevealApproval(_ call: CAPPluginCall) {
+        if let approval = call.getString("approval") {
+            RevealApprovalStore.shared.discard(approval)
+        } else {
+            RevealApprovalStore.shared.invalidateAll()
+        }
+        call.resolve()
+    }
+
+    /// Delete every hardware-backed vault key
     @objc func deleteHardwareKey(_ call: CAPPluginCall) {
         os_log("[LocalBiometric] deleteHardwareKey called", log: logger, type: .debug)
-
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: kHardwareKeyTag.data(using: .utf8)!
-        ]
-
-        let status = SecItemDelete(query as CFDictionary)
-        os_log("[LocalBiometric] deleteHardwareKey status: %{public}d", log: logger, type: .debug, status)
+        RevealApprovalStore.shared.invalidateAll()
+        hardwareKeyTags().forEach { deleteKey(tag: $0) }
         call.resolve()
     }
 
     // MARK: - Helper Methods
 
-    private func getHardwarePublicKey() -> SecKey? {
+    private func rejectAuthentication(_ call: CAPPluginCall, _ error: Error?) {
+        os_log("[LocalBiometric] authentication failed: %{public}@", log: logger, type: .error, error?.localizedDescription ?? "unknown")
+        switch (error as NSError?)?.code {
+        case LAError.userCancel.rawValue, LAError.systemCancel.rawValue, LAError.appCancel.rawValue:
+            call.reject("Authentication cancelled", "USER_CANCELLED")
+        case LAError.authenticationFailed.rawValue:
+            call.reject("Authentication failed", "AUTH_FAILED")
+        default:
+            call.reject("Authentication failed: \(error?.localizedDescription ?? "unknown")")
+        }
+    }
+
+    /// Tags of the vault keys in the keychain: the legacy key and any presence-gated keys.
+    private func hardwareKeyTags() -> [String] {
         let query: [String: Any] = [
             kSecClass as String: kSecClassKey,
-            kSecAttrApplicationTag as String: kHardwareKeyTag.data(using: .utf8)!,
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnAttributes as String: true
+        ]
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let items = result as? [[String: Any]] else {
+            return []
+        }
+        return items.compactMap { item in
+            guard let data = item[kSecAttrApplicationTag as String] as? Data,
+                  let tag = String(data: data, encoding: .utf8),
+                  tag == kLegacyKeyTag || tag.hasPrefix(kPresenceKeyTagPrefix) else {
+                return nil
+            }
+            return tag
+        }
+    }
+
+    private func deleteKey(tag: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: tag.data(using: .utf8)!
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        os_log("[LocalBiometric] deleteKey status: %{public}d", log: logger, type: .debug, status)
+    }
+
+    private func loadPrivateKey(tag: String, context: LAContext) -> SecKey? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassKey,
+            kSecAttrApplicationTag as String: tag.data(using: .utf8)!,
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecUseAuthenticationContext as String: context,
             kSecReturnRef as String: true
         ]
-
         var keyRef: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &keyRef)
+        guard status == errSecSuccess, let key = keyRef else {
+            os_log("[LocalBiometric] Failed to get private key: %{public}d", log: logger, type: .error, status)
+            return nil
+        }
+        return (key as! SecKey)
+    }
 
-        guard status == errSecSuccess, let privateKey = keyRef as! SecKey? else {
+    /// A Secure Enclave key that needs Face ID, Touch ID or the passcode for every use.
+    /// `.userPresence` and not `.biometryCurrentSet`: the latter dies when biometrics are
+    /// re-enrolled, which would leave a biometric wallet with only the reset path.
+    private func createPresenceKey(tag: String) -> SecKey? {
+        var accessError: Unmanaged<CFError>?
+        guard let accessControl = SecAccessControlCreateWithFlags(
+            kCFAllocatorDefault,
+            kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            [.privateKeyUsage, .userPresence],
+            &accessError
+        ) else {
+            os_log("[LocalBiometric] Failed to create access control: %{public}@", log: logger, type: .error, accessError?.takeRetainedValue().localizedDescription ?? "unknown")
             return nil
         }
 
-        return SecKeyCopyPublicKey(privateKey)
+        let attributes: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: 256,
+            kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: true,
+                kSecAttrApplicationTag as String: tag.data(using: .utf8)!,
+                kSecAttrAccessControl as String: accessControl
+            ]
+        ]
+
+        var keyError: Unmanaged<CFError>?
+        guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &keyError) else {
+            os_log("[LocalBiometric] Failed to generate key: %{public}@", log: logger, type: .error, keyError?.takeRetainedValue().localizedDescription ?? "unknown")
+            return nil
+        }
+        return key
+    }
+
+    /// Encrypt under a new presence-gated key and return the wrapper only after the key, read back
+    /// from the keychain, decrypts it to the same bytes. On failure the new key is removed.
+    private func makePresenceWrapper(_ data: Data, context: LAContext) -> String? {
+        let keyId = UUID().uuidString
+        let tag = kPresenceKeyTagPrefix + keyId
+        guard let privateKey = createPresenceKey(tag: tag) else { return nil }
+        guard let publicKey = SecKeyCopyPublicKey(privateKey),
+              let wrapped = wrap(data, publicKey: publicKey),
+              unwrap(wrapped, tag: tag, context: context) == data else {
+            os_log("[LocalBiometric] New wrapper failed verification", log: logger, type: .error)
+            deleteKey(tag: tag)
+            return nil
+        }
+        return kPresenceWrapperPrefix + keyId + ":" + wrapped.base64EncodedString()
+    }
+
+    /// ECIES. Output: ephemeral public key (65 bytes) + IV (12 bytes) + ciphertext + tag (16 bytes)
+    private func wrap(_ data: Data, publicKey: SecKey) -> Data? {
+        let ephemeralAttributes: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeySizeInBits as String: 256
+        ]
+        var error: Unmanaged<CFError>?
+        guard let ephemeralPrivateKey = SecKeyCreateRandomKey(ephemeralAttributes as CFDictionary, &error),
+              let ephemeralPublicKey = SecKeyCopyPublicKey(ephemeralPrivateKey),
+              let sharedSecret = SecKeyCopyKeyExchangeResult(
+                  ephemeralPrivateKey, .ecdhKeyExchangeStandard, publicKey, [:] as CFDictionary, &error
+              ) as Data?,
+              let ephemeralPubKeyData = SecKeyCopyExternalRepresentation(ephemeralPublicKey, &error) as Data? else {
+            os_log("[LocalBiometric] wrap failed: %{public}@", log: logger, type: .error, error?.takeRetainedValue().localizedDescription ?? "unknown")
+            return nil
+        }
+
+        var iv = Data(count: 12)
+        let randomStatus = iv.withUnsafeMutableBytes { SecRandomCopyBytes(kSecRandomDefault, 12, $0.baseAddress!) }
+        guard randomStatus == errSecSuccess,
+              let encrypted = aesGCMEncrypt(data: data, key: deriveAESKey(from: sharedSecret), iv: iv) else {
+            return nil
+        }
+        return ephemeralPubKeyData + iv + encrypted
+    }
+
+    private func unwrap(_ wrapped: Data, tag: String, context: LAContext) -> Data? {
+        guard wrapped.count > 65 + 12 + 16 else { return nil }
+
+        let keyAttributes: [String: Any] = [
+            kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+            kSecAttrKeyClass as String: kSecAttrKeyClassPublic,
+            kSecAttrKeySizeInBits as String: 256
+        ]
+        var error: Unmanaged<CFError>?
+        guard let ephemeralPublicKey = SecKeyCreateWithData(
+                  Data(wrapped.prefix(65)) as CFData, keyAttributes as CFDictionary, &error
+              ),
+              let privateKey = loadPrivateKey(tag: tag, context: context),
+              let sharedSecret = SecKeyCopyKeyExchangeResult(
+                  privateKey, .ecdhKeyExchangeStandard, ephemeralPublicKey, [:] as CFDictionary, &error
+              ) as Data? else {
+            os_log("[LocalBiometric] unwrap failed: %{public}@", log: logger, type: .error, error?.takeRetainedValue().localizedDescription ?? "unknown")
+            return nil
+        }
+
+        return aesGCMDecrypt(
+            data: Data(wrapped.dropFirst(65 + 12)),
+            key: deriveAESKey(from: sharedSecret),
+            iv: Data(wrapped.dropFirst(65).prefix(12))
+        )
     }
 
     private func deriveAESKey(from sharedSecret: Data) -> Data {

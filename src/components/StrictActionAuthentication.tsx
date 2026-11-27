@@ -7,6 +7,7 @@ import { PasscodeEntry } from 'components/PasscodeEntry';
 import { ErrorLine } from 'components/ui/ErrorLine';
 import { Notice } from 'components/ui/Notice';
 import { TextField } from 'components/ui/TextField';
+import type { AuthPurpose } from 'lib/auth/auth-purpose';
 import {
   StrictActionAuthenticationChallenge,
   StrictAuthenticationMethod,
@@ -20,6 +21,8 @@ import { cn } from 'lib/ui/util';
 
 export interface StrictActionAuthenticationProps {
   reason: string;
+  /** Names the action in the device prompt. */
+  purpose: AuthPurpose;
   onResult: (result: StrictAuthenticationResult) => void;
   className?: string;
 }
@@ -28,6 +31,7 @@ type DisplayMethod = StrictAuthenticationMethod | 'unavailable' | null;
 
 export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProps> = ({
   reason,
+  purpose,
   onResult,
   className
 }) => {
@@ -35,8 +39,13 @@ export const StrictActionAuthentication: React.FC<StrictActionAuthenticationProp
   const loadProtectors = useWalletStore(state => state.getStrictAuthenticationProtectors);
   const verify = useWalletStore(state => state.verifyStrictActionAuthentication);
   const controller = useMemo(
-    () => createStrictActionAuthenticationController({ getPlatform, loadProtectors, verify }),
-    [loadProtectors, verify]
+    () =>
+      createStrictActionAuthenticationController({
+        getPlatform,
+        loadProtectors,
+        verify: credential => verify(credential, purpose)
+      }),
+    [loadProtectors, verify, purpose]
   );
   const [method, setMethod] = useState<DisplayMethod>(null);
   const [password, setPassword] = useState('');
