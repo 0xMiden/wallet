@@ -199,6 +199,29 @@ it('discards backup export stage evidence with a wrong pair, unknown value, or e
   expect(snapshotCrashDiagnostics(root)).toEqual({ userErrorId: id, userErrorSurface: 'inline' });
 });
 
+it('reports only the closed operation and refusal on the generic recovery warning', () => {
+  const id = 'raw_bridge_deposit_failed';
+  const value = {
+    kind: 'locked_deposit_recovery',
+    lockedDepositRecoveryOperation: 'finish_withdrawal',
+    lockedDepositRecoveryReason: 'withdrawalNotDue'
+  };
+  const root = new Error('synthetic recovery failure');
+  annotateCrash(root, { userErrorId: id, userErrorSurface: 'inline' });
+  annotateUiProducer(root, id, 'inline', value);
+  expect(snapshotCrashDiagnostics(root)).toEqual({
+    userErrorId: id,
+    userErrorSurface: 'inline',
+    lockedDepositRecoveryOperation: 'finish_withdrawal',
+    lockedDepositRecoveryReason: 'withdrawalNotDue'
+  });
+  expect(validateUiEvidence('raw_bridge_connect_failed', 'inline', value)).toBeUndefined();
+  expect(validateUiEvidence(id, 'field', value)).toBeUndefined();
+  expect(validateUiEvidence(id, 'inline', { ...value, lockedDepositRecoveryReason: 'private' })).toBeUndefined();
+  annotateUiProducer(root, id, 'inline', { ...value, detail: 'private' });
+  expect(snapshotCrashDiagnostics(root)).toEqual({ userErrorId: id, userErrorSurface: 'inline' });
+});
+
 it('keeps confirmation origin on its exact notice and drops other input', () => {
   const id = 'raw_confirm_approval_failed';
   const value = { kind: 'confirm_approval_failure', confirmApprovalFailureOrigin: 'decline' };

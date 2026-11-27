@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next';
 
 import { LockedDepositError } from 'lib/epoch/bridge-in-recovery';
+import type { LockedDepositRecoveryOperation, UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 import { nativeSigningErrorId, nativeSigningErrorMessage } from 'lib/walletconnect/signing-error';
 
@@ -11,6 +12,7 @@ export const EVM_WALLET_PICKER_ERROR_ID: UserErrorId = 'raw_bridge_connect_faile
 export interface LockedDepositErrorDisplay {
   text: string;
   id: UserErrorId;
+  diagnostics?: UiEvidenceInput;
 }
 
 /**
@@ -20,11 +22,20 @@ export interface LockedDepositErrorDisplay {
 export function lockedDepositErrorDisplay(
   cause: unknown,
   t: TFunction,
-  names: { network: string; address: string }
+  names: { network: string; address: string },
+  operation: LockedDepositRecoveryOperation
 ): LockedDepositErrorDisplay {
+  const text = lockedDepositErrorText(cause, t, names);
+  const id = nativeSigningErrorId(cause);
+  if (id !== undefined) return { text, id };
   return {
-    text: lockedDepositErrorText(cause, t, names),
-    id: nativeSigningErrorId(cause) ?? 'raw_bridge_deposit_failed'
+    text,
+    id: 'raw_bridge_deposit_failed',
+    diagnostics: {
+      kind: 'locked_deposit_recovery',
+      lockedDepositRecoveryOperation: operation,
+      lockedDepositRecoveryReason: cause instanceof LockedDepositError ? cause.reason : 'unclassified'
+    }
   };
 }
 

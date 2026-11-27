@@ -24,6 +24,7 @@ import {
 import { requestLockRescan } from 'lib/epoch/lock-scan-refresh';
 import type { IEpochLockedDeposit } from 'lib/miden/db/types';
 import { hapticMedium } from 'lib/mobile/haptics';
+import type { LockedDepositRecoveryOperation } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { getChain } from 'lib/walletconnect/config';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
@@ -69,7 +70,13 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
   const [error, setError] = useState<LockedDepositErrorDisplay>();
   // The error line below is a plain alert paragraph, so this component reports it. A withdrawn row shows no error line.
   const shownError = error ?? (pickerError ? { text: pickerError, id: EVM_WALLET_PICKER_ERROR_ID } : undefined);
-  useUserVisibleError(readOnly || state === 'withdrawn' ? null : shownError?.id, 'inline');
+  const reportsError = !readOnly && state !== 'withdrawn';
+  useUserVisibleError(
+    reportsError ? shownError?.id : null,
+    'inline',
+    undefined,
+    reportsError ? error?.diagnostics : undefined
+  );
   const network = getChain(lock.chainId)?.name ?? String(lock.chainId);
   const sponsor = shortenAddress(lock.sponsorAddress);
   const withdrawableAt = lock.withdrawableAt;
@@ -79,7 +86,11 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
   const isSponsor = connected && sponsorWalletRefusal(address, lock.sponsorAddress) === undefined;
 
   const run = useCallback(
-    async (action: RecoveryAction, operation: () => Promise<unknown>) => {
+    async (
+      action: RecoveryAction,
+      operation: () => Promise<unknown>,
+      recoveryOperation: LockedDepositRecoveryOperation
+    ) => {
       if (busy !== undefined) return;
       hapticMedium();
       setBusy(action);
@@ -88,7 +99,7 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
         await operation();
       } catch (cause) {
         console.error(`[EpochLockedDepositAction] ${action} failed`, cause);
-        setError(lockedDepositErrorDisplay(cause, t, { network, address: sponsor }));
+        setError(lockedDepositErrorDisplay(cause, t, { network, address: sponsor }, recoveryOperation));
       } finally {
         setBusy(undefined);
         requestLockRescan();
@@ -97,14 +108,15 @@ export const EpochLockedDepositAction: React.FC<EpochLockedDepositActionProps> =
     [busy, network, sponsor, t]
   );
 
-  const handleRetry = useCallback(() => run('retry', () => retryLockedDeposit(txId)), [run, txId]);
-  const handleWithdraw = useCallback(
-    () =>
-      run('withdraw', () =>
-        lock.withdrawEnabledAt === undefined ? startLockedDepositWithdrawal(txId) : finishLockedDepositWithdrawal(txId)
-      ),
-    [lock.withdrawEnabledAt, run, txId]
-  );
+  const handleRetry = useCallback(() => run('retry', () => retryLockedDeposit(txId), 'retry'), [run, txId]);
+  const handleWithdraw = useCallback(() => {
+    const startsWithdrawal = lock.withdrawEnabledAt === undefined;
+    return run(
+      'withdraw',
+      () => (startsWithdrawal ? startLockedDepositWithdrawal(txId) : finishLockedDepositWithdrawal(txId)),
+      startsWithdrawal ? 'start_withdrawal' : 'finish_withdrawal'
+    );
+  }, [lock.withdrawEnabledAt, run, txId]);
   const handleOpenLockPage = useCallback(() => navigate(recoverFundsLockPath(lock)), [lock]);
 
   if (state === 'withdrawn') {

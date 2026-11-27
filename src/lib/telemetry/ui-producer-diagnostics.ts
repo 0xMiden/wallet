@@ -78,6 +78,26 @@ export const EARN_POSITIONS_LOAD_STAGES = [
 export const EARN_POSITIONS_LOAD_OUTCOMES = ['complete_failure', 'partial_failure'] as const;
 export const CONFIRM_APPROVAL_FAILURE_ORIGINS = ['approve', 'decline', 'automatic_reconnect'] as const;
 export type ConfirmApprovalFailureOrigin = (typeof CONFIRM_APPROVAL_FAILURE_ORIGINS)[number];
+export const LOCKED_DEPOSIT_RECOVERY_OPERATIONS = [
+  'retry',
+  'start_withdrawal',
+  'finish_withdrawal',
+  'cancel_withdrawal'
+] as const;
+export const LOCKED_DEPOSIT_RECOVERY_REASONS = [
+  'notRecoverable',
+  'walletDisconnected',
+  'wrongAccount',
+  'wrongChain',
+  'withdrawalNotStarted',
+  'withdrawalNotDue',
+  'depositMissing',
+  'balanceUnreadable',
+  'lockMismatch',
+  'unclassified'
+] as const;
+export type LockedDepositRecoveryOperation = (typeof LOCKED_DEPOSIT_RECOVERY_OPERATIONS)[number];
+type LockedDepositRecoveryReason = (typeof LOCKED_DEPOSIT_RECOVERY_REASONS)[number];
 export type EarnPositionsLoadStage = (typeof EARN_POSITIONS_LOAD_STAGES)[number];
 export type EarnPositionsLoadOutcome = (typeof EARN_POSITIONS_LOAD_OUTCOMES)[number];
 export type BridgeBalanceBranch = 'fast_usdc' | 'circle_usdc' | 'native' | 'registered_erc20' | 'unrecorded';
@@ -185,6 +205,11 @@ export type UiEvidenceInput =
   | { kind: 'guardian_outage'; guardianOutageReason: GuardianOutageReason }
   | { kind: 'confirm_approval_failure'; confirmApprovalFailureOrigin: ConfirmApprovalFailureOrigin }
   | {
+      kind: 'locked_deposit_recovery';
+      lockedDepositRecoveryOperation: LockedDepositRecoveryOperation;
+      lockedDepositRecoveryReason: LockedDepositRecoveryReason;
+    }
+  | {
       kind: 'bridge_balance_read';
       bridgeBalanceBranch: BridgeBalanceBranch;
       bridgeBalanceStage: BridgeBalanceStage;
@@ -227,6 +252,8 @@ export type UiEvidenceInput =
   | { kind: 'backup_export_failure'; backupExportFailureStage: BackupExportFailureStage };
 export type UiProducerDiagnostics = {
   confirmApprovalFailureOrigin?: ConfirmApprovalFailureOrigin;
+  lockedDepositRecoveryOperation?: LockedDepositRecoveryOperation;
+  lockedDepositRecoveryReason?: LockedDepositRecoveryReason;
   guardianOutageReason?: GuardianOutageReason;
   earnPositionsLoadStage?: EarnPositionsLoadStage;
   earnPositionsLoadOutcome?: EarnPositionsLoadOutcome;
@@ -252,6 +279,8 @@ export type UiProducerDiagnostics = {
 };
 export const UI_PRODUCER_KEYS = [
   'confirmApprovalFailureOrigin',
+  'lockedDepositRecoveryOperation',
+  'lockedDepositRecoveryReason',
   'guardianOutageReason',
   'earnPositionsLoadStage',
   'earnPositionsLoadOutcome',
@@ -276,6 +305,14 @@ export const UI_PRODUCER_KEYS = [
   'backupExportFailureStage'
 ] as const;
 const groups = {
+  locked_deposit_recovery: {
+    id: 'raw_bridge_deposit_failed',
+    surface: 'inline',
+    fields: {
+      lockedDepositRecoveryOperation: LOCKED_DEPOSIT_RECOVERY_OPERATIONS,
+      lockedDepositRecoveryReason: LOCKED_DEPOSIT_RECOVERY_REASONS
+    }
+  },
   confirm_approval_failure: {
     id: 'raw_confirm_approval_failed',
     surface: 'notice',

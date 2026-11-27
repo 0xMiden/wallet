@@ -114,7 +114,9 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
       if (mounted.current) setCheck({ ...check, active: false });
     } catch (cause) {
       if (mounted.current) {
-        setError(lockedDepositErrorDisplay(cause, t, { network, address: shortenAddress(sponsorAddress) }));
+        setError(
+          lockedDepositErrorDisplay(cause, t, { network, address: shortenAddress(sponsorAddress) }, 'cancel_withdrawal')
+        );
       }
     } finally {
       running.current = false;
@@ -177,7 +179,12 @@ export const EpochWithdrawalGate: React.FC<EpochWithdrawalGateProps> = ({
           {t(busy ? 'bridgeWithdrawalWalletPrompt' : 'bridgeWithdrawalEffect', { network })}
         </Notice>
       )}
-      <ErrorLine className="mt-4" errorId={error?.id ?? null} data-testid="bridge-withdrawal-error">
+      <ErrorLine
+        className="mt-4"
+        errorId={error?.id ?? null}
+        errorDiagnostics={error?.diagnostics}
+        data-testid="bridge-withdrawal-error"
+      >
         {error?.text}
       </ErrorLine>
     </HomeGroupPaneBody>

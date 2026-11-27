@@ -40,6 +40,7 @@ import { requestLockRescan, useLockRescanGeneration } from 'lib/epoch/lock-scan-
 import { hapticMedium } from 'lib/mobile/haptics';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { selectEpochTokens } from 'lib/remote-config/values';
+import type { LockedDepositRecoveryOperation } from 'lib/telemetry/ui-producer-diagnostics';
 import { getChain } from 'lib/walletconnect/config';
 import { useEvmWalletConnection } from 'lib/walletconnect/useEvmWalletConnection';
 import { useEvmWalletPicker } from 'lib/walletconnect/useEvmWalletPicker';
@@ -177,7 +178,11 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
   const refusal = connected ? sponsorWalletRefusal(address, lock.sponsorAddress) : 'walletDisconnected';
 
   const run = useCallback(
-    async (action: LockAction, operation: () => Promise<unknown>) => {
+    async (
+      action: LockAction,
+      operation: () => Promise<unknown>,
+      recoveryOperation: LockedDepositRecoveryOperation
+    ) => {
       if (busy !== undefined) return;
       hapticMedium();
       setBusy(action);
@@ -186,7 +191,7 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
         await operation();
       } catch (cause) {
         console.error(`[RecoverLockedFundsLock] ${action} failed`, cause);
-        setError(lockedDepositErrorDisplay(cause, t, { network, address: sponsor }));
+        setError(lockedDepositErrorDisplay(cause, t, { network, address: sponsor }, recoveryOperation));
       } finally {
         setBusy(undefined);
         requestLockRescan();
@@ -197,27 +202,35 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
 
   const handleWithdraw = useCallback(
     () =>
-      run('withdraw', async () => {
-        if (phase === 'due') {
-          await finishLockWithdrawal(lock);
-          flushSync(() => setWithdrawn(true));
-          return;
-        }
-        await startLockWithdrawal(lock);
-      }),
+      run(
+        'withdraw',
+        async () => {
+          if (phase === 'due') {
+            await finishLockWithdrawal(lock);
+            flushSync(() => setWithdrawn(true));
+            return;
+          }
+          await startLockWithdrawal(lock);
+        },
+        phase === 'due' ? 'finish_withdrawal' : 'start_withdrawal'
+      ),
     [lock, phase, run]
   );
   const handleCancel = useCallback(
     () =>
-      run('cancel', async () => {
-        await cancelLockWithdrawal(lock);
-        if (withdrawn) setWithdrawalDisabled(true);
-      }),
+      run(
+        'cancel',
+        async () => {
+          await cancelLockWithdrawal(lock);
+          if (withdrawn) setWithdrawalDisabled(true);
+        },
+        'cancel_withdrawal'
+      ),
     [lock, run, withdrawn]
   );
   const retryTxId = state.local.retryTxId;
   const handleRetry = useCallback(
-    () => run('retry', async () => (retryTxId === undefined ? undefined : retryLockedDeposit(retryTxId))),
+    () => run('retry', async () => (retryTxId === undefined ? undefined : retryLockedDeposit(retryTxId)), 'retry'),
     [retryTxId, run]
   );
 
@@ -391,7 +404,11 @@ const LockDetails: FC<{ lock: RoutedLock; onBack: () => void }> = ({ lock, onBac
           >
             {t('recoverFundsWithdrawBlocksBridge', { token: tokenSymbol, address: sponsor })}
           </Notice>
-          <ErrorLine errorId={error?.id ?? EVM_WALLET_PICKER_ERROR_ID} data-testid="recover-funds-lock-error">
+          <ErrorLine
+            errorId={error?.id ?? EVM_WALLET_PICKER_ERROR_ID}
+            errorDiagnostics={error?.diagnostics}
+            data-testid="recover-funds-lock-error"
+          >
             {error?.text ?? pickerError}
           </ErrorLine>
         </>
