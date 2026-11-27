@@ -2024,6 +2024,27 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   it.each(['release', 'fail'] as const)(
     'ignores %s settlement after unmount mid-row-creation without post-unmount state updates',
     async outcome => {
+      const originalUseState = React.useState;
+      const wrappedSetters = new WeakMap<
+        React.Dispatch<React.SetStateAction<unknown>>,
+        React.Dispatch<React.SetStateAction<unknown>>
+      >();
+      let unmounted = false;
+      let preUnmountSetterCalls = 0;
+      const postUnmountSetterCalls: unknown[] = [];
+      const useStateSpy = jest.spyOn(React, 'useState').mockImplementation(((...args: unknown[]) => {
+        const [state, setState] = args.length > 0 ? originalUseState<unknown>(args[0]) : originalUseState<unknown>();
+        let wrapped = wrappedSetters.get(setState);
+        if (!wrapped) {
+          wrapped = value => {
+            if (unmounted) postUnmountSetterCalls.push(value);
+            else preUnmountSetterCalls += 1;
+            return setState(value);
+          };
+          wrappedSetters.set(setState, wrapped);
+        }
+        return [state, wrapped];
+      }) as unknown as typeof React.useState);
       const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
       try {
         const fundFlow: FundFlowTelemetry = {
@@ -2043,14 +2064,24 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
         jest.mocked(fundFlow.enterStep).mockClear();
         view.unmount();
+        await settle();
+        unmounted = true;
 
         if (outcome === 'release') row.release();
         else row.fail();
         await settle();
 
+        const rowCreationErrors = errorSpy.mock.calls.filter(
+          ([msg]) => msg === '[EvmBridgeDepositScreen] bridge row creation failed'
+        );
+        expect(preUnmountSetterCalls).toBeGreaterThan(0);
+        expect(postUnmountSetterCalls).toEqual([]);
+        expect(rowCreationErrors).toHaveLength(outcome === 'fail' ? 1 : 0);
+        expect(errorSpy).toHaveBeenCalledTimes(outcome === 'fail' ? 1 : 0);
         expect(fundFlow.enterStep).not.toHaveBeenCalledWith('status');
         expect(screen.queryByTestId('deposit-status')).not.toBeInTheDocument();
       } finally {
+        useStateSpy.mockRestore();
         errorSpy.mockRestore();
       }
     }
