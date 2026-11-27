@@ -698,11 +698,6 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
 
   const onSubmit = useCallback(async () => {
     if (submissionPhase.current !== 'idle' || submitting || spendingLimitChallenge !== undefined || !publicKey) return;
-    if (command && !canProceed) {
-      setSubmitError(t('swapPriceMoved'));
-      setSubmitErrorId('swapPriceMoved');
-      return;
-    }
     // A previous attempt that failed settled its flow errored, so a retry is a
     // fresh flow rather than an unreported second try inside a closed one. Same
     // contract as `enterSendFlow`.
@@ -737,6 +732,11 @@ const SwapManager: React.FC<SwapManagerProps> = ({ defaultPair, onBusyChange }) 
     if (minimumError) {
       setSubmitError(t(minimumError));
       setSubmitErrorId(minimumError);
+      return;
+    }
+    if (command && !canProceed) {
+      setSubmitError(t('swapPriceMoved'));
+      setSubmitErrorId('swapPriceMoved');
       return;
     }
     submissionPhase.current = 'checking';
