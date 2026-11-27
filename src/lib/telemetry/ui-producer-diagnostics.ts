@@ -58,6 +58,8 @@ export const PENDING_RETRY_REASONS = [
   'row_missing',
   'not_retryable',
   'guardian_hold',
+  'retry_run_active',
+  'retry_ack_required',
   'landing_pending',
   'verdict_busy',
   'unsafe_retry',
