@@ -353,12 +353,19 @@ function TestMobileApp() {
   const [route, setRoute] = useState<LocationState>(mockLocation);
   setAppRoute = setRoute;
   const isReview = route.pathname === '/send/review';
-  const pageKey = isReview ? 'send-review' : 'tabs';
+  const isOverlaySlide = route.pathname === '/overlay-slide';
+  const pageKey = isOverlaySlide ? 'overlay-slide' : isReview ? 'send-review' : 'tabs';
 
   return (
     <LocationProvider>
-      <MobilePageLayers location={route} pageKey={pageKey} slide={isReview}>
-        {isReview ? <ReviewTransaction /> : <SendFlow isLoading={false} />}
+      <MobilePageLayers location={route} pageKey={pageKey} slide={isReview || isOverlaySlide}>
+        {isOverlaySlide ? (
+          <div data-testid="overlay-slide-screen">overlay</div>
+        ) : isReview ? (
+          <ReviewTransaction />
+        ) : (
+          <SendFlow isLoading={false} />
+        )}
       </MobilePageLayers>
     </LocationProvider>
   );
@@ -647,14 +654,140 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
       act(() => {
         mockLocation = buildLocation('/send', '', HistoryAction.Replace, 1);
         setAppRoute?.(mockLocation);
+      });
+      expect(screen.getByTestId('select-recipient')).toBeInTheDocument();
+      act(() => {
         jest.advanceTimersByTime(100);
+      });
+      act(() => {
         mockLocation = buildLocation('/', '', HistoryAction.Replace, 1);
         setAppRoute?.(mockLocation);
       });
       expect(beginFlowMock).toHaveBeenCalledTimes(flowsBeforeSwipe);
+
+      // Positive control: committing /send and dwelling past the 600ms threshold starts a send flow.
+      act(() => {
+        mockLocation = buildLocation('/send', '', HistoryAction.Replace, 1);
+        setAppRoute?.(mockLocation);
+      });
+      expect(screen.getByTestId('select-recipient')).toBeInTheDocument();
+      act(() => {
+        jest.advanceTimersByTime(650);
+      });
+      expect(beginFlowMock).toHaveBeenCalledTimes(flowsBeforeSwipe + 1);
+      expect(hasOpenSendFlow()).toBe(true);
+      act(() => {
+        mockLocation = buildLocation('/', '', HistoryAction.Replace, 1);
+        setAppRoute?.(mockLocation);
+      });
+      expect(hasOpenSendFlow()).toBe(false);
       secondView.unmount();
     } finally {
       consoleSpy.mockRestore();
     }
+  });
+
+  it('recovers Confirm and suppresses stale pre-cover submission after retained Review layer is covered and revealed', async () => {
+    await advanceToReview(true);
+    const staleTx = deferred<string>();
+    jest.mocked(initiateSendTransaction).mockReturnValueOnce(staleTx.promise);
+
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(initiateSendTransaction).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+
+    // Push a slide page over Review, cancelling flow-layer-1 while Review remains retained underneath.
+    act(() => {
+      mockLocation = buildLocation('/overlay-slide', '', HistoryAction.Push, 3);
+      setAppRoute?.(mockLocation);
+    });
+    expect(screen.getByTestId('overlay-slide-screen')).toBeInTheDocument();
+    expect(telemetryHandles[0]?.cancel).toHaveBeenCalledTimes(1);
+    expect(hasOpenSendFlow()).toBe(false);
+
+    // Pop back to retained Review: departure state resets and a fresh flow reopens at review.
+    act(() => {
+      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Pop, 2);
+      setAppRoute?.(mockLocation);
+    });
+    await flushMicrotasks();
+
+    expect(beginFlowMock).toHaveBeenCalledTimes(2);
+    expect(hasOpenSendFlow()).toBe(true);
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+
+    // Pre-cover submission settling after reveal remains invalidated and cannot complete or redirect.
+    await act(async () => {
+      staleTx.resolve('tx-stale-before-cover');
+      await staleTx.promise;
+    });
+    await flushMicrotasks();
+
+    expect(telemetryHandles[0]?.complete).not.toHaveBeenCalled();
+    expect(telemetryHandles[1]?.complete).not.toHaveBeenCalled();
+    expect(clearSendDraftMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalledWith('/generating-transaction/tx-stale-before-cover');
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+
+    // Fresh Confirm on revealed Review submits and completes flow-layer-2 cleanly.
+    jest.mocked(initiateSendTransaction).mockResolvedValueOnce('tx-after-reveal');
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(telemetryHandles[1]?.complete).toHaveBeenCalledTimes(1));
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-after-reveal');
+    expect(clearSendDraftMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Back responsive on a retained Review layer after cover-and-reveal', async () => {
+    await advanceToReview(true);
+
+    act(() => {
+      mockLocation = buildLocation('/overlay-slide', '', HistoryAction.Push, 3);
+      setAppRoute?.(mockLocation);
+    });
+    act(() => {
+      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Pop, 2);
+      setAppRoute?.(mockLocation);
+    });
+    await flushMicrotasks();
+
+    fireEvent.click(screen.getByTestId('review-back'));
+    await flushMicrotasks();
+
+    expect(goBackMock).toHaveBeenCalledTimes(1);
+    expect(hasOpenSendFlow()).toBe(true);
+    expect(telemetryHandles[1]?.cancel).not.toHaveBeenCalled();
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ flowId: 'flow-layer-2', step: 'review', stepAction: 'back', complete: true })
+    );
+  });
+
+  it('keeps Close responsive on a retained Review layer after cover-and-reveal', async () => {
+    await advanceToReview(true);
+
+    act(() => {
+      mockLocation = buildLocation('/overlay-slide', '', HistoryAction.Push, 3);
+      setAppRoute?.(mockLocation);
+    });
+    act(() => {
+      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Pop, 2);
+      setAppRoute?.(mockLocation);
+    });
+    await flushMicrotasks();
+
+    fireEvent.click(screen.getByTestId('review-close'));
+    await flushMicrotasks();
+
+    expect(navigateMock).toHaveBeenCalledWith('/');
+    expect(clearSendDraftMock).toHaveBeenCalledTimes(1);
+    expect(hasOpenSendFlow()).toBe(false);
+    expect(telemetryHandles[1]?.cancel).toHaveBeenCalledTimes(1);
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        flowId: 'flow-layer-2',
+        step: 'review',
+        stepAction: 'close',
+        complete: true
+      })
+    );
   });
 });

@@ -119,7 +119,9 @@ import { NearIntentsQuoteMessage } from './Route';
 import { clearSendDraft } from './send-draft';
 import {
   beginSendSubmitting,
+  enterSendFlow,
   getSendSessionToken,
+  hasOpenSendFlow,
   recordSendActionWithoutProgress,
   reportSendStep,
   restoreSendReviewIfSubmittingForSession,
@@ -267,8 +269,10 @@ export const ReviewTransaction: React.FC = () => {
   const pageActive = usePageActive();
   const pageActiveRef = useRef(pageActive);
   pageActiveRef.current = pageActive;
+  const wasPageActiveRef = useRef(pageActive);
   const mounted = useRef(false);
   const ownedSessionRef = useRef(0);
+  const hadOwnedSessionBeforeCoverRef = useRef(false);
   const departedRef = useRef(false);
   const submissionAttemptRef = useRef(0);
   useEffect(() => {
@@ -699,7 +703,11 @@ export const ReviewTransaction: React.FC = () => {
     submissionAttemptRef.current += 1;
     submissionAbort.current?.abort();
     submissionAbort.current = undefined;
+    submittingRef.current = false;
+    hasFailedAttemptRef.current = false;
     const ownedToken = ownedSessionRef.current;
+    ownedSessionRef.current = 0;
+    hadOwnedSessionBeforeCoverRef.current = ownedToken !== 0;
     if (ownedToken === 0) return;
     if (isReturningToSendRoute()) {
       transitionSendStepForSession(ownedToken, 'back');
@@ -718,15 +726,37 @@ export const ReviewTransaction: React.FC = () => {
       handleReviewDeparture();
     };
   }, [handleReviewDeparture]);
-  useLayoutEffect(() => {
-    if (!pageActive) handleReviewDeparture();
-  }, [pageActive, handleReviewDeparture]);
 
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId>();
   const [spendingLimitChallenge, setSpendingLimitChallenge] = useState<
     Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { reviewedCalendarTarget?: string }
   >();
+  useLayoutEffect(() => {
+    const prevActive = wasPageActiveRef.current;
+    wasPageActiveRef.current = pageActive;
+    if (!pageActive) {
+      handleReviewDeparture();
+      return;
+    }
+    if (!prevActive) {
+      departedRef.current = false;
+      submittingRef.current = false;
+      hasFailedAttemptRef.current = false;
+      setIsSubmitting(false);
+      setRequestingDepositAddress(false);
+      setSpendingLimitChallenge(undefined);
+      setSubmitError(undefined);
+      setSubmitErrorId(undefined);
+      const reopenSession = hadOwnedSessionBeforeCoverRef.current;
+      hadOwnedSessionBeforeCoverRef.current = false;
+      if (reopenSession && !hasOpenSendFlow()) {
+        enterSendFlow();
+      }
+      reportSendStep('review');
+      ownedSessionRef.current = getSendSessionToken();
+    }
+  }, [pageActive, handleReviewDeparture]);
   const handleBack = useCallback(() => {
     if (departedRef.current) return;
     submissionAttemptRef.current += 1;
