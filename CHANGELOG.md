@@ -3,6 +3,8 @@
 ## 1.18.3 (TBD)
 
 - [FIX][all] Tell you when no bridge route matches what you asked the Bread assistant for (asset, token pair, network or provider) and let you choose one of the other routes, instead of ignoring the part that did not match and listing or opening a different route.
+- [FIX][mobile] Report unobserved queue visibility after a restart when the wallet could not measure the full wait.
+- [FIX][all] Wait for balances before validating the amount on the USDCx withdrawal review screen.
 - [FIX][all] Explain what Guardian can see and when the wallet shares transaction details for remote proving (#2361).
 - [FIX][all] Require a fresh verified price before Bread Command drafts a dollar-denominated send.
 - [FIX][all] Tell the Bread assistant that a private account's data comes back either with the recovery phrase and a Guardian that has a current copy, or from a current Encrypted Wallet File and its password, and not to add anything a backup contains or restores, because its answer about a broken phone was wrong.
