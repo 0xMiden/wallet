@@ -3,6 +3,7 @@
 ## 1.18.3 (TBD)
 
 - [FIX][all] Wait for balances before validating the amount on the USDCx withdrawal review screen.
+- [FIX][all] Require a fresh verified price before Bread Command drafts a dollar-denominated send.
 - [FIX][all] Tell the Bread assistant that a private account's data comes back either with the recovery phrase and a Guardian that has a current copy, or from a current Encrypted Wallet File and its password, and not to add anything a backup contains or restores, because its answer about a broken phone was wrong.
 - [FIX][all] Keep Send’s Available balance within the amount the wallet can accept for high-precision tokens.
 - [FIX][extension] Keep a running sync alive when a queued delivery check times out.
