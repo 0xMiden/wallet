@@ -7,15 +7,35 @@ import {
   buildHelpPrompt,
   explainReply,
   isPlaceholderOnly,
+  type HelpCard,
   matchTopicButton,
-  selectCard
+  selectCards
 } from './help';
+import {
+  CHECKER_RULES,
+  CHECKER_SCHEMA,
+  WRITER_SCHEMA,
+  reviewDraft,
+  unknownCard,
+  writeCards,
+  writerInput
+} from './help-write';
 
 export { COMMAND_AI_MAX_TEXT_CHARS };
 
 export const COMMAND_AI_MAX_BODY_BYTES = 16 * 1024;
 export const COMMAND_AI_MAX_SNAPSHOT_BYTES = 8 * 1024;
 const COMMAND_AI_TIMEOUT_MS = 15_000;
+// The app gives up at 12 s, so writing and checking end well before, counted from the request's start.
+const WRITING_DEADLINE_MS = 9_000;
+const WRITER = { name: 'bread_help_answer', schema: WRITER_SCHEMA, maxTokens: 800, timeoutMs: 4_000, minLeftMs: 2_000 };
+const CHECKER = {
+  name: 'bread_help_check',
+  schema: CHECKER_SCHEMA,
+  maxTokens: 600,
+  timeoutMs: 3_000,
+  minLeftMs: 1_000
+};
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 export const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const DEFAULT_REASONING_EFFORT = 'low';
@@ -438,11 +458,11 @@ function answerHelp(
   output: Record<string, unknown>,
   text: string,
   dataset: HelpDataset
-): { output: object; trace: HelpTrace } {
+): { output: object; trace: HelpTrace; selected: HelpCard[] } {
   // The same unwrapping as the app's parser.
   const result = 'result' in output && Object.keys(output).length === 1 ? output.result : output;
   const trace: HelpTrace = { path: 'command', picked: [], unknownIds: [], served: null };
-  if (!isRecord(result) || (result.op !== 'help' && result.op !== 'explain')) return { output, trace };
+  if (!isRecord(result) || (result.op !== 'help' && result.op !== 'explain')) return { output, trace, selected: [] };
   const ids = result.op === 'help' && Array.isArray(result.cards) ? result.cards : [];
   trace.picked = ids.filter((id): id is string => typeof id === 'string');
   trace.unknownIds = trace.picked.filter(id => !dataset.cards.some(card => card.id === id));
@@ -450,12 +470,129 @@ function answerHelp(
   if (isPlaceholderOnly(text)) {
     return {
       output: { op: 'unsupported', reason: '', suggested_route: null },
-      trace: { ...trace, path: 'placeholder' }
+      trace: { ...trace, path: 'placeholder' },
+      selected: []
     };
   }
-  const card = selectCard(ids, dataset);
+  const selected = selectCards(ids, dataset);
+  const card = selected[0]!;
   const unknown = card.id === 'not_covered' || card.id === 'cannot_diagnose';
-  return { output: explainReply(card), trace: { ...trace, path: unknown ? 'unknown' : 'card', served: card.id } };
+  return {
+    output: explainReply(card),
+    trace: { ...trace, path: unknown ? 'unknown' : 'card', served: card.id },
+    selected
+  };
+}
+
+export interface ModelCall {
+  fetchImpl: typeof fetch;
+  apiKey: string;
+  model: string;
+  system: string;
+  user: string;
+  name: string;
+  schema: object;
+  maxTokens: number;
+  timeoutMs: number;
+}
+
+/** One writer or checker call, never retried. `undefined` is any technical failure. */
+export async function askModel(call: ModelCall): Promise<unknown> {
+  const controller = new AbortController();
+  let timer!: ReturnType<typeof setTimeout>;
+  // Raced as well as aborted, so a body that never ends cannot outlast the deadline.
+  const timedOut = new Promise<undefined>(resolve => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(undefined);
+    }, call.timeoutMs);
+  });
+  const reply = async (): Promise<unknown> => {
+    const res = await call.fetchImpl(GROQ_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${call.apiKey}` },
+      body: JSON.stringify({
+        model: call.model,
+        messages: [
+          { role: 'system', content: call.system },
+          { role: 'user', content: call.user }
+        ],
+        temperature: 0.1,
+        reasoning_effort: 'low',
+        include_reasoning: false,
+        max_completion_tokens: call.maxTokens,
+        stream: false,
+        response_format: { type: 'json_schema', json_schema: { name: call.name, strict: true, schema: call.schema } }
+      }),
+      signal: controller.signal
+    });
+    if (!res.ok) return undefined;
+    const choice = firstChoice(await res.json());
+    return choice?.finish_reason === 'stop' && typeof choice.content === 'string'
+      ? JSON.parse(choice.content)
+      : undefined;
+  };
+  try {
+    return await Promise.race([reply(), timedOut]);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function firstChoice(data: unknown): { content: unknown; finish_reason: unknown } | undefined {
+  const choice = isRecord(data) && Array.isArray(data.choices) ? data.choices[0] : undefined;
+  return isRecord(choice) && isRecord(choice.message)
+    ? { content: choice.message.content, finish_reason: choice.finish_reason }
+    : undefined;
+}
+
+export const isVerdict = (value: unknown): value is { supported: boolean; answers: boolean } =>
+  isRecord(value) &&
+  Object.keys(value).length === 2 &&
+  typeof value.supported === 'boolean' &&
+  typeof value.answers === 'boolean';
+
+interface Writing {
+  dataset: HelpDataset;
+  question: string;
+  previousTopic: string | null;
+  /** The call's reply, or `undefined` when it fails or the deadline leaves it no time. */
+  ask: (role: typeof WRITER, model: string, system: string, user: string) => Promise<unknown>;
+}
+
+/** Writes from `cards`, then checks. A content failure says it does not know; any other serves a checked answer. */
+async function writeAnswer(cards: HelpCard[], first: HelpCard, trace: HelpTrace, writing: Writing) {
+  const { dataset, question, previousTopic, ask } = writing;
+  const given = cards.map(card => card.id);
+  const serve = (path: 'card' | 'unknown', card: HelpCard, outcome: WritingOutcome) => ({
+    output: explainReply(card),
+    trace: { ...trace, path, served: card.id, writing: { cards: given, outcome } }
+  });
+  const unknown = (outcome: WritingOutcome) => serve('unknown', unknownCard(first, dataset), outcome);
+
+  const input = writerInput(cards, dataset, question, previousTopic);
+  const raw = await ask(WRITER, dataset.writing.writer, input.system, input.user);
+  if (raw === undefined) return serve('card', first, 'writer_technical');
+  const draft = reviewDraft(raw, input, dataset, question, previousTopic);
+  if (draft.kind === 'unknown') return unknown(draft.why);
+  if (draft.kind === 'card') {
+    return serve('card', draft.card, draft.why === 'format' ? 'format' : 'writer_technical');
+  }
+  const verdict = await ask(CHECKER, dataset.writing.checker, CHECKER_RULES, draft.checkerUser);
+  if (!isVerdict(verdict)) return serve('card', draft.fallback, 'checker_technical');
+  if (!verdict.supported) return unknown('not_supported');
+  if (!verdict.answers) return unknown('not_answers');
+  return {
+    output: draft.reply,
+    trace: {
+      ...trace,
+      path: 'written' as const,
+      served: draft.cited[0]!,
+      writing: { cards: draft.cited, outcome: 'written' as const }
+    }
+  };
 }
 
 // Aggregate log only. Never log prompt text, model output, or caller IP.
@@ -467,8 +604,9 @@ function compiled(output: object, model: string): Response {
 async function handleCompile(
   request: Request,
   env: Env,
-  { fetchImpl = globalThis.fetch, dataset = HELP_DATA, onTrace }: ServiceOptions
+  { fetchImpl = globalThis.fetch, dataset = HELP_DATA, onTrace, now = Date.now }: ServiceOptions
 ): Promise<Response> {
+  const started = now();
   if (!env.COMMAND_AI_RATE_LIMIT) {
     throw new HttpError(503, 'service_unavailable', 'The service is not configured.');
   }
@@ -562,8 +700,31 @@ async function handleCompile(
     if (helpContext === undefined) return compiled(output, model);
 
     const help = answerHelp(output, redactedText, dataset);
-    onTrace?.(help.trace);
-    return compiled(help.output, model);
+    // Writing spends another model's quota only: on the router's own, it would starve every command.
+    const cards = [dataset.writing.writer, dataset.writing.checker].includes(model)
+      ? []
+      : writeCards(help.selected, dataset);
+    if (cards.length === 0) {
+      onTrace?.(help.trace);
+      return compiled(help.output, model);
+    }
+    clearTimeout(timer);
+    const written = await writeAnswer(cards, help.selected[0]!, help.trace, {
+      dataset,
+      question: redactedText,
+      previousTopic: helpContext,
+      ask: async (role, writingModel, system, user) => {
+        const left = WRITING_DEADLINE_MS - (now() - started);
+        if (left < role.minLeftMs) return undefined;
+        // The writer leaves a second for the check.
+        const timeoutMs = Math.min(role.timeoutMs, role === WRITER ? left - 1_000 : left);
+        const { name, schema, maxTokens } = role;
+        const call = { fetchImpl, apiKey, model: writingModel, system, user, name, schema, maxTokens, timeoutMs };
+        return askModel(call);
+      }
+    });
+    onTrace?.(written.trace);
+    return compiled(written.output, model);
   } catch (error) {
     if (error instanceof HttpError) throw error;
     if ((error instanceof Error && error.name === 'AbortError') || controller.signal.aborted) {

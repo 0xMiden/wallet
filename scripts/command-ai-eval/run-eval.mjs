@@ -7,6 +7,10 @@ import ts from 'typescript';
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, '../..');
+// loadTsModule compiles TypeScript only, so the Worker's one .mjs import is handed to it.
+const WORKER_MODULES = {
+  './help-safety.mjs': await import('../../services/command-ai/src/help-safety.mjs')
+};
 
 function loadTsModule(relPath, moduleMocks = {}) {
   const fullPath = path.join(ROOT, relPath);
@@ -110,7 +114,7 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset } = {})
   const stats = { maxPromptTokens: 0, promptTokens: 0, rateLimitHeaders: null, pacedMs: 0 };
   let providerFailureDetail;
   let trace;
-  const service = loadTsModule('services/command-ai/src/index.ts').createService({
+  const service = loadTsModule('services/command-ai/src/index.ts', WORKER_MODULES).createService({
     dataset,
     onTrace: value => {
       trace = value;
