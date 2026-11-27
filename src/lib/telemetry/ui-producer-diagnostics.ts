@@ -110,6 +110,7 @@ export const RETRY_NOTICE_ORIGINS = [
   'status_screen'
 ] as const;
 export const RECIPIENT_VALIDATION_STAGES = ['prefix_rejected', 'decoder_throw', 'validator_exception'] as const;
+export const TOKEN_SCALE_PRODUCERS = ['send_amount', 'select_amount'] as const;
 export type MainnetAccessCheckFailure =
   | 'endpoint_resolve'
   | 'sdk_ready'
@@ -164,12 +165,15 @@ export function classifyUiFailure(error: unknown): UiFailureKind {
 
 export const BACKUP_NETWORK_FAILURE_STAGES = ['declared_network', 'genesis_header'] as const;
 export type BackupNetworkFailureStage = (typeof BACKUP_NETWORK_FAILURE_STAGES)[number];
+export const BACKUP_EXPORT_FAILURE_STAGES = ['snapshot', 'file_preparation', 'browser_handoff'] as const;
+export type BackupExportFailureStage = (typeof BACKUP_EXPORT_FAILURE_STAGES)[number];
 export type FeatureUnavailableFeature = (typeof FEATURE_UNAVAILABLE_FEATURES)[number];
 export type FeatureUnavailableReason = (typeof FEATURE_UNAVAILABLE_REASONS)[number];
 export type SubmissionFeedbackBranch = (typeof SUBMISSION_FEEDBACK_BRANCHES)[number];
 export type PendingRetryReason = (typeof PENDING_RETRY_REASONS)[number];
 export type RetryNoticeOrigin = (typeof RETRY_NOTICE_ORIGINS)[number];
 export type RecipientValidationStage = (typeof RECIPIENT_VALIDATION_STAGES)[number];
+type TokenScaleProducer = (typeof TOKEN_SCALE_PRODUCERS)[number];
 export type GuardianOutageReason = (typeof GUARDIAN_OUTAGE_REASONS)[number];
 export type UiEvidenceInput =
   | { kind: 'guardian_outage'; guardianOutageReason: GuardianOutageReason }
@@ -198,6 +202,7 @@ export type UiEvidenceInput =
   | { kind: 'history_payback_retry'; retryNoticeOrigin: 'history_payback'; pendingRetryReason: PendingRetryReason }
   | { kind: 'transaction_retry'; retryNoticeOrigin: 'status_screen'; pendingRetryReason: PendingRetryReason }
   | { kind: 'recipient_validation'; recipientValidationStage: RecipientValidationStage }
+  | { kind: 'token_scale'; tokenScaleProducer: TokenScaleProducer }
   | {
       kind: 'earn_positions_load';
       earnPositionsLoadStage: EarnPositionsLoadStage;
@@ -210,7 +215,8 @@ export type UiEvidenceInput =
       mainnetAccessCodeRejectionOrigin: MainnetAccessCodeRejectionOrigin;
     }
   | { kind: 'note_claim'; noteClaimFailureOrigin: NoteClaimFailureOrigin; uiFailureKind: UiFailureKind }
-  | { kind: 'backup_network_failure'; backupNetworkFailureStage: BackupNetworkFailureStage };
+  | { kind: 'backup_network_failure'; backupNetworkFailureStage: BackupNetworkFailureStage }
+  | { kind: 'backup_export_failure'; backupExportFailureStage: BackupExportFailureStage };
 export type UiProducerDiagnostics = {
   guardianOutageReason?: GuardianOutageReason;
   earnPositionsLoadStage?: EarnPositionsLoadStage;
@@ -225,12 +231,14 @@ export type UiProducerDiagnostics = {
   pendingRetryReason?: PendingRetryReason;
   retryNoticeOrigin?: RetryNoticeOrigin;
   recipientValidationStage?: RecipientValidationStage;
+  tokenScaleProducer?: TokenScaleProducer;
   burnFeeFailure?: BurnFeeFailure;
   mainnetAccessCheckFailure?: MainnetAccessCheckFailure;
   mainnetAccessCodeRejectionOrigin?: MainnetAccessCodeRejectionOrigin;
   noteClaimFailureOrigin?: NoteClaimFailureOrigin;
   uiFailureKind?: UiFailureKind;
   backupNetworkFailureStage?: BackupNetworkFailureStage;
+  backupExportFailureStage?: BackupExportFailureStage;
 };
 export const UI_PRODUCER_KEYS = [
   'guardianOutageReason',
@@ -246,12 +254,14 @@ export const UI_PRODUCER_KEYS = [
   'pendingRetryReason',
   'retryNoticeOrigin',
   'recipientValidationStage',
+  'tokenScaleProducer',
   'burnFeeFailure',
   'mainnetAccessCheckFailure',
   'mainnetAccessCodeRejectionOrigin',
   'noteClaimFailureOrigin',
   'uiFailureKind',
-  'backupNetworkFailureStage'
+  'backupNetworkFailureStage',
+  'backupExportFailureStage'
 ] as const;
 const groups = {
   guardian_outage: {
@@ -338,10 +348,20 @@ const groups = {
     surface: 'field',
     fields: { backupNetworkFailureStage: BACKUP_NETWORK_FAILURE_STAGES }
   },
+  backup_export_failure: {
+    id: 'encryptedWalletFileExportFailedDesc',
+    surface: 'inline',
+    fields: { backupExportFailureStage: BACKUP_EXPORT_FAILURE_STAGES }
+  },
   recipient_validation: {
     id: 'invalidMidenAccountId',
     surface: 'inline',
     fields: { recipientValidationStage: RECIPIENT_VALIDATION_STAGES }
+  },
+  token_scale: {
+    id: 'unknownTokenScale',
+    surface: 'inline',
+    fields: { tokenScaleProducer: TOKEN_SCALE_PRODUCERS }
   }
 } as const;
 export function validateUiEvidence(id: unknown, surface: unknown, value: unknown): UiEvidenceInput | undefined {

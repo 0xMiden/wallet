@@ -10499,6 +10499,10 @@
     "message": "現在、対応するブリッジルートは利用できません。",
     "englishSource": "No matching bridge route is available right now."
   },
+  "commandAiBridgeNoRoute": {
+    "message": "そのルートは存在しません。他のルートから1つを選択してください：",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
   "commandAiSwapUnavailable": {
     "message": "現在、そのペアではスワップが利用できません。",
     "englishSource": "Swap is unavailable for that pair right now."

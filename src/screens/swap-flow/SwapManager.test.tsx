@@ -682,6 +682,35 @@ describe('SwapFlow / SwapManager', () => {
     expect(mockInitiateSwap).not.toHaveBeenCalled();
   });
 
+  it('reports the missing fee asset when a fee becomes required during Command swap review', async () => {
+    mockRealNavigator = true;
+    mockAllBalancesReturn = { data: [...mockBalanceData, { tokenId: 'MIDEN-ID', balance: 0 }] };
+    const view = () => (
+      <FlowPresentationProvider value="command">
+        <SwapFlow />
+      </FlowPresentationProvider>
+    );
+    const { rerender } = render(view());
+    setOffer('10');
+    expect(screen.getByTestId('sa-can-proceed')).toHaveTextContent('true');
+    fireEvent.click(screen.getByTestId('sa-confirm'));
+    await screen.findByTestId('rs-back');
+    expect(screen.getByTestId('rs-request-amount')).toHaveTextContent(/^5$/);
+
+    mockBaseFee = 7;
+    rerender(view());
+    expect(screen.getByTestId('rs-request-amount')).toHaveTextContent(/^5$/);
+    await act(async () => fireEvent.click(screen.getByTestId('rs-submit')));
+
+    expect(mockQuoteNow).not.toHaveBeenCalled();
+    expect(mockVaultPreflight).not.toHaveBeenCalled();
+    expect(mockWalletState.assessSpendingLimit).not.toHaveBeenCalled();
+    expect(mockConfirmSensitive).not.toHaveBeenCalled();
+    expect(mockInitiateSwap).not.toHaveBeenCalled();
+    expect(mockRequestSWProcessing).not.toHaveBeenCalled();
+    expect(screen.getByTestId('rs-submit-error')).toHaveTextContent('insufficientFeeAsset');
+  });
+
   it('recovers exact unsigned offer and review settings after minimizing the Command flow', () => {
     const scope = { accountId: 'pk-1', network: 'testnet', rpcUrl: 'rpc' };
     const TestShell = ({ shown }: { shown: boolean }) => (

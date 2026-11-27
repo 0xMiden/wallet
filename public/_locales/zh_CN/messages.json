@@ -10499,6 +10499,10 @@
     "message": "目前没有可用的匹配桥接路径。",
     "englishSource": "No matching bridge route is available right now."
   },
+  "commandAiBridgeNoRoute": {
+    "message": "该选项不存在。请选择其他选项之一：",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
   "commandAiSwapUnavailable": {
     "message": "该交易对目前无法进行掉期交易。",
     "englishSource": "Swap is unavailable for that pair right now."
