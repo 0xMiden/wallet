@@ -12,13 +12,15 @@ import type { RelayAccountQuery, RelayJobQuery } from './client';
 import {
   RelayApiError,
   RelayExpiredError,
+  RelayFeeTooLowError,
   RelayMismatchError,
   RelayNotSubmittedError,
   RelayRefusedError,
   RelayRevertedError,
   RelayStillPendingError,
   RelayUnavailableError,
-  RelayUnknownOutcomeError
+  RelayUnknownOutcomeError,
+  relayErrorAction
 } from './errors';
 import type { RelayReviewedFee } from './guards';
 import {
@@ -58,15 +60,16 @@ function relayAccount(overrides: Partial<RelayAccount> = {}): RelayAccount {
     authorizationNonce: 0,
     salt: SALT,
     sequence: 3n,
-    fees: [],
+    feeTokens: [],
     allowedTargets: null,
     balances: [],
     ...overrides
   };
 }
 
-function deductAccount(fee: bigint, overrides: Partial<RelayAccount> = {}): RelayAccount {
-  return relayAccount({ mode: 'deduct', feeRecipient: FEE_RECIPIENT, fees: [{ token: USDC, fee }], ...overrides });
+/** A `deduct` account that takes a fee in the native coin and in USDC. */
+function deductAccount(overrides: Partial<RelayAccount> = {}): RelayAccount {
+  return relayAccount({ mode: 'deduct', feeRecipient: FEE_RECIPIENT, feeTokens: [NATIVE, USDC], ...overrides });
 }
 
 /** The digest of a submission, as the relay computes the job id. */
@@ -330,23 +333,23 @@ describe('submit', () => {
 });
 
 describe('deduct mode', () => {
-  it('pays the reviewed fee last, to the configured fee recipient', async () => {
+  it('pays exactly the reviewed fee last, to the configured fee recipient', async () => {
     const h = harness();
-    h.accounts = [deductAccount(1000n)];
+    h.accounts = [deductAccount()];
     await h.submitter.submit([CALL], { fee: { token: upperHex(USDC), amount: 1200n } });
     expect(submitted(h).calls).toEqual([CALL, buildFeeCall({ token: USDC, recipient: FEE_RECIPIENT, amount: 1200n })]);
   });
 
   it('pays a native fee with a plain transfer', async () => {
     const h = harness({ chain: { ...CHAIN, maxFee: { [NATIVE]: '100' } } });
-    h.accounts = [deductAccount(0n, { fees: [{ token: NATIVE, fee: 100n }] })];
+    h.accounts = [deductAccount({ feeTokens: [NATIVE] })];
     await h.submitter.submit([CALL], { fee: { token: NATIVE, amount: 100n } });
     expect(submitted(h).calls[1]).toEqual({ to: FEE_RECIPIENT, value: 100n, data: '0x' });
   });
 
   it('refuses 8 calls, since the fee call needs a place', async () => {
     const h = harness();
-    h.accounts = [deductAccount(1000n)];
+    h.accounts = [deductAccount()];
     const calls = Array.from({ length: MAX_RELAY_BATCH_CALLS }, () => CALL);
     const error = await failure(h.submitter.submit(calls, { fee: USDC_FEE }));
     expect(error).toMatchObject({ name: 'RelayRefusedError', reason: 'too-many-calls' });
@@ -354,17 +357,16 @@ describe('deduct mode', () => {
   });
 
   it.each<[string, RelayAccount, RelayReviewedFee | undefined, string]>([
-    ['no reviewed fee', deductAccount(1000n), undefined, 'no-reviewed-fee'],
-    ['a fee token with no relay fee', deductAccount(1000n), { token: NATIVE, amount: 1000n }, 'no-fee'],
-    ['a relay fee above the reviewed fee', deductAccount(1001n), USDC_FEE, 'fee-changed'],
-    ['a reviewed fee above the config cap', deductAccount(1000n), { token: USDC, amount: 50_001n }, 'fee-not-accepted'],
-    ['a reviewed fee of 0', deductAccount(0n), { token: USDC, amount: 0n }, 'fee-not-accepted'],
+    ['no reviewed fee', deductAccount(), undefined, 'no-reviewed-fee'],
     [
-      'a fee token without a config cap',
-      deductAccount(0n, { fees: [{ token: NATIVE, fee: 1n }] }),
-      { token: NATIVE, amount: 1n },
-      'fee-not-accepted'
-    ]
+      'a fee token that the relay does not take',
+      deductAccount({ feeTokens: [USDC] }),
+      { token: NATIVE, amount: 1000n },
+      'no-fee'
+    ],
+    ['a reviewed fee above the config cap', deductAccount(), { token: USDC, amount: 50_001n }, 'fee-not-accepted'],
+    ['a reviewed fee of 0', deductAccount(), { token: USDC, amount: 0n }, 'fee-not-accepted'],
+    ['a fee token without a config cap', deductAccount(), { token: NATIVE, amount: 1n }, 'fee-not-accepted']
   ])('refuses %s and signs nothing', async (_name, account, fee, reason) => {
     const h = harness();
     h.accounts = [account];
@@ -389,26 +391,77 @@ describe('deduct mode', () => {
 
   it('refuses an account that names another fee recipient', async () => {
     const h = harness();
-    h.accounts = [deductAccount(1000n, { feeRecipient: TARGET })];
+    h.accounts = [deductAccount({ feeRecipient: TARGET })];
     expect(await failure(h.submitter.submit([CALL], { fee: USDC_FEE }))).toBeInstanceOf(RelayMismatchError);
     expect(h.signRequests).toHaveLength(0);
   });
 
   it('refuses deduct mode on a chain without a configured fee recipient', async () => {
     const h = harness({ chain: { ...CHAIN, feeRecipient: undefined } });
-    h.accounts = [deductAccount(1000n)];
+    h.accounts = [deductAccount()];
     expect(await failure(h.submitter.submit([CALL], { fee: USDC_FEE }))).toMatchObject({
       name: 'RelayMismatchError',
       message: 'relay: the chain does not take deduct mode'
     });
     expect(h.signRequests).toHaveLength(0);
   });
+
+  it('passes on fee_too_low with the required fee, signs no higher fee and posts nothing more', async () => {
+    const h = harness();
+    h.accounts = [deductAccount()];
+    const low = new RelayFeeTooLowError(400, 'low', 1500n, USDC);
+    h.posts = [low];
+    const error = await failure(h.submitter.submit([CALL], { fee: USDC_FEE }));
+    expect(error).toBe(low);
+    expect(error).toMatchObject({ required: 1500n, token: USDC });
+    expect(relayErrorAction(error)).toBe('review-again');
+    expect(h.signRequests).toHaveLength(1);
+    expect(h.submissions).toHaveLength(1);
+    expect(h.jobQueries).toHaveLength(0);
+    expect(submitted(h).calls[1]).toEqual(buildFeeCall({ token: USDC, recipient: FEE_RECIPIENT, amount: 1000n }));
+  });
+
+  describe('signs the same reviewed fee on each retry', () => {
+    const FEE_CALL = buildFeeCall({ token: USDC, recipient: FEE_RECIPIENT, amount: 1000n });
+
+    it.each<[string, RelayAccount[], JobAnswer[], JobAnswer[]]>([
+      [
+        'stale_request',
+        [deductAccount({ sequence: 3n }), deductAccount({ sequence: 4n })],
+        [new RelayApiError('stale_request', 409, 'stale'), 'succeeded'],
+        []
+      ],
+      [
+        'simulation_failed with a new sequence',
+        [deductAccount({ sequence: 3n }), deductAccount({ sequence: 4n })],
+        [new RelayApiError('simulation_failed', 409, 'reverts'), 'succeeded'],
+        []
+      ],
+      [
+        'busy',
+        [deductAccount()],
+        [new RelayApiError('busy', 409, 'busy', undefined, OTHER_JOB), 'succeeded'],
+        ['succeeded']
+      ]
+    ])('after %s', async (_name, accounts, posts, jobs) => {
+      const h = harness();
+      h.accounts = accounts;
+      h.posts = posts;
+      h.jobs = jobs;
+      expect((await h.submitter.submit([CALL], { fee: USDC_FEE })).hash).toBe(hashOf('a1'));
+      expect(h.submissions).toHaveLength(2);
+      expect(h.submissions.map(submission => submission.calls)).toEqual([
+        [CALL, FEE_CALL],
+        [CALL, FEE_CALL]
+      ]);
+    });
+  });
 });
 
 describe('allowed targets', () => {
   it('relays calls to allowed targets, the fee call excepted', async () => {
     const h = harness();
-    h.accounts = [deductAccount(1000n, { allowedTargets: [TARGET] })];
+    h.accounts = [deductAccount({ allowedTargets: [TARGET] })];
     await h.submitter.submit([CALL], { fee: USDC_FEE });
     expect(submitted(h).calls).toHaveLength(2);
   });

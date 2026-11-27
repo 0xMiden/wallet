@@ -58,15 +58,30 @@ export function accountBody(): Record<string, unknown> {
     authorizationNonce: 0,
     salt: upperHex(SALT),
     sequence: '3',
-    fees: [],
+    feeTokens: [],
     allowedTargets: null,
     balances: []
   };
 }
 
-/** A valid `GET /v1/account` body in `deduct` mode, with a fee in USDC. */
-export function deductAccountBody(fee = '1000'): Record<string, unknown> {
-  return { ...accountBody(), mode: 'deduct', feeRecipient: FEE_RECIPIENT, fees: [{ token: upperHex(USDC), fee }] };
+/** A valid `GET /v1/account` body in `deduct` mode, with the native coin and USDC as fee tokens. */
+export function deductAccountBody(): Record<string, unknown> {
+  return { ...accountBody(), mode: 'deduct', feeRecipient: FEE_RECIPIENT, feeTokens: [NATIVE, upperHex(USDC)] };
+}
+
+/** The `validUntil` of `quoteBody`: unix seconds. */
+export const QUOTE_VALID_UNTIL = 1_800_000_120;
+
+/** A valid `POST /v1/quote` body for a fee in USDC on chain 8453, with upper-case hex. */
+export function quoteBody(fee = '1000'): Record<string, unknown> {
+  return {
+    chainId: 8453,
+    token: upperHex(USDC),
+    recipient: upperHex(FEE_RECIPIENT),
+    fee,
+    gas: '210000',
+    validUntil: QUOTE_VALID_UNTIL
+  };
 }
 
 export function jobBody(state = 'pending'): Record<string, unknown> {

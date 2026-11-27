@@ -23,7 +23,7 @@ const ACCOUNT: RelayAccount = {
   authorizationNonce: 0,
   salt: SALT,
   sequence: 0n,
-  fees: [],
+  feeTokens: [],
   allowedTargets: null,
   balances: [{ token: USDC, balance: 5n }]
 };

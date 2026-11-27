@@ -36,8 +36,8 @@ import {
   assertFeeWithinCap,
   assertRelayAccountMatches,
   assertRelayJobMatches,
+  assertRelayTakesFeeToken,
   deductFeeRecipient,
-  relayerFeeOf,
   relayFeeToken,
   type RelayReviewedFee
 } from './guards';
@@ -76,7 +76,10 @@ export interface RelaySubmitOptions {
    * durably. A throw ends the submit; nothing is posted.
    */
   onJob?: (job: RelayJobRef) => Promise<void>;
-  /** `deduct` mode only: the fee that the user reviewed (`reviewRelayFee`). */
+  /**
+   * `deduct` mode only: the fee that the user reviewed, from a checked quote (`quoteRelayFee`, `relayQuoteFee`). The
+   * submitter signs exactly this fee, on each attempt and each retry, and never a higher one by itself.
+   */
   fee?: RelayReviewedFee;
 }
 
@@ -169,8 +172,9 @@ export function createRelaySubmitter(options: RelaySubmitterOptions): RelaySubmi
   }
 
   /**
-   * The calls with the fee call last in `deduct` mode. The fee call pays the reviewed fee to the configured fee
-   * recipient. Throws `RelayRefusedError` when the review and the relayer's terms do not agree.
+   * The calls with the fee call last in `deduct` mode. The fee call pays exactly the reviewed fee to the configured
+   * fee recipient. Throws `RelayRefusedError` when the review and the relayer's terms do not agree. The relay checks
+   * the fee against its own simulation when it gets the batch (`fee_too_low`).
    */
   function batchWithFee(calls: BatchCall[], account: RelayAccount, fee: RelayReviewedFee | undefined): BatchCall[] {
     switch (account.mode) {
@@ -180,7 +184,7 @@ export function createRelaySubmitter(options: RelaySubmitterOptions): RelaySubmi
       case 'deduct': {
         if (fee === undefined) throw new RelayRefusedError('no-reviewed-fee');
         const recipient = deductFeeRecipient(account, chain);
-        if (relayerFeeOf(account, fee.token).fee > fee.amount) throw new RelayRefusedError('fee-changed');
+        assertRelayTakesFeeToken(account, fee.token);
         assertFeeWithinCap(chain, fee.token, fee.amount);
         return [...calls, buildFeeCall({ token: fee.token, recipient, amount: fee.amount })];
       }

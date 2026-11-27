@@ -75,6 +75,10 @@ class FakeNode {
   /** The raw `getSeq` result, in place of the encoded sequence 9, when it is not null. */
   sequenceResult: Hex | null = null;
   sendError: RpcError | null = null;
+  /** The error of the estimate of the quote batch (from ADDRESS to ADDRESS), when it is not null. */
+  selfEstimateError: RpcError | null = null;
+  /** The `decimals()` answer of a token: a number, or an error. */
+  decimals: number | RpcError = 6;
   /** The `eth_getTransactionReceipt` result of each hash. A missing hash answers null. */
   readonly receipts = new Map<string, unknown>();
 
@@ -102,11 +106,22 @@ class FakeNode {
     switch (call.method) {
       case 'eth_feeHistory':
         return { jsonrpc: '2.0', id, result: { oldestBlock: '0x10', baseFeePerGas: ['0x3b9aca00', '0x77359400'] } };
-      case 'eth_estimateGas':
-        return this.estimateError === null
-          ? { jsonrpc: '2.0', id, result: '0x30d40' }
-          : { jsonrpc: '2.0', id, error: this.estimateError };
+      case 'eth_estimateGas': {
+        const [transaction] = call.params;
+        const self = isRecord(transaction) && transaction.from === ADDRESS && transaction.to === ADDRESS;
+        const error = self && this.selfEstimateError !== null ? this.selfEstimateError : this.estimateError;
+        return error === null ? { jsonrpc: '2.0', id, result: '0x30d40' } : { jsonrpc: '2.0', id, error };
+      }
       case 'eth_call':
+        if (isDecimalsCall(call)) {
+          return typeof this.decimals === 'number'
+            ? {
+                jsonrpc: '2.0',
+                id,
+                result: encodeFunctionResult({ abi: erc20Abi, functionName: 'decimals', result: this.decimals })
+              }
+            : { jsonrpc: '2.0', id, error: this.decimals };
+        }
         return this.callError === null
           ? { jsonrpc: '2.0', id, result: this.resultOf(call) }
           : { jsonrpc: '2.0', id, error: this.callError };
@@ -154,6 +169,14 @@ class FakeNode {
   }
 }
 
+/** True for an `eth_call` of `decimals()`. */
+function isDecimalsCall({ params }: RpcRequest): boolean {
+  const [transaction] = params;
+  return isRecord(transaction) && transaction.data === DECIMALS_DATA;
+}
+
+const DECIMALS_DATA = encodeFunctionData({ abi: erc20Abi, functionName: 'decimals' });
+
 function toRequest(value: unknown): RpcRequest {
   if (!isRecord(value) || typeof value.method !== 'string' || !Array.isArray(value.params)) {
     throw new Error('Bad JSON-RPC call');
@@ -161,8 +184,8 @@ function toRequest(value: unknown): RpcRequest {
   return { method: value.method, params: value.params };
 }
 
-function setup(node = new FakeNode(), cache = new Map<string, CachedCode>()) {
-  return { node, cache, reader: createRpcReader(ENV, { fetcher: node.fetcher, cache }) };
+function setup(node = new FakeNode(), cache = new Map<string, CachedCode>(), decimals = new Map<string, number>()) {
+  return { node, cache, decimals, reader: createRpcReader(ENV, { fetcher: node.fetcher, cache, decimals }) };
 }
 
 describe('createRpcReader', () => {
@@ -404,6 +427,150 @@ describe('readRelay', () => {
     const node = new FakeNode();
     node.failWith = failWith;
     await expect(setup(node).reader.readRelay(chainOf(), call)).rejects.toBeInstanceOf(RpcUnavailableError);
+  });
+});
+
+describe('createRpcReader fee token decimals of the relay read', () => {
+  const call: RelayCall = { evmAddress: ADDRESS, relayer: RELAYER, data: '0xabcd', authorization: null };
+
+  it('asks the fee token for its decimals in the same batch, and then keeps them', async () => {
+    const { node, reader, decimals } = setup();
+    expect((await reader.readRelay(chainOf(), call, USDC)).feeTokenDecimals).toBe(6);
+    expect(node.batches).toHaveLength(1);
+    expect(node.batches[0]).toHaveLength(9);
+    expect(node.batches[0]?.[8]).toEqual({ method: 'eth_call', params: [{ to: USDC, data: DECIMALS_DATA }, 'latest'] });
+    expect(decimals.get(`8453:${USDC}`)).toBe(6);
+    expect((await reader.readRelay(chainOf(), call, USDC)).feeTokenDecimals).toBe(6);
+    expect(node.batches[1]).toHaveLength(8);
+  });
+
+  it('gives 18 for the native coin without a call, and nothing without a fee token', async () => {
+    const { node, reader } = setup();
+    expect((await reader.readRelay(chainOf(), call, NATIVE)).feeTokenDecimals).toBe(18);
+    expect(node.batches[0]).toHaveLength(8);
+    const plain = await reader.readRelay(chainOf(), call);
+    expect(plain).not.toHaveProperty('feeTokenDecimals');
+  });
+
+  it.each<[string, number | RpcError]>([
+    ['an error', { code: -32000, message: 'execution reverted' }],
+    ['more than 36 decimals', 37]
+  ])('maps a decimals() answer of %s to ChainIntegrityError and keeps nothing', async (_name, answer) => {
+    const node = new FakeNode();
+    node.decimals = answer;
+    const { reader, decimals } = setup(node);
+    await expect(reader.readRelay(chainOf(), call, USDC)).rejects.toBeInstanceOf(ChainIntegrityError);
+    expect(decimals.size).toBe(0);
+  });
+});
+
+describe('createRpcReader quote read', () => {
+  const DATA: Hex = '0x99e1d016abcd';
+  const CALIBRATION_ADDRESS: Hex = `0x${'c0'.repeat(20)}`;
+  const authorization = {
+    address: CALIBUR_ADDRESS,
+    chainId: 8453,
+    nonce: 0,
+    r: `0x${'01'.repeat(32)}`,
+    s: `0x${'02'.repeat(32)}`,
+    yParity: 0
+  } satisfies RelayCall['authorization'];
+  const quoteCall = {
+    evmAddress: ADDRESS,
+    relayer: RELAYER,
+    data: DATA,
+    feeToken: USDC,
+    calibration: { address: CALIBRATION_ADDRESS, selfData: '0x99e1d0', signedData: '0xc3c16e', authorization }
+  } satisfies Parameters<ReturnType<typeof createRpcReader>['readQuote']>[1];
+
+  it('reads the code, the fees, the four estimates and the decimals in one batch', async () => {
+    const { node, reader } = setup();
+    await expect(reader.readQuote(chainOf(), quoteCall)).resolves.toEqual({
+      delegated: true,
+      baseFee: 2_000_000_000n,
+      priorityFee: 100_000_000n,
+      batchEstimate: 200_000n,
+      calibration: { self: 200_000n, signed: 200_000n, signedWithAuthorization: 200_000n },
+      feeTokenDecimals: 6
+    });
+    expect(node.batches).toHaveLength(1);
+    const override = (account: Hex) => ({ [account]: { code: DELEGATION } });
+    expect(node.batches[0]).toEqual([
+      { method: 'eth_getCode', params: [ADDRESS, 'latest'] },
+      { method: 'eth_feeHistory', params: ['0x1', 'latest', []] },
+      { method: 'eth_maxPriorityFeePerGas', params: [] },
+      {
+        method: 'eth_estimateGas',
+        params: [{ from: ADDRESS, to: ADDRESS, data: DATA, value: '0x0' }, 'latest', override(ADDRESS)]
+      },
+      {
+        method: 'eth_estimateGas',
+        params: [
+          { from: CALIBRATION_ADDRESS, to: CALIBRATION_ADDRESS, data: '0x99e1d0', value: '0x0' },
+          'latest',
+          override(CALIBRATION_ADDRESS)
+        ]
+      },
+      {
+        method: 'eth_estimateGas',
+        params: [
+          { from: RELAYER, to: CALIBRATION_ADDRESS, data: '0xc3c16e', value: '0x0' },
+          'latest',
+          override(CALIBRATION_ADDRESS)
+        ]
+      },
+      {
+        method: 'eth_estimateGas',
+        params: [
+          {
+            from: RELAYER,
+            to: CALIBRATION_ADDRESS,
+            data: '0xc3c16e',
+            value: '0x0',
+            authorizationList: [{ ...authorization, chainId: '0x2105', nonce: '0x0', yParity: '0x0' }]
+          }
+        ]
+      },
+      { method: 'eth_call', params: [{ to: USDC, data: DECIMALS_DATA }, 'latest'] }
+    ]);
+  });
+
+  it('reads an address that does not delegate, and asks no decimals for the native coin', async () => {
+    const node = new FakeNode();
+    node.accountCode = '0x';
+    const state = await setup(node).reader.readQuote(chainOf(), { ...quoteCall, feeToken: NATIVE });
+    expect(state.delegated).toBe(false);
+    expect(state.feeTokenDecimals).toBe(18);
+    expect(node.batches[0]).toHaveLength(7);
+  });
+
+  it('reads a revert of the batch as a null estimate', async () => {
+    const node = new FakeNode();
+    node.selfEstimateError = { code: 3, message: 'execution reverted' };
+    const state = await setup(node).reader.readQuote(chainOf(), quoteCall);
+    expect(state.batchEstimate).toBeNull();
+    expect(state.calibration.self).toBe(200_000n);
+  });
+
+  it('maps a revert of the calibration batch to ChainIntegrityError', async () => {
+    const node = new FakeNode();
+    node.estimateError = { code: 3, message: 'execution reverted' };
+    await expect(setup(node).reader.readQuote(chainOf(), quoteCall)).rejects.toBeInstanceOf(ChainIntegrityError);
+  });
+
+  it.each([
+    ['a node error of an estimate', { code: -32602, message: 'too many arguments, want at most 2' }],
+    ['a rate limit of an estimate', { code: -32005, message: 'request limit exceeded' }]
+  ])('maps %s to RpcUnavailableError: a node without state overrides in eth_estimateGas', async (_name, error) => {
+    const node = new FakeNode();
+    node.selfEstimateError = error;
+    await expect(setup(node).reader.readQuote(chainOf(), quoteCall)).rejects.toBeInstanceOf(RpcUnavailableError);
+  });
+
+  it.each(FAILURES)('maps an RPC failure (%s) to RpcUnavailableError', async failWith => {
+    const node = new FakeNode();
+    node.failWith = failWith;
+    await expect(setup(node).reader.readQuote(chainOf(), quoteCall)).rejects.toBeInstanceOf(RpcUnavailableError);
   });
 });
 

@@ -9,8 +9,11 @@ name: Deploy EVM relay
 # The committed wrangler.jsonc holds placeholders only. This workflow checks the
 # release values, renders a release copy with the allowed origins, the gas mode,
 # the relay config and the revision, then deploys with the relayer key and the
-# RPC URLs as server-only secrets, and probes the deployment. The Durable Object
-# migration is in wrangler.jsonc, and the deploy applies it.
+# RPC URLs as server-only secrets, and probes the deployment (health, CORS, and
+# the account and quote routes, with no chain read and no price request). The
+# release check runs the Worker's own config parse, so a `deduct` config needs a
+# `nativePrice` on each chain of EVM_RELAY_RPC_URLS and has no old `fees` table.
+# The Durable Object migration is in wrangler.jsonc, and the deploy applies it.
 
 on:
   workflow_dispatch:

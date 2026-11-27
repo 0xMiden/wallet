@@ -5,7 +5,7 @@
  * is untrusted input: a shape that does not match is an error, never a partial value. The guards in `guards.ts`
  * decide whether the wallet may act on a parsed answer. This module keeps no state.
  */
-import type { Address, Hex } from 'viem';
+import { zeroAddress, type Address, type Hex } from 'viem';
 
 import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { ResponseTooLargeError, readCappedText, withRequestTimeout, type JsonResponse } from 'lib/remote-json';
@@ -13,8 +13,8 @@ import { ResponseTooLargeError, readCappedText, withRequestTimeout, type JsonRes
 import { getRelayBaseUrl } from './base-url';
 import type { BatchCall } from './batch';
 import { RelayUnavailableError, type RelayUnavailableReason } from './errors';
-import { lowerAddress, lowerHash, parseRelayAccount, parseRelayError, parseRelayJob } from './parse';
-import type { RelayAccount, RelayAuthorization, RelayJob, RelaySubmission } from './types';
+import { lowerAddress, lowerHash, parseRelayAccount, parseRelayError, parseRelayJob, parseRelayQuote } from './parse';
+import type { RelayAccount, RelayAuthorization, RelayJob, RelayQuote, RelaySubmission } from './types';
 
 /** One request, its body read included, ends after this long. */
 export const RELAY_TIMEOUT_MS = 10_000;
@@ -198,6 +198,81 @@ export async function submitRelay(request: RelaySubmission, options: RelayClient
   assertChainId(request.chainId);
   const body = JSON.stringify(relaySubmissionBody(request));
   return answer(await send('/v1/relay', 'POST', body, options), parseRelayJob);
+}
+
+/**
+ * The most calls of one quote: the batch limit of the relay (8) less the fee call, which the relay adds itself when it
+ * simulates the batch.
+ */
+export const MAX_RELAY_QUOTE_CALLS = 7;
+
+const EVEN_HEX = /^0x(?:[0-9a-fA-F]{2})*$/;
+const UINT256_LIMIT = 1n << 256n;
+
+/** What `POST /v1/quote` asks: the fee of a batch of `calls` paid in `feeToken` (the zero address is the native coin). */
+export interface RelayQuoteQuery {
+  chainId: number;
+  evmAddress: Address;
+  /** 1 to 7 calls, without the fee call. */
+  calls: readonly BatchCall[];
+  feeToken: Address;
+  /** Whether the batch carries the EIP-7702 authorization. Without it, the relay reads the chain. */
+  authorization?: boolean;
+}
+
+/** The JSON body of `POST /v1/quote`. */
+export interface RelayQuoteBody {
+  chainId: number;
+  evmAddress: Address;
+  calls: RelayCallBody[];
+  feeToken: Address;
+  authorization?: boolean;
+}
+
+/**
+ * One call of a quote in lower case, as the vault takes it: a target that is not the zero address and not the relay
+ * address itself, a uint256 value and whole bytes of calldata. Throws a `TypeError` for another call.
+ */
+function quoteCallBody(call: BatchCall, evmAddress: Address): RelayCallBody {
+  const to = lowerAddress(call.to);
+  if (to === null || to === zeroAddress || to === evmAddress) throw new TypeError('relay: a call target is not valid');
+  if (call.value < 0n || call.value >= UINT256_LIMIT) throw new TypeError('relay: a call value is not valid');
+  if (!EVEN_HEX.test(call.data)) throw new TypeError('relay: the calldata is not hex bytes');
+  return { to, value: call.value.toString(), data: `0x${call.data.slice(2).toLowerCase()}` };
+}
+
+/**
+ * The body of `POST /v1/quote`: addresses and calldata in lower case, call values as decimal strings. Throws a
+ * `TypeError` for a bad chain id, address, fee token or call, and for no call or more than 7 calls.
+ */
+export function relayQuoteBody(query: RelayQuoteQuery): RelayQuoteBody {
+  assertChainId(query.chainId);
+  const evmAddress = lowerAddress(query.evmAddress);
+  if (evmAddress === null) throw new TypeError('relay: the address is not valid');
+  const feeToken = lowerAddress(query.feeToken);
+  if (feeToken === null) throw new TypeError('relay: the fee token is not valid');
+  if (query.calls.length === 0 || query.calls.length > MAX_RELAY_QUOTE_CALLS) {
+    throw new TypeError('relay: a quote takes 1 to 7 calls');
+  }
+  const body: RelayQuoteBody = {
+    chainId: query.chainId,
+    evmAddress,
+    calls: query.calls.map(call => quoteCallBody(call, evmAddress)),
+    feeToken
+  };
+  if (query.authorization !== undefined) body.authorization = query.authorization;
+  return body;
+}
+
+/**
+ * `POST /v1/quote`: the fee that the relay asks now for a batch of the calls paid in the fee token. The relay
+ * simulates the calls; it does not store or sign the quote. The caller checks the answer with
+ * `assertRelayQuoteMatches` (or uses `quoteRelayFee`, which does). In `sponsor` mode the relay answers
+ * `400 fee_not_needed`.
+ */
+export async function fetchRelayQuote(query: RelayQuoteQuery, options: RelayClientOptions = {}): Promise<RelayQuote> {
+  const body = JSON.stringify(relayQuoteBody(query));
+  return answer(await send('/v1/quote', 'POST', body, options), parseRelayQuote);
 }
 
 /** What `GET /v1/relay/{id}` reads. `chainId` is optional. */

@@ -1,6 +1,7 @@
 import { createRpcReader, type ChainReader } from './chain';
 import { ConfigError, parseOrigins } from './config';
 import { corsHeaders, errorResponse, json, preflight, withHeaders } from './http';
+import { createPriceSource, type PriceSource } from './prices';
 import { dispatch } from './router';
 import { durableSenders, type SenderDirectory } from './sender';
 import type { Env, ErrorBody } from './types';
@@ -15,14 +16,15 @@ function allowedOrigins(env: Env): Set<string> | null {
 }
 
 /**
- * The CORS gate, then the dispatch. Every error leaves as a JSON error body. The tests pass a fake reader and Senders
- * over node:sqlite.
+ * The CORS gate, then the dispatch. Every error leaves as a JSON error body. The tests pass a fake reader, Senders
+ * over node:sqlite and fake prices.
  */
 export async function handleRequest(
   request: Request,
   env: Env,
   reader: ChainReader = createRpcReader(env),
-  senders: SenderDirectory = durableSenders(env)
+  senders: SenderDirectory = durableSenders(env),
+  prices: PriceSource = createPriceSource()
 ): Promise<Response> {
   const origins = allowedOrigins(env);
   if (origins === null) {
@@ -37,7 +39,7 @@ export async function handleRequest(
   if (request.method === 'OPTIONS') return withHeaders(preflight(request), headers);
   let response: Response;
   try {
-    response = await dispatch(request, env, reader, senders);
+    response = await dispatch(request, env, reader, senders, prices);
   } catch (error) {
     response = errorResponse(error);
   }

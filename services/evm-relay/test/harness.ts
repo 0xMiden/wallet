@@ -3,10 +3,20 @@ import { keccak256, recoverTransactionAddress } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
 import { memoryDatabase, type MemoryDatabase } from './sqlite';
-import type { AccountState, ChainReader, ReceiptStatus, RelayCall, RelayState } from '../src/chain';
+import type {
+  AccountState,
+  ChainReader,
+  QuoteCall,
+  QuoteState,
+  ReceiptStatus,
+  RelayCall,
+  RelayState
+} from '../src/chain';
 import type { ChainConfig, Hex } from '../src/config';
+import { parseDecimal, type Decimal } from '../src/fee';
 import { isRecord } from '../src/http';
 import { handleRequest } from '../src/index';
+import { PriceUnavailableError, type PriceSource } from '../src/prices';
 import { RelaySender, type SenderDirectory } from '../src/sender';
 import type { RelaySenderObject } from '../src/sender-object';
 import type { Env } from '../src/types';
@@ -37,11 +47,11 @@ export const CALIBUR_PIN = {
 };
 
 /**
- * A chain entry of RELAY_CONFIG with fees in USDC and in the native coin, valid in both gas modes. It has no
- * `allowedTargets` unless `extra` sets it.
+ * A chain entry of RELAY_CONFIG: the native coin priced as ETHUSDT and USDC as a fee token at 1 USD, valid in both gas
+ * modes. It has no `allowedTargets` unless `extra` sets it.
  */
 export function chainEntry(extra: Record<string, unknown> = {}): Record<string, unknown> {
-  return { fees: { [USDC]: '100000', [NATIVE]: '10' }, ...extra };
+  return { nativePrice: 'ETHUSDT', feeTokens: { [USDC]: 'usd' }, ...extra };
 }
 
 /**
@@ -87,12 +97,32 @@ export function relayState(overrides: Partial<RelayState> = {}): RelayState {
   };
 }
 
-/** A chain reader that answers from memory and records each call. */
+/** The quote chain state that the fake reader returns, unless a test sets another. The calibration adds 40000. */
+export function quoteState(overrides: Partial<QuoteState> = {}): QuoteState {
+  return {
+    delegated: true,
+    baseFee: 1_000_000_000n,
+    priorityFee: 100_000_000n,
+    batchEstimate: 150_000n,
+    calibration: { self: 25_000n, signed: 65_000n, signedWithAuthorization: 90_000n },
+    feeTokenDecimals: 6,
+    ...overrides
+  };
+}
+
+/**
+ * A chain reader that answers from memory and records each call. The relay state carries `feeTokenDecimals` (6, or
+ * 18 for the native coin) only when the route asks for a fee token, as the real reader does.
+ */
 export class FakeReader implements ChainReader {
   readonly calls: { chainId: number; address: Hex; tokens: readonly Hex[] }[] = [];
   readonly relayCalls: { chainId: number; call: RelayCall }[] = [];
+  /** The fee token of each relay read, or null for a read without one. */
+  readonly relayFeeTokens: (Hex | null)[] = [];
+  readonly quoteCalls: { chainId: number; call: QuoteCall }[] = [];
   state: AccountState = readState();
   relay: RelayState = relayState();
+  quote: QuoteState = quoteState();
   error: Error | null = null;
 
   async readAccount(chain: ChainConfig, address: Hex, tokens: readonly Hex[]): Promise<AccountState> {
@@ -101,11 +131,45 @@ export class FakeReader implements ChainReader {
     return this.state;
   }
 
-  async readRelay(chain: ChainConfig, call: RelayCall): Promise<RelayState> {
+  async readRelay(chain: ChainConfig, call: RelayCall, feeToken?: Hex): Promise<RelayState> {
     this.relayCalls.push({ chainId: chain.chainId, call });
+    this.relayFeeTokens.push(feeToken ?? null);
     if (this.error !== null) throw this.error;
-    return this.relay;
+    if (feeToken === undefined) return this.relay;
+    return { feeTokenDecimals: feeToken === NATIVE ? 18 : 6, ...this.relay };
   }
+
+  async readQuote(chain: ChainConfig, call: QuoteCall): Promise<QuoteState> {
+    this.quoteCalls.push({ chainId: chain.chainId, call });
+    if (this.error !== null) throw this.error;
+    return this.quote;
+  }
+}
+
+/** Prices that answer from memory: ETHUSDT is 2000 unless a test sets another. It records each request. */
+export class FakePrices implements PriceSource {
+  readonly requests: (readonly string[])[] = [];
+  readonly prices = new Map<string, Decimal>([['ETHUSDT', price('2000')]]);
+  error: Error | null = null;
+
+  async usdPrices(symbols: readonly string[]): Promise<Map<string, Decimal>> {
+    this.requests.push(symbols);
+    if (this.error !== null) throw this.error;
+    const answer = new Map<string, Decimal>();
+    for (const symbol of symbols) {
+      const known = this.prices.get(symbol);
+      if (known === undefined) throw new PriceUnavailableError('No price.');
+      answer.set(symbol, known);
+    }
+    return answer;
+  }
+}
+
+/** A price from its decimal text. Fail the test when the text is not a valid price. */
+export function price(text: string): Decimal {
+  const parsed = parseDecimal(text);
+  if (parsed === null) throw new Error(`Not a price: ${text}`);
+  return parsed;
 }
 
 /** The signer of signed type 2 or type 4 transaction bytes, lower case. */
@@ -256,6 +320,7 @@ export interface Harness {
   relayLimit: FakeRateLimit;
   reader: FakeReader;
   senders: TestSenders;
+  prices: FakePrices;
 }
 
 export function createHarness(options: EnvOptions = {}): Harness {
@@ -275,7 +340,14 @@ export function createHarness(options: EnvOptions = {}): Harness {
   if (gasMode !== null) env.GAS_MODE = gasMode;
   const relayConfig = options.relayConfig === undefined ? relayConfigOf() : options.relayConfig;
   if (relayConfig !== null) env.RELAY_CONFIG = relayConfig;
-  return { env, readLimit, relayLimit, reader: new FakeReader(), senders: new TestSenders() };
+  return {
+    env,
+    readLimit,
+    relayLimit,
+    reader: new FakeReader(),
+    senders: new TestSenders(),
+    prices: new FakePrices()
+  };
 }
 
 export interface RequestOptions {
@@ -288,7 +360,7 @@ export function send(harness: Harness, path: string, options: RequestOptions = {
   const init: RequestInit = { method: options.method ?? 'GET', headers: { ...options.headers } };
   if (options.body !== undefined) init.body = options.body;
   const request = new Request(`${BASE_URL}${path}`, init);
-  return handleRequest(request, harness.env, harness.reader, harness.senders.directory);
+  return handleRequest(request, harness.env, harness.reader, harness.senders.directory, harness.prices);
 }
 
 /** Read the response body as a JSON object. Fail the test when it is another value. */

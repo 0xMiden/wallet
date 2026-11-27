@@ -44,7 +44,7 @@ function relayAccount(overrides: Partial<RelayAccount> = {}): RelayAccount {
     authorizationNonce: 0,
     salt: SALT,
     sequence: 3n,
-    fees: [],
+    feeTokens: [],
     allowedTargets: null,
     balances: [],
     ...overrides
@@ -154,6 +154,12 @@ function sendTransaction(provider: RelayProvider, tx: Record<string, unknown>): 
 }
 
 const CALL: BatchCall = { to: TARGET, value: 0n, data: '0xcafe0001' };
+const APPROVE_CALL: BatchCall = {
+  to: USDC,
+  value: 0n,
+  data: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [TARGET, 5n] })
+};
+const DEDUCT = relayAccount({ mode: 'deduct', feeRecipient: FEE_RECIPIENT, feeTokens: [NATIVE, USDC] });
 
 function submitted(h: Harness, index = 0): RelaySubmission {
   const submission = h.submissions[index];
@@ -379,12 +385,59 @@ describe('the submit options', () => {
       },
       fee: { token: USDC, amount: 1000n }
     });
-    h.accounts = [relayAccount({ mode: 'deduct', feeRecipient: FEE_RECIPIENT, fees: [{ token: USDC, fee: 1000n }] })];
+    h.accounts = [DEDUCT];
     await sendTransaction(h.provider, { to: TARGET, data: '0xcafe0001' });
     await h.provider.sendCalls([CALL]);
     expect(events).toEqual(['beforeSign', 'onJob', 'beforeSign', 'onJob']);
     expect(refs.map(ref => ref.id)).toEqual(h.submissions.map(digestOf));
     expect(submitted(h).calls).toEqual([CALL, buildFeeCall({ token: USDC, recipient: FEE_RECIPIENT, amount: 1000n })]);
+  });
+
+  it('asks feeFor for the fee of each send, so each relay pays its own reviewed fee', async () => {
+    const events: string[] = [];
+    const asked: BatchCall[][] = [];
+    const fees = [700n, 900n];
+    const h = harness({
+      beforeSign: async () => {
+        events.push('beforeSign');
+      },
+      feeFor: async calls => {
+        asked.push(calls);
+        events.push('feeFor');
+        const amount = fees[asked.length - 1];
+        if (amount === undefined) throw new Error('no fee');
+        return { token: USDC, amount };
+      }
+    });
+    h.accounts = [DEDUCT];
+    await sendTransaction(h.provider, { to: USDC, data: APPROVE_CALL.data });
+    await h.provider.sendCalls([CALL]);
+    expect(asked).toEqual([[APPROVE_CALL], [CALL]]);
+    expect(events).toEqual(['feeFor', 'beforeSign', 'feeFor', 'beforeSign']);
+    expect(h.submissions.map(submission => submission.calls)).toEqual([
+      [APPROVE_CALL, buildFeeCall({ token: USDC, recipient: FEE_RECIPIENT, amount: 700n })],
+      [CALL, buildFeeCall({ token: USDC, recipient: FEE_RECIPIENT, amount: 900n })]
+    ]);
+  });
+
+  it('signs nothing when feeFor throws, and passes its error on', async () => {
+    const stop = new Error('the fee is above the review limit');
+    const h = harness({ feeFor: () => Promise.reject(stop) });
+    h.accounts = [DEDUCT];
+    expect(await failure(h.provider.sendCalls([CALL]))).toBe(stop);
+    expect(h.accountQueries).toBe(0);
+    expect(h.signRequests).toHaveLength(0);
+  });
+
+  it('turns a TypeError of feeFor (a call that the quote cannot take) into -32602', async () => {
+    const h = harness({ feeFor: () => Promise.reject(new TypeError('relay: a quote takes 1 to 7 calls')) });
+    expect(await failure(h.provider.sendCalls([CALL]))).toMatchObject({ code: -32602 });
+    expect(h.signRequests).toHaveLength(0);
+  });
+
+  it('refuses a fee and feeFor together', () => {
+    const feeFor = async () => ({ token: USDC, amount: 1n });
+    expect(() => harness({ fee: { token: USDC, amount: 1n }, feeFor })).toThrow(TypeError);
   });
 
   it('gives the job to onJob before an answer is lost, and the submitter resumes it', async () => {
