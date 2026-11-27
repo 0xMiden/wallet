@@ -137,7 +137,7 @@ const nativeHotKeyCodes = (): string[] => {
     'ios/App/App/HotKeyPlugin.swift'
   ]) {
     const text = readFileSync(join(REPO_ROOT, source), 'utf8');
-    for (const match of text.matchAll(/,\s*"([A-Z][A-Z_]+)"\s*\)/g)) codes.add(match[1]!);
+    for (const match of text.matchAll(/,\s*"([A-Z][A-Z_]+)"\s*(?:,\s*data\s*)?\)/g)) codes.add(match[1]!);
     for (const match of text.matchAll(/const val ERR_[A-Z_]+ = "([A-Z][A-Z_]+)"/g)) codes.add(match[1]!);
   }
   return [...codes].sort();
