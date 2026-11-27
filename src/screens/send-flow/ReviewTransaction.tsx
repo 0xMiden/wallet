@@ -364,10 +364,9 @@ export const ReviewTransaction: React.FC = () => {
         }
       : undefined
   );
-  const burnNetworkFeeBudget = useMemo<IUsdcxNetworkFeeBudget | undefined>(() => {
+  const measuredBurnFeeBudget = useMemo<IUsdcxNetworkFeeBudget | undefined>(() => {
     if (
       !isUsdcxBurn ||
-      !nativeScaleKnown ||
       burnFee.status !== 'measured' ||
       burnFee.reserve === undefined ||
       !burnFee.faucetId ||
@@ -375,8 +374,11 @@ export const ReviewTransaction: React.FC = () => {
     )
       return undefined;
     return { faucetId: burnFee.faucetId, maxAmount: burnFee.reserve.toString(), scope: burnFee.scope };
-  }, [isUsdcxBurn, nativeScaleKnown, burnFee]);
+  }, [isUsdcxBurn, burnFee]);
+  const burnNetworkFeeBudget = nativeScaleKnown ? measuredBurnFeeBudget : undefined;
   const burnFeeReady = burnNetworkFeeBudget !== undefined && isCurrentUsdcxFeeBudget(burnNetworkFeeBudget);
+  const waitingForBurnFeeScale =
+    burnBalancesLoading && !nativeScaleKnown && isCurrentUsdcxFeeBudget(measuredBurnFeeBudget);
   useUserVisibleError(isUsdcxBurn && burnFee.status === 'failed' ? 'usdcxBurnFeeUnavailable' : null, 'review');
   const burnMinimum = useBurnMinimum(isUsdcxBurn && isUsdcxWithdrawalAvailable(token?.id));
 
@@ -686,10 +688,8 @@ export const ReviewTransaction: React.FC = () => {
     },
     [publicKey, readSpendingLimit, isCurrentSubmission, calendarTarget]
   );
-  // `token` is undefined until balances load; an absent token is handled by the
-  // deep-link guard below, so only a LOADED token with an unreadable scale
-  // blocks the CTA.
-  const scaleIsUnknown = token !== undefined && !token.scaleIsKnown;
+  // The initial USDCx balance can be a placeholder with unverified metadata.
+  const scaleIsUnknown = !burnBalancesLoading && token !== undefined && !token.scaleIsKnown;
 
   // Hand off to the full-screen in-progress page. GeneratingTransactionPage is
   // self-driving: it runs the tx loop on SW-less platforms, polls per-stage
@@ -1612,7 +1612,13 @@ export const ReviewTransaction: React.FC = () => {
                         />
                       ) : (
                         <span role="status">
-                          {t(burnFee.status === 'pending' ? 'usdcxBurnFeeMeasuring' : 'usdcxBurnFeeUnavailable')}
+                          {t(
+                            waitingForBurnFeeScale
+                              ? 'loading'
+                              : burnFee.status === 'pending'
+                                ? 'usdcxBurnFeeMeasuring'
+                                : 'usdcxBurnFeeUnavailable'
+                          )}
                         </span>
                       )}
                     </DetailRow>
