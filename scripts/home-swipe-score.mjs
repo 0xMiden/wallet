@@ -322,13 +322,187 @@ export function judge(baseline, candidate) {
   };
 }
 
-/** Home tab taps, in order. */
+/**
+ * Home tab taps, in order. A pass starts on Overview and taps each of these;
+ * the last tap is the four-page jump back to Overview.
+ */
 export const TAP_PATH = ['/', '/send', '/receive', '/earn', '/swap', '/'];
+const TAP_WINDOW_MS = 700;
+const TAP_SETTLED = 0.995;
+const TAP_MOVED_OPACITY = 0.01;
+const TAP_MOVED_PX = 1;
+const TAP_VISIBLE = 0.05;
 
-export function analyzeTap() {
-  return { tapFeel: 1000, landed: false, firstFrameMs: 700, settleMs: 700, droppedFrames: 0, worstFrameMs: 0, stallFrames: 0, reversals: 0, blockExcessMs: 0, slowInputMaxMs: 0, bothVisibleFrames: 0 };
+function paneDistance(pane, final, width) {
+  if (!pane || !final) return 0;
+  return (
+    Math.abs(pane.left - final.left) / width + Math.abs(pane.width - final.width) / width + Math.abs(pane.opacity - final.opacity)
+  );
+}
+
+function lastAtOrBefore(frames, t) {
+  let index = -1;
+  for (let i = 0; i < frames.length; i++) if (frames[i] <= t) index = i;
+  return index;
+}
+
+/**
+ * Progress of a tap from what is drawn: 0 at the tap, 1 once both panes stop
+ * changing. Rect and effective opacity together, so a slide and a fade are
+ * measured on the same scale.
+ */
+export function tapProgress(sample) {
+  const { frames, leave, enter, tabWidth: width, t0 } = sample;
+  const last = frames.length - 1;
+  const start = Math.max(0, lastAtOrBefore(frames, t0));
+  const distance = i => paneDistance(leave[i], leave[last], width) + paneDistance(enter[i], enter[last], width);
+  const total = distance(start);
+  return frames.map((_, i) => (total <= 0 ? 1 : 1 - distance(i) / total));
+}
+
+function moved(pane, before) {
+  if (!pane || !before) return false;
+  return (
+    Math.abs(pane.opacity - before.opacity) >= TAP_MOVED_OPACITY ||
+    Math.abs(pane.left - before.left) >= TAP_MOVED_PX ||
+    Math.abs(pane.width - before.width) >= TAP_MOVED_PX
+  );
+}
+
+function overlapsTab(pane, tabLeft, tabWidth) {
+  return Math.min(pane.left + pane.width, tabLeft + tabWidth) - Math.max(pane.left, tabLeft) > 1;
+}
+
+function emptyTap(reason) {
+  return {
+    tapFeel: 1000,
+    landed: false,
+    firstFrameMs: TAP_WINDOW_MS,
+    settleMs: TAP_WINDOW_MS,
+    droppedFrames: 0,
+    worstFrameMs: 0,
+    stallFrames: 0,
+    reversals: 0,
+    blockExcessMs: 0,
+    slowInputMaxMs: 0,
+    bothVisibleFrames: 0,
+    error: reason
+  };
+}
+
+/**
+ * Scores one tab tap from per-frame samples of the leaving and entering panes.
+ *
+ * @param {object} sample
+ * @param {number[]} sample.frames rAF timestamps, page clock
+ * @param {({left:number,width:number,opacity:number}|null)[]} sample.leave leaving pane per frame
+ * @param {({left:number,width:number,opacity:number}|null)[]} sample.enter entering pane per frame
+ * @param {number} sample.tabLeft left edge of the Home tab pane
+ * @param {number} sample.tabWidth width of the Home tab pane
+ * @param {number} sample.t0 touchEnd, page clock
+ * @param {boolean} sample.landed the page's own end-state check
+ * @param {number[]} [sample.pings]
+ * @param {number[]} [sample.inputDelays]
+ */
+export function analyzeTap(sample) {
+  const frames = sample.frames ?? [];
+  const leave = sample.leave ?? [];
+  const enter = sample.enter ?? [];
+  if (frames.length < 4 || leave.length !== frames.length || enter.length !== frames.length) return emptyTap('short-trace');
+  if (!Number.isFinite(sample.t0) || !(sample.tabWidth > 0)) return emptyTap('bad-clock');
+  const { t0, tabLeft = 0, tabWidth } = sample;
+  const p = tapProgress(sample);
+
+  const startIndex = Math.max(0, lastAtOrBefore(frames, t0));
+  let firstFrameMs = TAP_WINDOW_MS;
+  for (let i = startIndex + 1; i < frames.length; i++) {
+    if (moved(leave[i], leave[startIndex]) || moved(enter[i], enter[startIndex])) {
+      firstFrameMs = Math.max(0, frames[i] - t0);
+      break;
+    }
+  }
+
+  let settleIndex = frames.length - 1;
+  while (settleIndex > startIndex && p[settleIndex - 1] >= TAP_SETTLED) settleIndex -= 1;
+  const settleMs = Math.max(0, frames[settleIndex] - t0);
+
+  const gaps = [];
+  for (let i = 1; i < frames.length; i++) {
+    if (frames[i] > t0 && frames[i] <= t0 + TAP_WINDOW_MS) gaps.push(frames[i] - frames[i - 1]);
+  }
+  const droppedFrames = gaps.filter(gap => gap > DROPPED_FRAME_MS).length;
+  const worstFrameMs = gaps.length ? round1(Math.max(...gaps)) : 0;
+
+  let stallFrames = 0;
+  let run = 0;
+  let reversals = 0;
+  let bothVisibleFrames = 0;
+  for (let i = startIndex + 1; i < frames.length; i++) {
+    const dp = p[i] - p[i - 1];
+    if (p[i] > 0.02 && p[i] < 0.98 && Math.abs(dp) < 0.002) run += 1;
+    else {
+      if (run >= 2) stallFrames += run;
+      run = 0;
+    }
+    if (dp < -0.02 && p[i] < 0.9) reversals += 1;
+  }
+  if (run >= 2) stallFrames += run;
+  for (let i = 0; i < frames.length; i++) {
+    const a = leave[i];
+    const b = enter[i];
+    if (!a || !b) continue;
+    if (
+      a.opacity > TAP_VISIBLE &&
+      b.opacity > TAP_VISIBLE &&
+      overlapsTab(a, tabLeft, tabWidth) &&
+      overlapsTab(b, tabLeft, tabWidth)
+    ) {
+      bothVisibleFrames += 1;
+    }
+  }
+
+  const blockExcessMs = round1(blockExcess(sample.pings ?? [], t0, t0 + TAP_WINDOW_MS));
+  const delays = (sample.inputDelays ?? []).filter(delay => delay >= BLOCK_FREE_MS);
+  const slowInputMaxMs = delays.length ? round1(Math.max(...delays)) : 0;
+  const landedTap = sample.landed === true;
+
+  const tapFeel = round1(
+    (landedTap ? 0 : 1000) +
+      reversals * 40 +
+      stallFrames * 15 +
+      droppedFrames * 8 +
+      Math.max(0, worstFrameMs - RELEASE_FREE_MS) +
+      Math.max(0, firstFrameMs - RELEASE_FREE_MS) * 2 +
+      blockExcessMs * 0.25 +
+      Math.max(0, slowInputMaxMs - BLOCK_FREE_MS)
+  );
+
+  return {
+    tapFeel,
+    landed: landedTap,
+    firstFrameMs: round1(firstFrameMs),
+    settleMs: round1(settleMs),
+    droppedFrames,
+    worstFrameMs,
+    stallFrames,
+    reversals,
+    blockExcessMs,
+    slowInputMaxMs,
+    bothVisibleFrames
+  };
 }
 
 export function summarizeTaps(taps) {
-  return { taps: taps.length, landed: 0, medianTapFeel: 0, medianFirstFrameMs: 0, medianSettleMs: 0, droppedFrames: 0, reversals: 0, stallFrames: 0, bothVisibleFrames: 0 };
+  const sum = key => taps.reduce((total, tap) => total + tap[key], 0);
+  return {
+    taps: taps.length,
+    landed: taps.filter(tap => tap.landed).length,
+    medianTapFeel: round1(median(taps.map(tap => tap.tapFeel))),
+    medianFirstFrameMs: round1(median(taps.map(tap => tap.firstFrameMs))),
+    medianSettleMs: round1(median(taps.map(tap => tap.settleMs))),
+    droppedFrames: sum('droppedFrames'),
+    reversals: sum('reversals'),
+    stallFrames: sum('stallFrames'),
+    bothVisibleFrames: sum('bothVisibleFrames')
+  };
 }
