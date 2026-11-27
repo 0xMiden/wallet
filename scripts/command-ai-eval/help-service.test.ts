@@ -9,7 +9,7 @@ import path from 'node:path';
 import helpFacts from '../../src/lib/command-ai/help-facts.json';
 import { redactPrompt } from '../../src/lib/command-ai/redactor';
 import { parseAiCompilerOutput } from '../../src/lib/command-ai/schema';
-import { type HelpDataset, explainReply } from '../../services/command-ai/src/help';
+import { type HelpDataset, buildHelpPrompt, explainReply } from '../../services/command-ai/src/help';
 import { CHECKER_RULES, CHECKER_SCHEMA, WRITER_SCHEMA, writerInput } from '../../services/command-ai/src/help-write';
 import helpCards from '../../services/command-ai/src/help-cards.json';
 import {
@@ -109,6 +109,44 @@ describe('command safety', () => {
       expect(traces).toEqual([{ path: 'command', picked: [], unknownIds: [], served: null }]);
     }
   );
+});
+
+describe('clarification follow-ups', () => {
+  const draft = { missingSlot: 'note_type', allowedOptionIds: ['private', 'public'], draft: { action: 'send' } };
+  const patch = { op: 'patch_slots', patch: { note_type: 'public' } };
+  const system = (fetchMock: ReturnType<typeof setup>['fetchMock']): string =>
+    JSON.parse(upstream(fetchMock)).messages[0].content;
+
+  // The provider refused every follow-up: the model returned the bare patch, which the schema's root does not allow.
+  it('tells the model to wrap its reply and to list every patch key', async () => {
+    const { fetchMock, service } = setup({ result: patch });
+    await compile(service, { redactedText: SECRET, snapshot: draft });
+    expect(system(fetchMock)).toBe(
+      `${SYSTEM_PROMPT}\n\nAlways reply as {"result": <command>}, never the bare command. A patch_slots patch lists all of these keys, each unchanged one set to null: action, amount, asset, to_asset, from_chain, to_chain, recipient_ref, provider, note_type, earn_op.`
+    );
+    expect(JSON.parse(upstream(fetchMock)).max_completion_tokens).toBe(512);
+  });
+
+  it('fails the request when the provider refuses a bare reply', async () => {
+    const { fetchMock, service } = setup({});
+    fetchMock.mockImplementation(async () =>
+      Response.json(
+        { error: { code: 'json_validate_failed', failed_generation: JSON.stringify(patch) } },
+        { status: 400 }
+      )
+    );
+    expect((await compile(service, { redactedText: SECRET, snapshot: draft })).status).toBe(502);
+  });
+
+  it.each([
+    [{}, SYSTEM_PROMPT],
+    [{ helpContext: null }, buildHelpPrompt(SYSTEM_PROMPT, data)],
+    [{ helpContext: 'Privacy' }, buildHelpPrompt(SYSTEM_PROMPT, data)]
+  ])('adds nothing to a request without a snapshot: %j', async (context, expected) => {
+    const { fetchMock, service } = setup({ result: { op: 'cancel' } });
+    await compile(service, { redactedText: 'cancel', ...context });
+    expect(system(fetchMock)).toBe(expected);
+  });
 });
 
 describe('help replies', () => {
