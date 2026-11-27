@@ -418,7 +418,6 @@ describe('SendAmount user-visible errors', () => {
   };
 
   it.each([
-    'invalidAmount',
     'amountMustBeLessThanBalance',
     'feeReserveBlocksSend',
     'usdcxBurnFeeUnavailable',
@@ -484,8 +483,11 @@ describe('SendAmount user-visible errors', () => {
     await expectReport('usdcxSendMoreThanPayoutFee', 'field');
   });
 
-  it('does not report an invalid amount until its error text becomes visible', async () => {
-    const props = { ...renderProps(), error: 'invalidAmount' };
+  it.each([
+    { mode: 'staged Send', embedded: false, producer: 'send_step' },
+    { mode: 'Command Send', embedded: true, producer: 'command_send' }
+  ])('reports the $mode producer only once its invalid amount warning is visible', async ({ embedded, producer }) => {
+    const props = { ...renderProps(), embedded, error: 'invalidAmount' };
     const { rerender } = render(<SendAmount {...props} />);
     await act(async () => jest.advanceTimersByTimeAsync(1500));
     expect(screen.queryByText('invalidAmount')).not.toBeInTheDocument();
@@ -493,7 +495,11 @@ describe('SendAmount user-visible errors', () => {
 
     rerender(<SendAmount {...props} amount="0" />);
     expect(screen.getByText('invalidAmount')).toBeVisible();
-    await expectReport('invalidAmount', 'field');
+    const input = screen.getByTestId('send-amount-input');
+    expect(input).toHaveValue('0');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    if (!embedded) expect(screen.getByTestId('send-amount-confirm')).toBeDisabled();
+    await expectReport('invalidAmount', 'field', { kind: 'invalid_amount', invalidAmountProducer: producer });
   });
 
   it('reports an unknown token scale while confirmation remains blocked', async () => {
