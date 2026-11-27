@@ -222,7 +222,7 @@ describe('transactions upgrades', () => {
     expect(byId['restored-spent']).toMatchObject({ relayAttempts: 4, nextRelayAt: now + 1800 });
     expect(byId['undelivered-unspent']).toMatchObject({ relayAttempts: 2, nextRelayAt: now + 1800 });
     for (const row of Object.values(byId)) expect(row).not.toHaveProperty('badgeEvidenceRevision');
-    expect(repo!.db.verno).toBe(3.4);
+    expect(repo!.db.verno).toBe(3.5);
 
     repo!.db.close();
     await Dexie.delete(DB_NAME);
@@ -269,7 +269,7 @@ describe('transactions upgrades', () => {
     });
 
     await repo!.db.open();
-    expect(repo!.db.verno).toBe(3.4);
+    expect(repo!.db.verno).toBe(3.5);
     expect(written).toEqual([]);
     expect((await repo!.transactions.get('send-v33'))?.resultBytes).toBeDefined();
     expect(await repo!.spendingLimits.get('acc')).toMatchObject({ limit: '50' });

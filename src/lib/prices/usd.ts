@@ -167,3 +167,7 @@ export const __resetUsdPriceCacheForTests = (): void => {
   inFlightRefresh.clear();
   cacheWrite = Promise.resolve({});
 };
+
+export const readCachedUsdPrice = async (
+  _symbol: string
+): Promise<{ priceMicro: bigint; fetchedAt: number } | undefined> => undefined;

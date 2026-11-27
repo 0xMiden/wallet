@@ -23,7 +23,8 @@ import { PersistedSpendingLimit } from './spending-limits/types';
 export enum Table {
   Transactions = 'transactions',
   SpendingLimits = 'spendingLimits',
-  PortfolioObservations = 'portfolioObservations'
+  PortfolioObservations = 'portfolioObservations',
+  PositionEvents = 'positionEvents'
 }
 
 /**
@@ -71,6 +72,9 @@ export const TRANSACTIONS_V3_4_STORE = indexes(
 
 export const PORTFOLIO_OBSERVATIONS_V3_3_STORE =
   '[accountId+network+rpcUrl+currency+bucket],[accountId+network+rpcUrl+currency+capturedAt]';
+
+/** Appended in completion order (`seq`); one row per transaction and faucet (`key`). */
+export const POSITION_EVENTS_V3_5_STORE = '++seq,&key,txId,[accountId+network+faucetId+seq]';
 
 /** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
 export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
@@ -433,6 +437,14 @@ function defineSchema(target: Dexie): void {
     [Table.PortfolioObservations]: PORTFOLIO_OBSERVATIONS_V3_3_STORE
   });
 
+  // v3.5 - the cost of each token as it arrives, for position profit and loss (#2029). A new table, so no upgrade.
+  target.version(3.5).stores({
+    [Table.Transactions]: TRANSACTIONS_V3_4_STORE,
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE,
+    [Table.PortfolioObservations]: PORTFOLIO_OBSERVATIONS_V3_3_STORE,
+    [Table.PositionEvents]: POSITION_EVENTS_V3_5_STORE
+  });
+
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check
   // (#1007) sits on `add` alone. It is a middleware, not a `creating` hook, because any hook routes
   // every put, so every `.modify()` and `.update()`, through a read of the rows it replaces.
@@ -687,6 +699,7 @@ function isPlaceableInitiatedAt(value: unknown): value is number {
 
 export const spendingLimits = db.table<PersistedSpendingLimit, string>(Table.SpendingLimits);
 export const portfolioObservations = db.table(Table.PortfolioObservations);
+export const positionEvents = db.table(Table.PositionEvents);
 
 /**
  * Builds an independent, uniquely-named database running the exact same version chain as the

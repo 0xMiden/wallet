@@ -6,6 +6,7 @@ import {
   getPriceMicro,
   isCoveredSymbol,
   prefetchUsdPrices,
+  readCachedUsdPrice,
   toPriceMicro,
   writeUsdPriceCache,
   __resetUsdPriceCacheForTests
@@ -340,5 +341,24 @@ describe('prefetchUsdPrices', () => {
     await Promise.all([first, second]);
 
     expect(mockedFetch.mock.calls).toEqual([[['ETH', 'BTC']], [['USDC']]]);
+  });
+});
+
+describe('readCachedUsdPrice', () => {
+  it('returns the stored price and fetch time whatever their age, and never fetches', async () => {
+    mockedRead.mockResolvedValue({ ETH: { priceMicro: '2000000', fetchedAt: 5 } });
+    expect(await readCachedUsdPrice('ETH')).toEqual({ priceMicro: 2_000_000n, fetchedAt: 5 });
+    expect(await readCachedUsdPrice('BTC')).toBeUndefined();
+    expect(mockedFetch).not.toHaveBeenCalled();
+  });
+
+  it('refuses a malformed or zero entry', async () => {
+    mockedRead.mockResolvedValue({
+      A: { priceMicro: '0', fetchedAt: 5 },
+      B: { priceMicro: '1.5', fetchedAt: 5 },
+      C: { priceMicro: '1', fetchedAt: -1 },
+      D: null
+    });
+    for (const symbol of ['A', 'B', 'C', 'D']) expect(await readCachedUsdPrice(symbol)).toBeUndefined();
   });
 });
