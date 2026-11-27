@@ -45,8 +45,24 @@ describe('auto-consume + proving settings copy accuracy (#478)', () => {
     expect(desc).not.toMatch(/(doesn't|does not|no)\s+\w*\s*(spend|add|charge|cost)[^.]*fee/i);
   });
 
+  it('discloses which details Guardian can see without overstating its access limits', () => {
+    expect(msg('guardianInfoDescription')).toMatch(/can see your account and payment details/i);
+    expect(msg('guardianInfoWhatItCannotDoDescription')).toBe('Move your funds on its own.');
+  });
+
+  it('discloses that default remote proving sends transaction details to the prover', () => {
+    const desc = msg('delegateProofSettingsDescription');
+    expect(desc).toMatch(/on by default/i);
+    expect(desc).toMatch(/sends transaction details to a remote/i);
+  });
+
   it('keeps en/messages.json and en/en.json in sync for the edited keys', () => {
-    for (const key of ['delegateProofSettingsDescription', 'autoConsumeSettingsDescription']) {
+    for (const key of [
+      'delegateProofSettingsDescription',
+      'autoConsumeSettingsDescription',
+      'guardianInfoDescription',
+      'guardianInfoWhatItCannotDoDescription'
+    ]) {
       expect(enJson[key]).toBe(msg(key));
     }
   });
