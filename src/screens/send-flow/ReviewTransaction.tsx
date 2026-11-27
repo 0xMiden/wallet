@@ -122,7 +122,7 @@ import {
   getSendSessionToken,
   recordSendActionWithoutProgress,
   reportSendStep,
-  restoreSendReviewIfSubmitting,
+  restoreSendReviewIfSubmittingForSession,
   settleSendFlow,
   settleSendFlowForSession,
   transitionSendStep,
@@ -264,7 +264,14 @@ export const ReviewTransaction: React.FC = () => {
   activeAccount.current = publicKey;
   const networkName = getEffectiveNetworkName();
   const rpcUrl = getEffectiveRpcUrl();
+  const pageActive = usePageActive();
+  const pageActiveRef = useRef(pageActive);
+  pageActiveRef.current = pageActive;
   const mounted = useRef(false);
+  const backToSendRef = useRef(false);
+  const ownedSessionRef = useRef(0);
+  const departedRef = useRef(false);
+  const submissionAttemptRef = useRef(0);
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -272,25 +279,30 @@ export const ReviewTransaction: React.FC = () => {
     };
   }, []);
   const isCurrentSubmission = useCallback(
-    () =>
+    (expectedAttemptId?: number) =>
       mounted.current &&
+      pageActiveRef.current &&
+      !departedRef.current &&
       activeAccount.current === publicKey &&
       getEffectiveNetworkName() === networkName &&
-      getEffectiveRpcUrl() === rpcUrl,
+      getEffectiveRpcUrl() === rpcUrl &&
+      (expectedAttemptId === undefined || submissionAttemptRef.current === expectedAttemptId),
     [publicKey, networkName, rpcUrl]
   );
-  // One controller per submission. It aborts on unmount and when the account, network or RPC changes,
+  // One controller per submission. It aborts on unmount, departure, and when the account, network or RPC changes,
   // and a context change clears any in-flight loading flags from the previous submission.
   const submissionAbort = useRef<AbortController | undefined>(undefined);
   const submittingRef = useRef(false);
   const hasFailedAttemptRef = useRef(false);
   useEffect(() => {
-    restoreSendReviewIfSubmitting();
+    submissionAttemptRef.current += 1;
+    restoreSendReviewIfSubmittingForSession(ownedSessionRef.current);
     hasFailedAttemptRef.current = false;
     submittingRef.current = false;
     setIsSubmitting(false);
     setRequestingDepositAddress(false);
     return () => {
+      submissionAttemptRef.current += 1;
       submissionAbort.current?.abort();
       submissionAbort.current = undefined;
     };
@@ -682,13 +694,12 @@ export const ReviewTransaction: React.FC = () => {
   // next send would adopt it, inheriting a duration that is not its own.
   // Already-settled flows are untouched, so a completed submit is not
   // re-reported by the navigation away from this page.
-  const pageActive = usePageActive();
-  const backToSendRef = useRef(false);
-  const ownedSessionRef = useRef(0);
-  const departedRef = useRef(false);
   const handleReviewDeparture = useCallback(() => {
     if (departedRef.current) return;
     departedRef.current = true;
+    submissionAttemptRef.current += 1;
+    submissionAbort.current?.abort();
+    submissionAbort.current = undefined;
     const ownedToken = ownedSessionRef.current;
     if (backToSendRef.current || ownedToken === 0) return;
     if (isReturningToSendRoute()) {
@@ -718,8 +729,12 @@ export const ReviewTransaction: React.FC = () => {
     Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { reviewedCalendarTarget?: string }
   >();
   const handleBack = useCallback(() => {
+    if (departedRef.current) return;
     backToSendRef.current = true;
     departedRef.current = true;
+    submissionAttemptRef.current += 1;
+    submissionAbort.current?.abort();
+    submissionAbort.current = undefined;
     if (ownedSessionRef.current !== 0) {
       transitionSendStepForSession(ownedSessionRef.current, 'back');
     } else {
@@ -739,10 +754,10 @@ export const ReviewTransaction: React.FC = () => {
   // - so the unpriced challenge reads the account's current revision fresh, the same value
   // `authorizationMatches` re-reads server-side at redemption.
   const openUnpricedChallenge = useCallback(
-    async (spends: readonly IConsumedAssetTotal[]): Promise<boolean> => {
+    async (spends: readonly IConsumedAssetTotal[], expectedAttemptId?: number): Promise<boolean> => {
       if (!publicKey) return false;
       const configuration = await readSpendingLimit(publicKey);
-      if (configuration === undefined || !isCurrentSubmission()) return false;
+      if (configuration === undefined || !isCurrentSubmission(expectedAttemptId)) return false;
       setSpendingLimitChallenge({
         unpriced: { accountId: publicKey, spends: [...spends], revision: configuration.revision },
         reviewedCalendarTarget: calendarTarget
@@ -760,14 +775,19 @@ export const ReviewTransaction: React.FC = () => {
   // receipt on completion — failure UX also lives there. Replace, not push, so
   // back from the progress page skips the now-stale review params.
   const goToGeneratingTransaction = useCallback(
-    (txId: string) => {
+    (txId: string, expectedAttemptId?: number, expectedSessionToken?: number) => {
       // The single success funnel for all three submit paths (Miden, Agglayer,
       // Epoch): a transaction row now exists, which is what "the user sent"
       // means here. Its later on-chain fate belongs to the progress screen.
       if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
-      if (!isCurrentSubmission()) return;
-      transitionSendStep('continue');
-      settleSendFlow(flow => flow.complete());
+      if (!isCurrentSubmission(expectedAttemptId)) return;
+      if (expectedSessionToken !== undefined) {
+        transitionSendStepForSession(expectedSessionToken, 'continue');
+        settleSendFlowForSession(expectedSessionToken, flow => flow.complete());
+      } else {
+        transitionSendStep('continue');
+        settleSendFlow(flow => flow.complete());
+      }
       if (!command) clearSendDraft();
       else if (
         commandDrafts?.readDraft('send') &&
@@ -784,8 +804,8 @@ export const ReviewTransaction: React.FC = () => {
   );
 
   const runSameChainSend = useCallback(
-    async (authorization?: SpendingLimitAuthorization, reviewedCalendarTarget?: string) => {
-      if (!token || !publicKey || amountBaseUnits === undefined || !isCurrentSubmission()) return;
+    async (authorization?: SpendingLimitAuthorization, reviewedCalendarTarget?: string, existingAttemptId?: number) => {
+      if (!token || !publicKey || amountBaseUnits === undefined || !isCurrentSubmission(existingAttemptId)) return;
       const approvedCalendarTarget = authorization === undefined ? calendarTarget : reviewedCalendarTarget;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
@@ -844,6 +864,7 @@ export const ReviewTransaction: React.FC = () => {
         }
       }
       if (command && commandDrafts && !commandDrafts.beginSendAdmission(sendIntent)) return;
+      const attemptId = existingAttemptId ?? ++submissionAttemptRef.current;
       setIsSubmitting(true);
       setSubmitError(undefined);
       setSubmitErrorId(undefined);
@@ -853,7 +874,8 @@ export const ReviewTransaction: React.FC = () => {
       const isRetry = hasFailedAttemptRef.current;
       hasFailedAttemptRef.current = false;
       beginSendSubmitting(isRetry);
-      ownedSessionRef.current = getSendSessionToken();
+      const submitSessionToken = getSendSessionToken();
+      ownedSessionRef.current = submitSessionToken;
       let txId: string | undefined;
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
@@ -892,16 +914,16 @@ export const ReviewTransaction: React.FC = () => {
           }
         }
         if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
-        goToGeneratingTransaction(txId);
+        goToGeneratingTransaction(txId, attemptId, submitSessionToken);
       } catch (error) {
         if (txId !== undefined) return;
         if (command) commandDrafts?.abortSendAdmission(sendIntent);
-        if (!isCurrentSubmission()) return;
+        if (!isCurrentSubmission(attemptId)) return;
         console.error(error);
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          transitionSendStep('back', 'review');
+          transitionSendStepForSession(submitSessionToken, 'back', 'review');
           setSpendingLimitChallenge({ assessment, spends, reviewedCalendarTarget: approvedCalendarTarget });
           setIsSubmitting(false);
           return;
@@ -911,18 +933,18 @@ export const ReviewTransaction: React.FC = () => {
         // rather than skipping past both `setIsSubmitting(false)` calls and freezing the CTA.
         let opened = false;
         try {
-          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends, attemptId));
         } catch (challengeError) {
           console.error(challengeError);
         }
-        if (!isCurrentSubmission()) return;
+        if (!isCurrentSubmission(attemptId)) return;
         if (opened) {
-          transitionSendStep('back', 'review');
+          transitionSendStepForSession(submitSessionToken, 'back', 'review');
           setIsSubmitting(false);
           return;
         }
         hasFailedAttemptRef.current = true;
-        settleSendFlow(flow => flow.fail(classifyError(error)));
+        settleSendFlowForSession(submitSessionToken, flow => flow.fail(classifyError(error)));
         setSubmitError(
           error instanceof CalendarRecallReviewRequiredError
             ? t('recallReviewChanged')
@@ -955,14 +977,21 @@ export const ReviewTransaction: React.FC = () => {
   );
 
   const runBridgeSend = useCallback(
-    async (authorization?: SpendingLimitAuthorization) => {
-      if (!token || !publicKey || amountBaseUnits === undefined || epochQuoteUnavailable || !isCurrentSubmission())
+    async (authorization?: SpendingLimitAuthorization, existingAttemptId?: number) => {
+      if (
+        !token ||
+        !publicKey ||
+        amountBaseUnits === undefined ||
+        epochQuoteUnavailable ||
+        !isCurrentSubmission(existingAttemptId)
+      )
         return;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
       }
       if (command && commandDrafts && !commandDrafts.beginSendAdmission(sendIntent)) return;
+      const attemptId = existingAttemptId ?? ++submissionAttemptRef.current;
       setIsSubmitting(true);
       setSubmitError(undefined);
       setSubmitErrorId(undefined);
@@ -970,12 +999,17 @@ export const ReviewTransaction: React.FC = () => {
       submissionAbort.current?.abort();
       const submission = new AbortController();
       submissionAbort.current = submission;
+      const isRetry = hasFailedAttemptRef.current;
+      hasFailedAttemptRef.current = false;
+      beginSendSubmitting(isRetry);
+      const submitSessionToken = getSendSessionToken();
+      ownedSessionRef.current = submitSessionToken;
       // Once the owner returns a row, a worker wake-up or receipt view failure cannot rearm Send.
       let admittedId: string | undefined;
       const recordAdmission = (txId: string) => {
         if (admittedId !== undefined) return;
         admittedId = txId;
-        goToGeneratingTransaction(txId);
+        goToGeneratingTransaction(txId, attemptId, submitSessionToken);
       };
       const wakeWorker = () => {
         if (isExtension()) {
@@ -986,10 +1020,6 @@ export const ReviewTransaction: React.FC = () => {
           }
         }
       };
-      const isRetry = hasFailedAttemptRef.current;
-      hasFailedAttemptRef.current = false;
-      beginSendSubmitting(isRetry);
-      ownedSessionRef.current = getSendSessionToken();
       let failureId: UserErrorId = 'raw_send_submit_failed';
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
@@ -1019,12 +1049,12 @@ export const ReviewTransaction: React.FC = () => {
                 reviewedMinAmountOut: BigInt(reviewed.quote.minAmountOut),
                 authorization,
                 signal: submission.signal,
-                isCurrent: isCurrentSubmission
+                isCurrent: () => isCurrentSubmission(attemptId)
               });
             } finally {
-              if (isCurrentSubmission()) setRequestingDepositAddress(false);
+              if (isCurrentSubmission(attemptId)) setRequestingDepositAddress(false);
             }
-            if (isCurrentSubmission()) recordAdmission(txId);
+            if (isCurrentSubmission(attemptId)) recordAdmission(txId);
             wakeWorker();
             break;
           }
@@ -1054,7 +1084,7 @@ export const ReviewTransaction: React.FC = () => {
               failureId = 'agglayerTokenUnsupported';
               throw new Error(t('agglayerTokenUnsupported'));
             }
-            if (!isCurrentSubmission()) {
+            if (!isCurrentSubmission(attemptId)) {
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
               return;
             }
@@ -1074,8 +1104,8 @@ export const ReviewTransaction: React.FC = () => {
           default: {
             if (!epochQuote.address || epochQuote.decimals === undefined || !epochQuote.validity) {
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
-              restoreSendReviewIfSubmitting();
-              setIsSubmitting(false);
+              restoreSendReviewIfSubmittingForSession(submitSessionToken);
+              if (isCurrentSubmission(attemptId)) setIsSubmitting(false);
               return;
             }
             const { txId } = await bridgeEpochSend({
@@ -1096,9 +1126,9 @@ export const ReviewTransaction: React.FC = () => {
             });
             if (txId !== undefined) recordAdmission(txId);
             else if (admittedId === undefined) {
-              if (!isCurrentSubmission()) return;
+              if (!isCurrentSubmission(attemptId)) return;
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
-              restoreSendReviewIfSubmitting();
+              restoreSendReviewIfSubmittingForSession(submitSessionToken);
               setIsSubmitting(false);
             }
           }
@@ -1109,7 +1139,7 @@ export const ReviewTransaction: React.FC = () => {
         if (command) commandDrafts?.abortSendAdmission(sendIntent);
         // A send that the page or account left behind shows nothing: no error and no state update.
         if (
-          !isCurrentSubmission() ||
+          !isCurrentSubmission(attemptId) ||
           error instanceof NearIntentsSendSupersededError ||
           (route === 'near-intents' && submission.signal.aborted)
         ) {
@@ -1119,7 +1149,7 @@ export const ReviewTransaction: React.FC = () => {
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
         if (assessment !== undefined) {
-          transitionSendStep('back', 'review');
+          transitionSendStepForSession(submitSessionToken, 'back', 'review');
           setSpendingLimitChallenge({ assessment, spends });
           setIsSubmitting(false);
           return;
@@ -1128,18 +1158,18 @@ export const ReviewTransaction: React.FC = () => {
         // storage read failure here leaves the CTA disabled forever with no visible error.
         let opened = false;
         try {
-          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+          opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends, attemptId));
         } catch (challengeError) {
           console.error(challengeError);
         }
-        if (!isCurrentSubmission()) return;
+        if (!isCurrentSubmission(attemptId)) return;
         if (opened) {
-          transitionSendStep('back', 'review');
+          transitionSendStepForSession(submitSessionToken, 'back', 'review');
           setIsSubmitting(false);
           return;
         }
         hasFailedAttemptRef.current = true;
-        settleSendFlow(flow => flow.fail(classifyError(error)));
+        settleSendFlowForSession(submitSessionToken, flow => flow.fail(classifyError(error)));
         if (route === 'near-intents') {
           // A NEAR Intents failure has a known message; the raw text of a 1Click error is not for the user.
           const nearIntentsFailure = ((): UserErrorId => {
@@ -1239,41 +1269,42 @@ export const ReviewTransaction: React.FC = () => {
       return;
     }
     const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
+    const attemptId = ++submissionAttemptRef.current;
     submittingRef.current = true;
     setIsSubmitting(true);
     setSubmitError(undefined);
     setSubmitErrorId(undefined);
     try {
       const assessment = await assessSpendingLimit(publicKey, spends);
-      if (!isCurrentSubmission()) {
-        setIsSubmitting(false);
-        return;
-      }
+      if (!isCurrentSubmission(attemptId)) return;
       if (assessment !== undefined && assessment.breach !== undefined) {
         setSpendingLimitChallenge({ assessment, spends, reviewedCalendarTarget: calendarTarget });
         setIsSubmitting(false);
         return;
       }
-      if (!(await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector)) || !isCurrentSubmission()) {
+      const confirmed = await confirmSensitiveAction(t('confirmSendReason'), probeHardwareProtector);
+      if (!isCurrentSubmission(attemptId)) return;
+      if (!confirmed) {
         setIsSubmitting(false);
         return;
       }
       if (isBridge) {
-        await runBridgeSend();
+        await runBridgeSend(undefined, attemptId);
       } else {
-        await runSameChainSend();
+        await runSameChainSend(undefined, undefined, attemptId);
       }
     } catch (error) {
       console.error(error);
+      if (!isCurrentSubmission(attemptId)) return;
       // See `runSameChainSend`: guard against `openUnpricedChallenge` itself throwing, or a
       // storage read failure here leaves the CTA disabled forever with no visible error.
       let opened = false;
       try {
-        opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends));
+        opened = isSpendingLimitPriceUnavailable(error) && (await openUnpricedChallenge(spends, attemptId));
       } catch (challengeError) {
         console.error(challengeError);
       }
-      if (!isCurrentSubmission()) return;
+      if (!isCurrentSubmission(attemptId)) return;
       if (opened) {
         setIsSubmitting(false);
         return;
@@ -1283,7 +1314,7 @@ export const ReviewTransaction: React.FC = () => {
       setSubmitErrorId('raw_send_submit_failed');
       setIsSubmitting(false);
     } finally {
-      if (isCurrentSubmission()) submittingRef.current = false;
+      if (isCurrentSubmission(attemptId)) submittingRef.current = false;
     }
   }, [
     bridgeBlocked,
@@ -1538,7 +1569,18 @@ export const ReviewTransaction: React.FC = () => {
           }}
           // Abandons the send: without the draft the next Send opens empty. Back keeps it to restore the form.
           onClose={() => {
-            transitionSendStep('close');
+            if (departedRef.current) return;
+            departedRef.current = true;
+            submissionAttemptRef.current += 1;
+            submissionAbort.current?.abort();
+            submissionAbort.current = undefined;
+            if (ownedSessionRef.current !== 0) {
+              transitionSendStepForSession(ownedSessionRef.current, 'close');
+              settleSendFlowForSession(ownedSessionRef.current, flow => flow.cancel());
+            } else {
+              transitionSendStep('close');
+              settleSendFlow(flow => flow.cancel());
+            }
             if (!command) clearSendDraft();
             else commandDrafts?.clearDraft('send');
             navigate('/');

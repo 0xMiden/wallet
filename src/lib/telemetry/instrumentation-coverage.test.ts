@@ -64,7 +64,8 @@ const WIRING_INSIDE_TELEMETRY = 'lib/telemetry/transaction-operation.ts';
 const STEP_TABLES: readonly { path: string; accessor: string }[] = [
   { path: WIRING_INSIDE_TELEMETRY, accessor: 'stepOfStage' },
   { path: 'app/pages/Welcome.tsx', accessor: 'ONBOARDING_TELEMETRY_STEPS' },
-  { path: 'app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx', accessor: 'RECEIVE_STEP_TELEMETRY' }
+  { path: 'app/templates/EvmConnectModal/EvmBridgeDepositScreen.tsx', accessor: 'RECEIVE_STEP_TELEMETRY' },
+  { path: 'screens/send-flow/SendManager.tsx', accessor: 'SEND_STEP_TELEMETRY' }
 ];
 
 /** Non-test sources, excluding the telemetry module's own plumbing. */
@@ -262,7 +263,9 @@ const isConsumedByAReporter = (accessor: string): boolean =>
  */
 const isConsumedByAStepReporter = (accessor: string): boolean =>
   CALL_SITES.some(
-    file => file.text.includes(accessor) && /\.(?:step|enterStep|transitionStep)\(|\bstep:\s/.test(file.text)
+    file =>
+      file.text.includes(accessor) &&
+      /(?:\.(?:step|enterStep|transitionStep)|(?:report|transition)SendStep)\(|\bstep:\s/.test(file.text)
   );
 
 describe('every declared operation is actually reported somewhere', () => {

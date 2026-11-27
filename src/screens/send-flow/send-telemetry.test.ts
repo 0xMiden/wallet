@@ -1,12 +1,16 @@
 import {
   beginSendSubmitting,
   enterSendFlow,
+  getSendSessionToken,
   hasOpenSendFlow,
   recordSendActionWithoutProgress,
   recordSendRetry,
   reportSendStep,
+  restoreSendReviewIfSubmittingForSession,
   settleSendFlow,
-  transitionSendStep
+  settleSendFlowForSession,
+  transitionSendStep,
+  transitionSendStepForSession
 } from './send-telemetry';
 
 type Handle = {
@@ -298,5 +302,41 @@ describe('send-telemetry', () => {
     } finally {
       nowSpy.mockRestore();
     }
+  });
+
+  it('allocates monotonic session tokens across settled flows so stale tokens cannot mutate Flow 2', () => {
+    enterSendFlow();
+    const token1 = getSendSessionToken();
+    expect(token1).toBeGreaterThan(0);
+    settleSendFlow(flow => flow.complete());
+    expect(getSendSessionToken()).toBe(0);
+
+    enterSendFlow();
+    const token2 = getSendSessionToken();
+    expect(token2).toBeGreaterThan(token1);
+    reportSendStep('review');
+    beginSendSubmitting(false);
+
+    // Stale token1 from Flow 1 must not restore, transition, or cancel Flow 2.
+    restoreSendReviewIfSubmittingForSession(token1);
+    transitionSendStepForSession(token1, 'back', 'select_amount');
+    settleSendFlowForSession(token1, flow => flow.cancel());
+
+    expect(hasOpenSendFlow()).toBe(true);
+    expect(handleAt(1).cancel).not.toHaveBeenCalled();
+    expect(emittedEvents).toMatchObject([{ flowId: 'flow-send-2', step: 'review', stepAction: 'submit', order: 1 }]);
+
+    // Active token2 still restores and settles Flow 2 normally.
+    restoreSendReviewIfSubmittingForSession(token2);
+    transitionSendStepForSession(token2, 'close');
+    settleSendFlowForSession(token2, flow => flow.cancel());
+
+    expect(hasOpenSendFlow()).toBe(false);
+    expect(handleAt(1).cancel).toHaveBeenCalledTimes(1);
+    expect(emittedEvents).toMatchObject([
+      { flowId: 'flow-send-2', step: 'review', stepAction: 'submit', order: 1 },
+      { flowId: 'flow-send-2', step: 'submitting', stepAction: 'back', order: 2 },
+      { flowId: 'flow-send-2', step: 'review', stepAction: 'close', order: 3, complete: true }
+    ]);
   });
 });

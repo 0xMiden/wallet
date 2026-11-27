@@ -25,6 +25,7 @@ let handle: FlowHandle | null = null;
 let tracker: StepProgressionTracker | null = null;
 let detachLifecycle: (() => void) | null = null;
 let sessionToken = 0;
+let nextSessionToken = 0;
 
 /** Begin the send flow, or adopt the one already in progress. */
 export function enterSendFlow(): void {
@@ -41,7 +42,8 @@ export function enterSendFlow(): void {
   const nextHandle = beginFlow('send');
   if (!nextHandle) return;
   handle = nextHandle;
-  sessionToken += 1;
+  nextSessionToken += 1;
+  sessionToken = nextSessionToken;
   if (
     typeof nextHandle.flowId === 'string' &&
     nextHandle.flowId.length > 0 &&
@@ -168,6 +170,12 @@ export function restoreSendReviewIfSubmitting(): void {
   if (tracker?.currentStep() === 'submitting') {
     transitionSendStep('back', 'review');
   }
+}
+
+/** Restores `review` only while `expectedToken` still owns the active send session. */
+export function restoreSendReviewIfSubmittingForSession(expectedToken: number): void {
+  if (expectedToken === 0 || getSendSessionToken() !== expectedToken) return;
+  restoreSendReviewIfSubmitting();
 }
 
 /** Record a non-progressing trigger on the active Send step. */

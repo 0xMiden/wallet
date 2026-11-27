@@ -528,4 +528,89 @@ describe('useFundFlow step progression', () => {
     ]);
     unmount();
   });
+
+  it('ignores late reportDeposit settlement after transitionStep back without corrupting steps, flow outcome, or retry state', async () => {
+    const first = renderHook(() => useFundFlow());
+    act(() => {
+      first.result.current.enterStep('review');
+    });
+
+    let resolveDeposit!: (value: string) => void;
+    const pendingSuccess = new Promise<string>(resolve => {
+      resolveDeposit = resolve;
+    });
+    let lateResolvePromise!: Promise<string>;
+    act(() => {
+      lateResolvePromise = first.result.current.reportDeposit(() => pendingSuccess);
+      first.result.current.transitionStep('back', 'select_route');
+    });
+
+    const eventsBeforeLateResolve = emittedSteps.length;
+    await act(async () => {
+      resolveDeposit('late-bridge-tx');
+      await expect(lateResolvePromise).resolves.toBe('late-bridge-tx');
+    });
+
+    expect(handleAt(0).complete).not.toHaveBeenCalled();
+    expect(emittedSteps.length).toBe(eventsBeforeLateResolve);
+
+    act(() => {
+      first.result.current.transitionStep('continue', 'review');
+    });
+    await act(async () => {
+      await first.result.current.reportDeposit(() => Promise.resolve('fresh-bridge-tx'));
+    });
+
+    expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    expect(emittedSteps).toMatchObject([
+      { flowId: 'flow-fund-1', step: 'review', stepAction: 'submit', order: 1 },
+      { flowId: 'flow-fund-1', step: 'submitting', stepAction: 'back', order: 2 },
+      { flowId: 'flow-fund-1', step: 'select_route', stepAction: 'continue', order: 3 },
+      { flowId: 'flow-fund-1', step: 'review', stepAction: 'submit', order: 4 },
+      { flowId: 'flow-fund-1', step: 'submitting', stepAction: 'continue', order: 5, complete: true }
+    ]);
+    first.unmount();
+
+    emittedSteps.length = 0;
+    const second = renderHook(() => useFundFlow());
+    act(() => {
+      second.result.current.enterStep('review');
+    });
+
+    let rejectDeposit!: (reason?: unknown) => void;
+    const pendingFailure = new Promise<string>((_resolve, reject) => {
+      rejectDeposit = reject;
+    });
+    let lateRejectPromise!: Promise<string>;
+    act(() => {
+      lateRejectPromise = second.result.current.reportDeposit(() => pendingFailure);
+      second.result.current.transitionStep('back', 'select_route');
+    });
+
+    const eventsBeforeLateReject = emittedSteps.length;
+    await act(async () => {
+      rejectDeposit(new Error('late rpc fail'));
+      await expect(lateRejectPromise).rejects.toThrow('late rpc fail');
+    });
+
+    expect(handleAt(1).fail).not.toHaveBeenCalled();
+    expect(emittedSteps.length).toBe(eventsBeforeLateReject);
+
+    act(() => {
+      second.result.current.transitionStep('continue', 'review');
+    });
+    await act(async () => {
+      await second.result.current.reportDeposit(() => Promise.resolve('recovered-ok'));
+    });
+
+    expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
+    expect(emittedSteps).toMatchObject([
+      { flowId: 'flow-fund-2', step: 'review', stepAction: 'submit', order: 1 },
+      { flowId: 'flow-fund-2', step: 'submitting', stepAction: 'back', order: 2 },
+      { flowId: 'flow-fund-2', step: 'select_route', stepAction: 'continue', order: 3 },
+      { flowId: 'flow-fund-2', step: 'review', stepAction: 'submit', order: 4 },
+      { flowId: 'flow-fund-2', step: 'submitting', stepAction: 'continue', order: 5, complete: true }
+    ]);
+    second.unmount();
+  });
 });

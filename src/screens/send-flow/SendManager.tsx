@@ -41,6 +41,7 @@ import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
 import { useWalletStore } from 'lib/store';
+import type { TelemetryStep } from 'lib/telemetry/types';
 import {
   snapshotRecipientValidation,
   validateUiEvidence,
@@ -205,17 +206,14 @@ const validations = {
 
 const validationSchema = yup.object().shape(validations).required();
 
-function stepForNavigatorRoute(routeName: unknown) {
-  switch (routeName) {
-    case SendFlowStep.SelectRecipient:
-      return 'select_recipient' as const;
-    case SendFlowStep.SelectAmount:
-      return 'select_amount' as const;
-    case SendFlowStep.Route:
-      return 'select_route' as const;
-    default:
-      return undefined;
-  }
+const SEND_STEP_TELEMETRY: Readonly<Partial<Record<SendFlowStep, TelemetryStep>>> = {
+  [SendFlowStep.SelectRecipient]: 'select_recipient',
+  [SendFlowStep.SelectAmount]: 'select_amount',
+  [SendFlowStep.Route]: 'select_route'
+};
+
+function stepForNavigatorRoute(routeName: unknown): TelemetryStep | undefined {
+  return SEND_STEP_TELEMETRY[routeName as SendFlowStep];
 }
 
 function ensureSendFlowAtStep(step: unknown): void {

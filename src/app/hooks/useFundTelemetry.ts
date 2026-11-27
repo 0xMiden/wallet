@@ -63,6 +63,7 @@ export function useFundFlow(): FundFlowTelemetry {
   const detachRef = useRef<(() => void) | null>(null);
   const hasFailedAttemptRef = useRef(false);
   const pendingStepRef = useRef<TelemetryStep | null>(null);
+  const activeDepositTokenRef = useRef(0);
 
   useEffect(() => {
     const initialFlow = beginFlow('fund');
@@ -77,6 +78,7 @@ export function useFundFlow(): FundFlowTelemetry {
       tracker?.enter(step);
     }
     return () => {
+      activeDepositTokenRef.current += 1;
       pendingStepRef.current = null;
       hasFailedAttemptRef.current = false;
       detachRef.current?.();
@@ -101,6 +103,7 @@ export function useFundFlow(): FundFlowTelemetry {
   }, []);
 
   const transitionStep = useCallback((action: TelemetryStepAction, nextStep?: TelemetryStep) => {
+    activeDepositTokenRef.current += 1;
     if (!flowRef.current) {
       if (trackerRef.current) {
         trackerRef.current.transition(action);
@@ -165,11 +168,14 @@ export function useFundFlow(): FundFlowTelemetry {
       activeTracker.transition(wasRetry ? 'retry' : 'submit', 'submitting');
     }
 
+    const depositToken = activeDepositTokenRef.current + 1;
+    activeDepositTokenRef.current = depositToken;
+
     try {
       const result = await attempt();
       // Only settle while the ref still holds this flow: a leave mid-deposit has
       // already reported it abandoned, and that reading should stand.
-      if (flowRef.current === flow) {
+      if (flowRef.current === flow && activeDepositTokenRef.current === depositToken) {
         flowRef.current = null;
         flow.complete();
         if (trackerRef.current === activeTracker) {
@@ -178,7 +184,7 @@ export function useFundFlow(): FundFlowTelemetry {
       }
       return result;
     } catch (err) {
-      if (flowRef.current === flow) {
+      if (flowRef.current === flow && activeDepositTokenRef.current === depositToken) {
         flowRef.current = null;
         hasFailedAttemptRef.current = true;
         flow.fail(classifyError(err));
