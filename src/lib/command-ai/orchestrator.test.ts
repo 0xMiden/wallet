@@ -1064,3 +1064,65 @@ describe('a follow-up that names an asset', () => {
     expect(applyPatchToDraft(base, noPatch, empty)).toMatchObject({ tokenId: 'faucet-pepe' });
   });
 });
+
+// The whole path of a follow-up: the typed symbol is a placeholder, resolution restores it into the
+// draft, and the snapshot built from that draft must not carry it.
+describe('the follow-up snapshot after an unlisted token was typed', () => {
+  const slots = {
+    amount: null,
+    asset: null,
+    to_asset: null,
+    from_chain: null,
+    to_chain: null,
+    recipient_ref: null,
+    provider: null,
+    note_type: null,
+    earn_op: null
+  };
+  const context = (): OrchestratorWalletContext => {
+    const base = createContext();
+    return {
+      ...base,
+      balances: [
+        ...base.balances,
+        {
+          tokenId: 'faucet-foo',
+          tokenSlug: 'FOO',
+          balance: 50,
+          balanceBaseUnits: '50000000',
+          fiatPrice: 1,
+          change24h: 0,
+          metadata: { symbol: 'FOO', name: 'Foo', decimals: 6 }
+        }
+      ],
+      swapTokens: [...base.swapTokens, { symbol: 'FOO', faucetId: 'faucet-foo', decimals: 6 }]
+    };
+  };
+  const heldNicheTickers = [{ symbol: 'FOO', tokenId: 'faucet-foo' }];
+
+  it.each([
+    [
+      'asset',
+      'send 5 FOO',
+      { action: 'send' as const, amount: { kind: 'exact_ref' as const, ref: 'AMT_1' }, asset: 'TOKEN_1' },
+      { asset: null }
+    ],
+    [
+      'to_asset',
+      'swap MIDEN to FOO',
+      { action: 'swap' as const, asset: 'MIDEN', to_asset: 'TOKEN_1' },
+      { asset: 'MIDEN', to_asset: null }
+    ]
+  ])('leaves it out of %s', (_side, typed, intent, expected) => {
+    const { redactedText, map } = redactPrompt(typed, { contacts: [], heldNicheTickers });
+    expect(redactedText).toContain('<TOKEN_1>');
+    const asked = compileOutputToResolution({ op: 'set_intent', ...slots, ...intent }, map, context());
+    if (asked.kind !== 'clarifying') throw new Error(asked.kind);
+    expect([asked.draft.assetQuery, asked.draft.toAssetQuery]).toContain('FOO');
+
+    const snapshot = createClarificationSnapshot(asked.draft, asked.slot, asked.allowedOptionIds);
+
+    expect(snapshot.draft).toMatchObject(expected);
+    expect(JSON.stringify(snapshot)).not.toMatch(/foo/i);
+  });
+});
