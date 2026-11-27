@@ -3,6 +3,9 @@
 ## 1.18.3 (TBD)
 
 - [FEATURE][all] With usage sharing enabled, report closed-list Send and Funding step progression (steps reached, transition actions, active visible time, repeats, and retries) without transaction or wallet details, and update consent copy and telemetry docs (#1969).
+- [FIX][extension] Identify the attempted action behind a connection warning in opt-in reports.
+- [FIX][all] Distinguish a still-active retry attempt from a missing acknowledgement in opt-in reports.
+- [FIX][all] Identify whether standard Send or Command Send showed an invalid amount warning in opt-in reports.
 - [FIX][extension] Identify the step that produced a browser backup export warning in opt-in reports.
 - [FIX][all] Tell you when no bridge route matches what you asked the Bread assistant for (asset, token pair, network or provider) and let you choose one of the other routes, instead of ignoring the part that did not match and listing or opening a different route.
 - [FIX][all] Show the specific reason Command swap review is blocked by insufficient fees, invalid amounts, or an unavailable pair.

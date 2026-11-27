@@ -25,6 +25,7 @@
  * to be while the pipeline runs on and submits.
  */
 import * as Repo from 'lib/miden/repo';
+import { snapshotPendingRetry } from 'lib/telemetry/ui-producer-diagnostics';
 
 import {
   MAX_WAIT_BEFORE_CANCEL,
@@ -1129,7 +1130,10 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
     expect(row.mayHaveSubmitted).toBe(true);
     expect(row.cancelledInFlightAt).toBeGreaterThan(0);
 
-    await expect(requeueFailedTransaction('poison-live', { acknowledged: { attemptId: null } })).rejects.toMatchObject({
+    const refusal = await requeueFailedTransaction('poison-live', { acknowledged: { attemptId: null } }).catch(
+      (error: unknown) => error
+    );
+    expect(refusal).toMatchObject({
       name: 'UnverifiableSendRetryError'
     });
     // Refused means refused: the markers survive for the next attempt.
@@ -1137,6 +1141,7 @@ describe('the stuck reaper marks what it reaps, because reaping does not stop th
     expect(after.status).toBe(ITransactionStatus.Failed);
     expect(after.mayHaveSubmitted).toBe(true);
     expect(after.cancelledInFlightAt).toBeGreaterThan(0);
+    expect(snapshotPendingRetry(refusal)).toBe('retry_run_active');
   });
 
   it('once the poison liveness window lapses, the acknowledged retry proceeds and clears the markers', async () => {
@@ -1173,10 +1178,12 @@ describe('a refused send is not a dead end', () => {
   it('refuses by default, with an error the UI can tell apart from any other', async () => {
     await refused('ack-1');
 
-    await expect(requeueFailedTransaction('ack-1')).rejects.toMatchObject({
+    const refusal = await requeueFailedTransaction('ack-1').catch((error: unknown) => error);
+    expect(refusal).toMatchObject({
       name: 'UnverifiableSendRetryError'
     });
     expect(isUnverifiableSendRetryError(new Error('something else'))).toBe(false);
+    expect(snapshotPendingRetry(refusal)).toBe('retry_ack_required');
   });
 
   it('proceeds once the user confirms the send never arrived', async () => {

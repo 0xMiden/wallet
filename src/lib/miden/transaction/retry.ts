@@ -538,7 +538,7 @@ const planRequeue = async (
   // An acknowledgement can rule out the past, not the future: while a cancelled or abandoned run may still submit,
   // even a proven row waits.
   if ((resubmitInDoubt || executeInDoubt) && live) {
-    throw new UnverifiableSendRetryError(livenessCopy(tx.type, proven));
+    throw retryRefusal(new UnverifiableSendRetryError(livenessCopy(tx.type, proven)), 'retry_run_active');
   }
   // Bytes in doubt are replayed as they are, so the user's word cannot rule out what the node can: a note they create
   // that is already on chain. No answer replays nothing, since the replay needs the same node.
@@ -552,7 +552,10 @@ const planRequeue = async (
       // The copy only: the check may have just ended the reconciler's interest (an 'unresolvable' verdict), and the
       // refusal must not say the wallet is still checking a row whose hint says it is not.
       const asLeft = checked ? ((await Repo.transactions.where({ id: tx.id }).first()) ?? tx) : tx;
-      throw new UnverifiableSendRetryError(acknowledgeableCopy(asLeft, nowSeconds()), attemptId);
+      throw retryRefusal(
+        new UnverifiableSendRetryError(acknowledgeableCopy(asLeft, nowSeconds()), attemptId),
+        'retry_ack_required'
+      );
     }
     clearFlags = true;
   }

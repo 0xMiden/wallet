@@ -199,6 +199,25 @@ it('discards backup export stage evidence with a wrong pair, unknown value, or e
   expect(snapshotCrashDiagnostics(root)).toEqual({ userErrorId: id, userErrorSurface: 'inline' });
 });
 
+it('keeps confirmation origin on its exact notice and drops other input', () => {
+  const id = 'raw_confirm_approval_failed';
+  const value = { kind: 'confirm_approval_failure', confirmApprovalFailureOrigin: 'decline' };
+  expect(validateUiEvidence(id, 'inline', value)).toBeUndefined();
+  expect(validateUiEvidence('confirmError', 'notice', value)).toBeUndefined();
+  expect(validateUiEvidence(id, 'notice', { ...value, confirmApprovalFailureOrigin: 'private' })).toBeUndefined();
+
+  const root = new Error('synthetic confirmation failure');
+  annotateCrash(root, { userErrorId: id, userErrorSurface: 'notice' });
+  annotateUiProducer(root, id, 'notice', value);
+  expect(snapshotCrashDiagnostics(root)).toEqual({
+    userErrorId: id,
+    userErrorSurface: 'notice',
+    confirmApprovalFailureOrigin: 'decline'
+  });
+  annotateUiProducer(root, id, 'notice', { ...value, detail: 'private' });
+  expect(snapshotCrashDiagnostics(root)).toEqual({ userErrorId: id, userErrorSurface: 'notice' });
+});
+
 it('attaches only the closed Guardian outage reason to its inline banner', () => {
   const id = 'connectivityGuardianBody';
   const reason = { kind: 'guardian_outage', guardianOutageReason: 'request_timeout_fuse' };
