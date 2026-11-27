@@ -2269,9 +2269,9 @@ describe('MidenClientProxy — deadline kill', () => {
       expect(fakeChrome.offscreen.closeDocument).toHaveBeenCalledTimes(1);
       expect(fakeChrome.offscreen.createDocument).toHaveBeenCalledTimes(2);
       expect(__test.inFlightSize()).toBe(0);
-      if (sync) {
-        await expect(sync).resolves.toMatchObject({ reason: 'deadline', facts: { deadline: { owner: 'collateral' } } });
-      }
+      const syncError = (await sync) as InstanceType<typeof OperationAbortedError> | undefined;
+      expect(syncError?.reason).toBe(started ? 'deadline' : undefined);
+      expect(syncError?.facts?.deadline?.owner).toBe(started ? 'collateral' : undefined);
     } finally {
       jest.useRealTimers();
     }
