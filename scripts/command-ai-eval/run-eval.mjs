@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -64,7 +65,6 @@ function freshRetryBudget() {
 }
 
 const UNKNOWN_RESET_MS = 60000;
-const PACE_TOKEN_MARGIN = 600;
 const RESET_UNIT_MS = { h: 3600000, m: 60000, s: 1000, ms: 1 };
 
 export function parseResetMs(value) {
@@ -73,12 +73,138 @@ export function parseResetMs(value) {
   return Math.round(parts.reduce((total, [, count, unit]) => total + Number(count) * RESET_UNIT_MS[unit], 0));
 }
 
-export function paceDelayMs(headers, lastPromptTokens) {
-  const remaining = headers.get('x-ratelimit-remaining-tokens');
-  // Live traffic shares the account, so a suite never takes more than half of a model's bucket.
-  const half = Number(headers.get('x-ratelimit-limit-tokens') ?? 0) / 2;
-  if (remaining === null || Number(remaining) >= Math.max(half, lastPromptTokens + PACE_TOKEN_MARGIN)) return 0;
-  return parseResetMs(headers.get('x-ratelimit-reset-tokens') ?? '');
+/** What the console allows each model a minute, until a response's headers say otherwise. */
+const PROVIDER_LIMITS = { tokens: 250000, requests: 1000 };
+/** The share of every bucket that stays free for the live assistant. */
+const LIVE_RESERVE = 0.15;
+export const EVAL_CONCURRENCY = 6;
+/** One case at a time with COMMAND_AI_EVAL_CONCURRENCY=1, which tests that script replies by call order need. */
+const evalConcurrency = () => Number.parseInt(process.env.COMMAND_AI_EVAL_CONCURRENCY ?? '', 10) || EVAL_CONCURRENCY;
+
+/**
+ * A budget per model: a bucket of tokens and one of requests that refill over a minute. A request is admitted only
+ * while its estimate fits above the reserve once every request still in flight has spent its own, so the suite runs
+ * as fast as the provider allows and never leaves the live assistant less than the reserve. The token level comes from
+ * each response's headers, which also count the live assistant. The request bucket counts this run only, since the
+ * header counts a day.
+ */
+export function createLimiter({
+  now = Date.now,
+  sleep = ms => new Promise(resolve => setTimeout(resolve, ms)),
+  reserve = LIVE_RESERVE
+} = {}) {
+  const buckets = new Map();
+  let waiters = [];
+  // A sleep that returns early (a test that skips waits) still counts as served.
+  let skew = 0;
+  const clock = () => now() + skew;
+  const bucketOf = model => {
+    if (!buckets.has(model)) {
+      buckets.set(model, {
+        level: { ...PROVIDER_LIMITS },
+        cap: { ...PROVIDER_LIMITS },
+        held: { tokens: 0, requests: 0 },
+        at: clock(),
+        until: 0
+      });
+    }
+    const bucket = buckets.get(model);
+    const elapsed = clock() - bucket.at;
+    bucket.at += elapsed;
+    for (const kind of ['tokens', 'requests']) {
+      bucket.level[kind] = Math.min(bucket.cap[kind], bucket.level[kind] + (bucket.cap[kind] * elapsed) / 60000);
+    }
+    return bucket;
+  };
+  const kinds = tokens => [
+    ['tokens', tokens],
+    ['requests', 1]
+  ];
+
+  /** Resolves once every model's estimate fits, with the function that ends the reservation. */
+  async function admit(estimates) {
+    const wanted = Object.entries(estimates);
+    for (;;) {
+      let waitMs = 0;
+      let blocked = false;
+      for (const [model, tokens] of wanted) {
+        const bucket = bucketOf(model);
+        waitMs = Math.max(waitMs, bucket.until - clock());
+        for (const [kind, estimate] of kinds(tokens)) {
+          const cap = bucket.cap[kind];
+          const need = cap * reserve + bucket.held[kind] + Math.min(estimate, cap * (1 - reserve));
+          if (bucket.level[kind] >= need) continue;
+          // Only a request that finishes can make room when the bucket could never hold the others as well.
+          if (need > cap) blocked = true;
+          else waitMs = Math.max(waitMs, Math.ceil(((need - bucket.level[kind]) * 60000) / cap));
+        }
+      }
+      if (waitMs <= 0 && !blocked) break;
+      if (waitMs <= 0) {
+        await new Promise(resolve => waiters.push(resolve));
+        continue;
+      }
+      const started = now();
+      await sleep(waitMs);
+      skew += Math.max(0, waitMs - (now() - started));
+    }
+    const held = [];
+    for (const [model, tokens] of wanted) {
+      const bucket = bucketOf(model);
+      for (const [kind, estimate] of kinds(tokens)) {
+        const amount = kind === 'tokens' ? Math.min(estimate, bucket.cap.tokens * (1 - reserve)) : estimate;
+        bucket.held[kind] += amount;
+        held.push([bucket, kind, amount]);
+      }
+    }
+    let ended = false;
+    return () => {
+      if (ended) return;
+      ended = true;
+      for (const [bucket, kind, amount] of held) bucket.held[kind] -= amount;
+      const waiting = waiters;
+      waiters = [];
+      for (const wake of waiting) wake();
+    };
+  }
+
+  /** One provider response: the level it reports, else what it spent. */
+  function record(model, headers, spent) {
+    const bucket = bucketOf(model);
+    const limit = Number(headers.get('x-ratelimit-limit-tokens'));
+    if (limit > 0) bucket.cap.tokens = limit;
+    const remaining = headers.get('x-ratelimit-remaining-tokens');
+    bucket.level.tokens = remaining === null ? bucket.level.tokens - spent : Number(remaining);
+    bucket.level.requests -= 1;
+  }
+
+  /** Nothing is asked of a model before its 429's wait has passed. */
+  function hold(model, ms) {
+    const bucket = bucketOf(model);
+    bucket.until = Math.max(bucket.until, clock() + ms);
+  }
+
+  return { admit, record, hold };
+}
+
+/** Runs `work` on every item, `limit` at a time. The first runs alone: its headers show the real limits. */
+export async function forEachConcurrent(items, work, limit = evalConcurrency()) {
+  let next = 0;
+  let failure;
+  const lane = async () => {
+    while (failure === undefined && next < items.length) {
+      const index = next++;
+      try {
+        await work(items[index], index);
+      } catch (error) {
+        failure ??= { error };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane).slice(0, 1));
+  if (failure) throw failure.error;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane));
+  if (failure) throw failure.error;
 }
 
 function retryAfterSecondsOf(error) {
@@ -106,7 +232,9 @@ const MAX_LIMIT_WAIT_MS = 300000;
 /** How long a 429 asks a caller to wait. */
 function limitWaitMs(headers) {
   const seconds = Number(headers.get('retry-after') ?? Number.NaN);
-  return seconds >= 0 ? seconds * 1000 : parseResetMs(headers.get('x-ratelimit-reset-tokens') ?? '');
+  if (seconds >= 0) return seconds * 1000;
+  const reset = headers.get('x-ratelimit-reset-tokens');
+  return reset === null ? 0 : parseResetMs(reset);
 }
 
 /** A 429 may be waited out only when it names a per-minute limit and asks for at most 5 minutes. Never echoes the body. */
@@ -166,15 +294,17 @@ const loadHelpWrite = () => loadTsModule('services/command-ai/src/help-write.ts'
  */
 export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard = false, paced = true } = {}) {
   const stats = { maxPromptTokens: 0, promptTokens: 0, rateLimitHeaders: null, pacedMs: 0, models: {}, last: {} };
-  const delays = new Map();
+  const limiter = createLimiter();
+  const heaviest = {};
   let quotaStop = null;
-  let providerFailureDetail;
-  let trace;
+  // What one compile saw, kept apart because compiles run side by side.
+  const context = new AsyncLocalStorage();
   const workerModule = loadWorker();
 
   const fetchImpl = async (url, init) => {
     const requested = JSON.parse(String(init.body)).model;
-    providerFailureDetail = undefined;
+    const seen = context.getStore() ?? {};
+    seen.providerFailureDetail = undefined;
     const started = Date.now();
     const response = await fetch(url, init);
     const body = await response.text();
@@ -184,7 +314,7 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard 
     } catch {}
     const promptTokens = data?.usage?.prompt_tokens ?? 0;
     if (requested === model) {
-      stats.promptTokens = promptTokens;
+      seen.promptTokens = promptTokens;
       stats.maxPromptTokens = Math.max(stats.maxPromptTokens, promptTokens);
     }
     const limits = Object.fromEntries([...response.headers].filter(([name]) => name.startsWith('x-ratelimit-')));
@@ -203,15 +333,21 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard 
       headers: limits
     };
     const finishReason = data?.choices?.[0]?.finish_reason;
-    providerFailureDetail = !response.ok
+    seen.providerFailureDetail = !response.ok
       ? `provider HTTP ${response.status}`
       : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
         ? `provider finish ${finishReason}`
         : undefined;
-    // The router's 429 reaches retryTransient, which waits and charges its budget. A writer's or checker's never
-    // does (the Worker answers 200), so the pace waits for it.
-    const limitedMs = response.status === 429 && requested !== model ? limitWaitMs(response.headers) : 0;
-    delays.set(requested, response.status === 429 ? limitedMs : paceDelayMs(response.headers, promptTokens));
+    // Whichever model said it, nothing more is asked of it until its wait has passed. The router's 429 also reaches
+    // retryTransient, which waits the same time.
+    const limitedMs = response.status === 429 ? limitWaitMs(response.headers) : 0;
+    const completionTokens = data?.usage?.completion_tokens ?? 0;
+    heaviest[requested] = Math.max(heaviest[requested] ?? 0, promptTokens + completionTokens);
+    limiter.record(requested, response.headers, promptTokens + completionTokens);
+    if (limitedMs > 0) {
+      limiter.hold(requested, limitedMs);
+      seen.limitedMs = limitedMs;
+    }
     if (guard) {
       quotaStop ??= quotaStopReason(requested, response.headers);
       if (limitedMs > MAX_LIMIT_WAIT_MS) quotaStop ??= `${requested} asks to wait ${limitedMs / 1000} s`;
@@ -224,22 +360,39 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard 
     });
   };
 
-  async function pace() {
-    if (quotaStop) throw new QuotaStop(quotaStop);
-    if (!paced) return;
-    const delayMs = Math.max(0, ...delays.values());
-    delays.clear();
-    if (delayMs > 0) {
-      stats.pacedMs += delayMs;
-      await new Promise(resolve => setTimeout(resolve, delayMs));
+  const estimateOf = (name, fallback = 4000) => heaviest[name] ?? fallback;
+
+  /** Every model one compile may ask: the router, and the writer and checker when a card can be written. */
+  function estimatesFor(data) {
+    const wanted = { [model]: estimateOf(model) };
+    const { writer, checker, cards } = data.writing;
+    if (cards.length > 0 && ![writer, checker].includes(model)) {
+      for (const name of [writer, checker]) wanted[name] = (wanted[name] ?? 0) + estimateOf(name);
     }
+    return wanted;
+  }
+
+  /** Waits between requests only, never inside one: the Worker gives writing 9 seconds. */
+  async function admit(estimates) {
+    if (quotaStop) throw new QuotaStop(quotaStop);
+    if (!paced) return { release: () => {}, waitedMs: 0 };
+    const started = Date.now();
+    const release = await limiter.admit(estimates);
+    const waitedMs = Date.now() - started;
+    stats.pacedMs += waitedMs;
+    if (quotaStop) {
+      release();
+      throw new QuotaStop(quotaStop);
+    }
+    return { release, waitedMs };
   }
 
   const services = new Map();
   function serviceFor(override) {
     if (!services.has(override)) {
       const onTrace = value => {
-        trace = value;
+        const seen = context.getStore();
+        if (seen) seen.trace = value;
       };
       services.set(override, workerModule.createService({ dataset: override, onTrace, fetchImpl }));
     }
@@ -247,39 +400,50 @@ export function createEvalWorker({ model = DEFAULT_EVAL_MODEL(), dataset, guard 
   }
 
   async function compile(body, { dataset: override = dataset } = {}) {
-    await pace();
-    providerFailureDetail = undefined;
-    trace = undefined;
-    stats.promptTokens = 0;
-    const response = await serviceFor(override).fetch(
-      new Request('https://command-ai.test/v1/compile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      }),
-      {
-        ALLOWED_ORIGINS: '[]',
-        GROQ_API_KEY: process.env.GROQ_API_KEY,
-        COMMAND_AI_MODEL: model,
-        COMMAND_AI_RATE_LIMIT: { limit: async () => ({ success: true }) }
-      }
-    );
-    if (response.ok) return { ...(await response.json()), trace };
-    const detail = response.status === 502 && providerFailureDetail ? ` (${providerFailureDetail})` : '';
-    const error = new Error(`Worker returned ${response.status}${detail}`);
-    if (response.status === 429) {
-      const header = response.headers.get('Retry-After');
-      if (typeof header === 'string' && /^\d+$/.test(header)) {
-        const seconds = Number(header);
-        if (Number.isSafeInteger(seconds)) error.retryAfterSeconds = seconds;
-      }
+    const { release, waitedMs } = await admit(estimatesFor(override ?? helpDataset()));
+    const seen = {};
+    try {
+      return await context.run(seen, async () => {
+        const response = await serviceFor(override).fetch(
+          new Request('https://command-ai.test/v1/compile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          }),
+          {
+            ALLOWED_ORIGINS: '[]',
+            GROQ_API_KEY: process.env.GROQ_API_KEY,
+            COMMAND_AI_MODEL: model,
+            COMMAND_AI_RATE_LIMIT: { limit: async () => ({ success: true }) }
+          }
+        );
+        if (response.ok) {
+          return { ...(await response.json()), trace: seen.trace, promptTokens: seen.promptTokens ?? 0, waitedMs };
+        }
+        const detail = response.status === 502 && seen.providerFailureDetail ? ` (${seen.providerFailureDetail})` : '';
+        const error = new Error(`Worker returned ${response.status}${detail}`);
+        if (response.status === 429) {
+          // The provider's own wait, not the Worker's fixed minute.
+          const header = response.headers.get('Retry-After');
+          if (seen.limitedMs > 0) error.retryAfterSeconds = Math.ceil(seen.limitedMs / 1000);
+          else if (typeof header === 'string' && /^\d+$/.test(header) && Number.isSafeInteger(Number(header))) {
+            error.retryAfterSeconds = Number(header);
+          }
+        }
+        throw error;
+      });
+    } finally {
+      release();
     }
-    throw error;
   }
 
   async function call(request) {
-    await pace();
-    return workerModule.askModel({ ...request, fetchImpl, apiKey: process.env.GROQ_API_KEY });
+    const { release } = await admit({ [request.model]: estimateOf(request.model) });
+    try {
+      return await workerModule.askModel({ ...request, fetchImpl, apiKey: process.env.GROQ_API_KEY });
+    } finally {
+      release();
+    }
   }
 
   return { stats, compile, call, model };
@@ -290,7 +454,7 @@ export async function runSelection({ cases, runs = 3, service = createEvalWorker
   const { schemaMod, redactorMod } = loadAppModules();
   const budget = freshRetryBudget();
   const results = [];
-  for (const item of cases) {
+  await forEachConcurrent(cases, async (item, index) => {
     const { redactedText } = redactorMod.redactPrompt(item.q, DEFAULT_CONTEXT);
     const result = {
       id: item.id,
@@ -303,7 +467,7 @@ export async function runSelection({ cases, runs = 3, service = createEvalWorker
       benignHowTo: item.benignHowTo === true,
       runs: []
     };
-    results.push(result);
+    results[index] = result;
     for (let attempt = 0; attempt < runs; attempt++) {
       try {
         const reply = await retryTransient(
@@ -314,14 +478,14 @@ export async function runSelection({ cases, runs = 3, service = createEvalWorker
           op: schemaMod.parseAiCompilerOutput(reply.output)?.op ?? 'invalid',
           served: reply.trace?.served ?? null,
           unknownIds: reply.trace?.unknownIds ?? [],
-          promptTokens: service.stats.promptTokens
+          promptTokens: reply.promptTokens
         });
       } catch (error) {
         if (error?.quotaStop) throw error;
         result.runs.push({ op: 'error', served: null, unknownIds: [], promptTokens: 0, error: error?.message });
       }
     }
-  }
+  });
   return results;
 }
 
@@ -599,13 +763,13 @@ export async function runWriting({ cases, runs = 3, knockout = false, service = 
   const budget = freshRetryBudget();
   const watch = invalidStreak();
   const results = [];
-  for (const item of cases) {
+  await forEachConcurrent(cases, async (item, index) => {
     const { redactedText } = redactorMod.redactPrompt(item.q, DEFAULT_CONTEXT);
     const dataset = knockout
       ? { ...written, cards: written.cards.filter(card => !item.cards.includes(card.id)) }
       : written;
     const result = { id: item.id, cluster: item.cluster, class: item.class, set: item.set ?? item.split, runs: [] };
-    results.push(result);
+    results[index] = result;
     for (let attempt = 0; attempt < runs; attempt++) {
       const run = await writingRun(
         () =>
@@ -615,7 +779,7 @@ export async function runWriting({ cases, runs = 3, knockout = false, service = 
       result.runs.push(run);
       watch(!isScorable(run));
     }
-  }
+  });
   return {
     results,
     invalid: results.filter(result => !result.runs.every(isScorable)).map(result => result.id)
@@ -741,7 +905,7 @@ export async function runWritingChecker({ rows, runs = 3, service = createEvalWo
   const watch = invalidStreak();
   const results = [];
   const invalid = [];
-  for (const row of rows) {
+  await forEachConcurrent(rows, async (row, index) => {
     const { redactedText } = redactorMod.redactPrompt(row.q, DEFAULT_CONTEXT);
     const cards = row.cards.map(id => data.cards.find(card => card.id === id));
     const input = writerInput(cards, data, redactedText, row.previousTopic);
@@ -753,7 +917,7 @@ export async function runWritingChecker({ rows, runs = 3, service = createEvalWo
       row.previousTopic
     );
     const result = { id: row.id, class: row.class, priority: row.priority, gates: draft.kind === 'ok', runs: [] };
-    results.push(result);
+    results[index] = result;
     for (let attempt = 0; attempt < runs; attempt++) {
       let verdict;
       let technicalAttempts = 0;
@@ -778,7 +942,7 @@ export async function runWritingChecker({ rows, runs = 3, service = createEvalWo
       });
       watch(!isVerdict(verdict));
     }
-  }
+  });
   return { results, invalid: [...new Set(invalid)] };
 }
 
@@ -1201,6 +1365,8 @@ export async function runEval({
   const latencies = [];
   let maxPromptTokens = 0;
   const results = [];
+  const slots = [];
+  const caseErrors = [];
   const retryBudget = freshRetryBudget();
   const viaWorker = questions || commandsViaWorker;
   const proxyMod =
@@ -1209,7 +1375,10 @@ export async function runEval({
 
   const retryCompile = compile => retryTransient(compile, worker ? retryBudget : undefined);
 
-  for (const testCase of cases) {
+  const runCase = async (testCase, index) => {
+    // Cases run side by side, so each keeps its own messages and they are joined in case order.
+    const errors = [];
+    caseErrors[index] = errors;
     const redaction = redactorMod.redactPrompt(testCase.prompt, DEFAULT_CONTEXT);
     if (redaction.redactedText !== testCase.expectedRedacted) {
       redactionFailures += 1;
@@ -1254,20 +1423,19 @@ export async function runEval({
       if (!declared) {
         obligationFailures += 1;
         errors.push(`[OBLIGATION FAIL] ${testCase.id}: names no valid expected cards, forbidden cards or op`);
-        continue;
+        return;
       }
     }
 
     if (worker || proxyMod) {
       const result = { id: testCase.id, passes: 0, runs, ops: [], ...(questions ? { served: [] } : {}) };
-      results.push(result);
+      slots[index] = result;
       const block = reason => gateFailures.add(`${testCase.id}: ${reason}`);
       let attempts = 0;
       let misses = 0;
       while (attempts < runs) {
         const attempt = attempts++;
         const t0 = Date.now();
-        const pacedBefore = worker?.stats.pacedMs ?? 0;
         try {
           const res = await retryCompile(() =>
             worker
@@ -1285,7 +1453,7 @@ export async function runEval({
                   model
                 })
           );
-          latencies.push(Date.now() - t0 - ((worker?.stats.pacedMs ?? 0) - pacedBefore));
+          latencies.push(Date.now() - t0 - (res.waitedMs ?? 0));
           maxPromptTokens = Math.max(maxPromptTokens, res.usage?.prompt_tokens ?? 0);
           const parsed = schemaMod.parseAiCompilerOutput(res.output);
           const served = res.trace?.served ?? null;
@@ -1343,7 +1511,7 @@ export async function runEval({
       }
       if (!questions) {
         modelFailures += misses;
-        continue;
+        return;
       }
       result.runs = attempts;
       const passed = misses === 0 || result.passes >= 2;
@@ -1355,7 +1523,10 @@ export async function runEval({
         block('control failed');
       }
     }
-  }
+  };
+  await forEachConcurrent(cases, runCase, worker ? evalConcurrency() : 1);
+  results.push(...slots.filter(Boolean));
+  errors.push(...caseErrors.flat());
 
   const helpAccuracy = helpTotal === 0 ? null : helpPassed / helpTotal;
   if (helpAccuracy !== null && helpAccuracy < GATE_HELP_ACCURACY) {

@@ -27,7 +27,10 @@ const mockCaseFixtures = (context, select) => mockQuestionFixtures(context, sele
 function mockProviderKey(context) {
   const previousKey = process.env.GROQ_API_KEY;
   process.env.GROQ_API_KEY = 'offline-test-placeholder';
+  // Most tests script the provider by call order, which only one case at a time keeps.
+  process.env.COMMAND_AI_EVAL_CONCURRENCY = '1';
   context.after(() => {
+    delete process.env.COMMAND_AI_EVAL_CONCURRENCY;
     if (previousKey === undefined) delete process.env.GROQ_API_KEY;
     else process.env.GROQ_API_KEY = previousKey;
   });
@@ -356,19 +359,6 @@ test('parses provider reset times and falls back to a minute', () => {
   }
 });
 
-test('paces only when the remaining tokens cannot cover another request', () => {
-  assert.equal(typeof evaluation.paceDelayMs, 'function');
-  const headers = (remaining, reset) =>
-    new Headers({
-      ...(remaining === undefined ? {} : { 'x-ratelimit-remaining-tokens': remaining }),
-      ...(reset === undefined ? {} : { 'x-ratelimit-reset-tokens': reset })
-    });
-  assert.equal(evaluation.paceDelayMs(headers('3800', '7.66s'), 3200), 0);
-  assert.equal(evaluation.paceDelayMs(headers('3799', '7.66s'), 3200), 7660);
-  assert.equal(evaluation.paceDelayMs(headers('0'), 3200), 60000);
-  assert.equal(evaluation.paceDelayMs(headers(undefined, '7.66s'), 3200), 0);
-});
-
 test('keeps at least 100 command cases', async () => {
   const summary = await runEval({ offlineOnly: true, commandsViaWorker: true });
   assert.ok(summary.totalCases >= 100, `Expected >=100 cases, got ${summary.totalCases}`);
@@ -438,40 +428,37 @@ test('accepts any listed op, runs each command three times and reports failed re
   assert.equal(summary.modelFailures, 1);
 });
 
-test('paces after a low-token reply and keeps the rate-limit headers', async context => {
+test('waits after a low-token reply and keeps the rate-limit headers', async context => {
   mockProviderKey(context);
   mockCaseFixtures(context, cases => cases.filter(({ id }) => id === 'cmd_bare_cancel'));
-  const delays = [];
-  const realSetTimeout = globalThis.setTimeout;
-  context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
-    if (delay === 30000) delays.push(delay);
-    return realSetTimeout(callback, delay === 30000 ? 0 : delay, ...args);
-  });
+  const delays = waitsOfASecondOrMore(context);
   context.mock.method(globalThis, 'fetch', async () =>
     providerReply(
       { op: 'cancel' },
-      { 'x-ratelimit-remaining-tokens': '10', 'x-ratelimit-reset-tokens': '30s', 'x-request-id': 'not-kept' }
+      {
+        'x-ratelimit-limit-tokens': '250000',
+        'x-ratelimit-remaining-tokens': '10',
+        'x-ratelimit-reset-tokens': '30s',
+        'x-request-id': 'not-kept'
+      }
     )
   );
   const summary = await runEval({ offlineOnly: false, commandsViaWorker: true, runs: 2 });
-  // One wait, before the second request: a sleep inside a request would spend the Worker's writing deadline.
-  assert.deepEqual(delays, [30000]);
+  // One wait, before the second request, until its estimate fits above the reserve: a sleep inside a request would
+  // spend the Worker's writing deadline.
+  assert.equal(delays.length, 1);
+  assert.ok(delays[0] > 5000 && delays[0] < 30000, `${delays[0]} ms`);
   assert.deepEqual(summary.rateLimitHeaders, {
+    'x-ratelimit-limit-tokens': '250000',
     'x-ratelimit-remaining-tokens': '10',
     'x-ratelimit-reset-tokens': '30s'
   });
   assert.equal(summary.modelFailures, 0, summary.errors.join('\n'));
 });
 
-test('waits once when a provider 429 also carries a token reset', async context => {
+test('waits the provider reset after a 429, not the Worker fixed minute', async context => {
   mockProviderKey(context);
-  const delays = [];
-  const realSetTimeout = globalThis.setTimeout;
-  context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
-    if (delay === 15000) return realSetTimeout(callback, delay, ...args);
-    delays.push(delay);
-    return realSetTimeout(callback, 0, ...args);
-  });
+  const delays = waitsOfASecondOrMore(context);
   let attempts = 0;
   context.mock.method(globalThis, 'fetch', async () =>
     ++attempts === 1
@@ -484,8 +471,9 @@ test('waits once when a provider 429 also carries a token reset', async context 
   const budget = { remainingMs: 120000 };
   const worker = evaluation.createEvalWorker();
   await evaluation.retryTransient(() => worker.compile({ redactedText: 'what is usdcx', helpContext: null }), budget);
-  assert.deepEqual(delays, [60000]);
-  assert.equal(budget.remainingMs, 60000);
+  // The retry waits the 2 minutes the provider named. In a real run the model's hold has passed by then.
+  assert.equal(delays[0], 120000);
+  assert.equal(budget.remainingMs, 0);
 });
 
 test('reads the retry budget from the environment', async context => {
@@ -606,6 +594,7 @@ test('reads the wait of a provider 429 instead of the Worker fixed minute', asyn
 test('runs command cases side by side and keeps their order', async context => {
   mockProviderKey(context);
   context.mock.method(console, 'warn', () => {});
+  process.env.COMMAND_AI_EVAL_CONCURRENCY = '6';
   mockCaseFixtures(context, cases => cases.slice(0, 12));
   let open = 0;
   let mostOpen = 0;
@@ -1128,26 +1117,31 @@ function skipWaits(context) {
   return waits;
 }
 
+/** Skips every wait of a second or more, and lists them. The Worker's own timers are left alone. */
+function waitsOfASecondOrMore(context) {
+  const waits = [];
+  const realSetTimeout = globalThis.setTimeout;
+  context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
+    if (delay < 1000 || [3000, 4000, 15000].includes(delay)) return realSetTimeout(callback, delay, ...args);
+    waits.push(delay);
+    return realSetTimeout(callback, 0, ...args);
+  });
+  return waits;
+}
+
 const ask = { redactedText: 'what is it', helpContext: null };
 const lowTokens = {
   'x-ratelimit-limit-tokens': '250000',
-  'x-ratelimit-remaining-tokens': '100000',
+  'x-ratelimit-remaining-tokens': '30000',
   'x-ratelimit-reset-tokens': '1m'
 };
-
-test('waits while a model has less than half of its token bucket left', () => {
-  const delay = remaining =>
-    evaluation.paceDelayMs(new Headers({ ...lowTokens, 'x-ratelimit-remaining-tokens': String(remaining) }), 3000);
-  assert.equal(delay(125000), 0);
-  assert.equal(delay(124999), 60000);
-});
 
 test('waits between requests only, so a slow bucket never costs a written answer', async context => {
   mockProviderKey(context);
   const events = [];
   const realSetTimeout = globalThis.setTimeout;
   context.mock.method(globalThis, 'setTimeout', (callback, delay, ...args) => {
-    if (delay !== 60000) return realSetTimeout(callback, delay, ...args);
+    if (delay < 1000 || [3000, 4000, 15000].includes(delay)) return realSetTimeout(callback, delay, ...args);
     events.push('wait');
     return realSetTimeout(callback, 0, ...args);
   });
