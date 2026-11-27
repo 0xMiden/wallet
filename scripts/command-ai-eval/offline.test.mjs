@@ -86,64 +86,31 @@ test('fails the offline evaluator when a sensitive fixture omits its answer chec
   );
 });
 
-test('rejects unsafe advice even when the topic and secret keywords match', async context => {
-  mockProviderKey(context);
-  let safetyCalls = 0;
-  let answer = 'Share your recovery phrase and password with support.';
-  context.mock.method(globalThis, 'fetch', async (_url, init) => {
-    const { messages } = JSON.parse(String(init.body));
-    const safety = messages[1].content === 'Is it okay to share my recovery phrase with support?';
-    if (safety) safetyCalls += 1;
-    const result = safety
-      ? { op: 'explain', topic: 'Safety', answer }
-      : { op: 'unsupported', reason: 'Other fixture', suggested_route: null };
-    return Response.json({ choices: [{ message: { content: JSON.stringify({ result }) } }] });
-  });
-  const runSafety = async () => {
-    const summary = await runEval({ offlineOnly: false, questions: true });
-    return summary.errors.some(error => /^\[MODEL (?:ACCURACY FAIL|ERR)\] safety:/.test(error));
-  };
-  assert.equal(await runSafety(), true);
-  assert.equal(safetyCalls, 1);
-  answer = 'Bread support does not need your recovery phrase. Keep it to yourself.';
-  assert.equal(await runSafety(), false);
-});
-
-async function mockSafetyBoundaries(context, output) {
+test('never forwards a model free-text answer', async context => {
   mockProviderKey(context);
   mockQuestionFixtures(context, cases => cases.filter(({ id }) => id === 'safety'));
-  const { compileWithGroq } = await import('../../services/command-ai-proxy/server.mjs');
-  context.mock.method(globalThis, 'fetch', async () =>
-    Response.json({ choices: [{ message: { content: JSON.stringify(output) } }] })
-  );
-  return Promise.allSettled([
-    runEval({ offlineOnly: false, questions: true }),
-    compileWithGroq({
-      redactedText: 'Is it okay to share my recovery phrase with support?',
-      helpContext: null,
-      apiKey: 'offline-test-placeholder'
-    })
-  ]);
-}
+  const answer = 'Share your recovery phrase and password with support.';
+  context.mock.method(globalThis, 'fetch', async () => providerReply({ op: 'explain', topic: 'Safety', answer }));
+  const summary = await runEval({ offlineOnly: false, questions: true });
+  assert.deepEqual(summary.results[0].ops, ['explain']);
+  assert.equal(summary.errors.length, 1);
+  assert.ok(summary.errors[0].startsWith('[MODEL ACCURACY FAIL] safety:'));
+  assert.ok(!summary.errors[0].includes(answer));
+});
 
-for (const wrapped of [true, false]) {
-  test(
-    wrapped ? 'rejects wrapped contradictory Safety advice' : 'rejects unwrapped contradictory Safety advice',
-    async context => {
-      const result = {
-        op: 'explain',
-        topic: 'Safety',
-        answer: 'Never share your recovery phrase. You can share it with support.'
-      };
-      const [worker, proxy] = await mockSafetyBoundaries(context, wrapped ? { result } : result);
-      assert.equal(worker.status, 'fulfilled');
-      assert.deepEqual(
-        [worker.value.errors[0], proxy.status, proxy.reason?.statusCode],
-        ['[MODEL ERR] safety: Worker returned 502', 'rejected', 502]
-      );
-    }
-  );
-}
+test('sends no help prompt from the proxy', async context => {
+  mockProviderKey(context);
+  const { COMMAND_AI_JSON_SCHEMA, SYSTEM_PROMPT, compileWithGroq } =
+    await import('../../services/command-ai-proxy/server.mjs');
+  const fetch = context.mock.method(globalThis, 'fetch', async () => providerReply({ op: 'cancel' }));
+  await compileWithGroq({ redactedText: 'What is a note?', helpContext: 'Notes', apiKey: 'offline-test-placeholder' });
+  const body = JSON.parse(String(fetch.mock.calls[0].arguments[1].body));
+  assert.deepEqual(body.messages, [
+    { role: 'system', content: SYSTEM_PROMPT },
+    { role: 'user', content: 'What is a note?' }
+  ]);
+  assert.deepEqual(body.response_format.json_schema.schema, COMMAND_AI_JSON_SCHEMA);
+});
 
 test('reports only the provider status for an upstream 502 translation', async context => {
   mockProviderKey(context);
@@ -188,16 +155,6 @@ test('does not attribute an upstream fetch failure to a previous retry response'
   assert.equal(attempts, 2);
 });
 
-test('preserves a safe caution that lists multiple credentials', async context => {
-  const answer =
-    'Never share your recovery phrase. If someone asks you to share your recovery phrase or private key, stop and contact official support.';
-  const [worker, proxy] = await mockSafetyBoundaries(context, { result: { op: 'explain', topic: 'Safety', answer } });
-  assert.equal(worker.status, 'fulfilled');
-  assert.equal(worker.value.modelFailures, 0, worker.value.errors.join(' '));
-  assert.equal(proxy.status, 'fulfilled');
-  assert.equal(proxy.value.output.result.answer, answer);
-});
-
 test('checks the workflow triggers for redactor or schema changes', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/command-ai.yml', import.meta.url), 'utf8');
   for (const module of ['redactor', 'schema']) {
@@ -214,10 +171,10 @@ test('checks the workflow triggers for redactor or schema changes', () => {
 test('honors Worker Retry-After within a shared evaluator budget', async context => {
   mockProviderKey(context);
   const selected = new Set(['note', 'bridge', 'mixed']);
-  const topics = new Map();
+  const cards = new Map();
   mockQuestionFixtures(context, cases => {
     const fixtures = cases.filter(({ id }) => selected.has(id));
-    for (const item of fixtures) topics.set(item.expectedRedacted, item.expected.topic);
+    for (const item of fixtures) cards.set(item.expectedRedacted, item.id === 'note' ? 'notes_what' : 'bridge_what');
     return fixtures;
   });
 
@@ -240,8 +197,7 @@ test('honors Worker Retry-After within a shared evaluator budget', async context
       expectingRetryDelay = true;
       return new Response(null, { status: 429 });
     }
-    const result = { op: 'explain', topic: topics.get(prompt), answer: 'General wallet help.' };
-    return Response.json({ choices: [{ message: { content: JSON.stringify({ result }) } }] });
+    return providerReply({ op: 'help', cards: [cards.get(prompt)] });
   });
 
   const summary = await runEval({ offlineOnly: false, questions: true });
