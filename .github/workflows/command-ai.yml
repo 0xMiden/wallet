@@ -13,6 +13,17 @@ on:
       - '.github/workflows/command-ai.yml'
       - '.github/workflows/deploy-command-ai.yml'
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Live model suite. Anything but none spends the eval key's quota and needs owner approval.
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - commands
+          - selection
+          - measure
 
 permissions:
   contents: read
@@ -42,3 +53,36 @@ jobs:
         env:
           WRANGLER_SEND_METRICS: 'false'
         run: npx --yes wrangler@4.151.3 deploy --dry-run --config services/command-ai/wrangler.jsonc
+
+  live:
+    name: Command AI live evaluation
+    needs: check
+    if: github.event_name == 'workflow_dispatch' && inputs.suite != 'none'
+    runs-on: ubuntu-latest
+    # Provisional until the eval key's rate limits are known.
+    timeout-minutes: 180
+    environment: command-ai-eval
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - uses: ./.github/actions/yarn-install
+      - name: Run the selected suite
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY_EVAL }}
+          SUITE: ${{ inputs.suite }}
+          COMMAND_AI_EVAL_RETRY_BUDGET_MS: '600000'
+          COMMAND_AI_EVAL_SUMMARY: ${{ github.workspace }}/command-ai-eval.json
+        run: |
+          case "$SUITE" in
+            commands) node scripts/command-ai-eval/run-eval.mjs --commands --require-live ;;
+            *) echo "Suite $SUITE is not implemented yet." >&2; exit 1 ;;
+          esac
+      - name: Upload the summary
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: command-ai-eval-${{ inputs.suite }}-${{ github.sha }}
+          path: command-ai-eval.json
+          if-no-files-found: ignore

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,7 +55,24 @@ export function isTransientEvalError(error) {
 }
 
 function freshRetryBudget() {
-  return { remainingMs: TRANSIENT_RETRY_BUDGET_MS };
+  const configured = Number.parseInt(process.env.COMMAND_AI_EVAL_RETRY_BUDGET_MS ?? '', 10);
+  return { remainingMs: configured >= 0 ? configured : TRANSIENT_RETRY_BUDGET_MS };
+}
+
+const UNKNOWN_RESET_MS = 60000;
+const PACE_TOKEN_MARGIN = 600;
+const RESET_UNIT_MS = { h: 3600000, m: 60000, s: 1000, ms: 1 };
+
+export function parseResetMs(value) {
+  if (!/^(?:\d+(?:\.\d+)?(?:ms|h|m|s))+$/.test(value)) return UNKNOWN_RESET_MS;
+  const parts = [...value.matchAll(/(\d+(?:\.\d+)?)(ms|h|m|s)/g)];
+  return Math.round(parts.reduce((total, [, count, unit]) => total + Number(count) * RESET_UNIT_MS[unit], 0));
+}
+
+export function paceDelayMs(headers, lastPromptTokens) {
+  const remaining = headers.get('x-ratelimit-remaining-tokens');
+  if (remaining === null || Number(remaining) >= lastPromptTokens + PACE_TOKEN_MARGIN) return 0;
+  return parseResetMs(headers.get('x-ratelimit-reset-tokens') ?? '');
 }
 
 function retryAfterSecondsOf(error) {
@@ -90,6 +107,8 @@ const DEFAULT_CONTEXT = {
 export async function runEval({
   offlineOnly = true,
   questions = false,
+  commandsViaWorker = false,
+  runs = commandsViaWorker ? 3 : 1,
   model = process.env.COMMAND_AI_MODEL || 'openai/gpt-oss-120b'
 } = {}) {
   const schemaMod = loadTsModule('src/lib/command-ai/schema.ts');
@@ -105,11 +124,15 @@ export async function runEval({
   const latencies = [];
   let maxPromptTokens = 0;
   let providerFailureDetail;
+  let rateLimitHeaders = null;
+  let pacedMs = 0;
+  const results = [];
   const retryBudget = freshRetryBudget();
+  const viaWorker = questions || commandsViaWorker;
   const proxyMod =
-    offlineOnly || questions ? null : await import(path.join(ROOT, 'services/command-ai-proxy/server.mjs'));
+    offlineOnly || viaWorker ? null : await import(path.join(ROOT, 'services/command-ai-proxy/server.mjs'));
   const worker =
-    offlineOnly || !questions
+    offlineOnly || !viaWorker
       ? null
       : loadTsModule('services/command-ai/src/index.ts', {
           './help-safety.mjs': { hasUnsafeSharingAdvice }
@@ -117,18 +140,31 @@ export async function runEval({
           fetchImpl: async (...args) => {
             providerFailureDetail = undefined;
             const response = await fetch(...args);
-            const data = await response
-              .clone()
-              .json()
-              .catch(() => null);
-            maxPromptTokens = Math.max(maxPromptTokens, data?.usage?.prompt_tokens ?? 0);
+            const body = await response.text();
+            let data = null;
+            try {
+              data = JSON.parse(body);
+            } catch {}
+            const promptTokens = data?.usage?.prompt_tokens ?? 0;
+            maxPromptTokens = Math.max(maxPromptTokens, promptTokens);
+            const limits = [...response.headers].filter(([name]) => name.startsWith('x-ratelimit-'));
+            if (limits.length > 0) rateLimitHeaders = Object.fromEntries(limits);
             const finishReason = data?.choices?.[0]?.finish_reason;
             providerFailureDetail = !response.ok
               ? `provider HTTP ${response.status}`
               : ['stop', 'length', 'content_filter', 'tool_calls'].includes(finishReason)
                 ? `provider finish ${finishReason}`
                 : undefined;
-            return response;
+            const delayMs = paceDelayMs(response.headers, promptTokens);
+            if (delayMs > 0) {
+              pacedMs += delayMs;
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+            // Rebuilt because the sleep can outlast the Worker's abort timer, which would break the original body.
+            return new Response(response.status === 204 ? null : body, {
+              status: response.status,
+              headers: response.headers
+            });
           }
         });
 
@@ -177,95 +213,108 @@ export async function runEval({
     }
 
     if (worker || proxyMod) {
-      providerFailureDetail = undefined;
-      const t0 = Date.now();
-      try {
-        const res = await retryCompile(() =>
-          worker
-            ? worker
-                .fetch(
-                  new Request('https://command-ai.test/v1/compile', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                      redactedText: redaction.redactedText,
-                      helpContext: testCase.helpContext
-                    })
-                  }),
-                  {
-                    ALLOWED_ORIGINS: '[]',
-                    GROQ_API_KEY: process.env.GROQ_API_KEY,
-                    COMMAND_AI_MODEL: model,
-                    COMMAND_AI_RATE_LIMIT: { limit: async () => ({ success: true }) }
-                  }
-                )
-                .then(async response => {
-                  if (response.ok) return response.json();
-                  const detail = response.status === 502 && providerFailureDetail ? ` (${providerFailureDetail})` : '';
-                  const error = new Error(`Worker returned ${response.status}${detail}`);
-                  if (response.status === 429) {
-                    const header = response.headers.get('Retry-After');
-                    if (typeof header === 'string' && /^\d+$/.test(header)) {
-                      const seconds = Number(header);
-                      if (Number.isSafeInteger(seconds)) error.retryAfterSeconds = seconds;
+      const result = { id: testCase.id, passes: 0, runs, ops: [] };
+      results.push(result);
+      for (let attempt = 0; attempt < runs; attempt++) {
+        providerFailureDetail = undefined;
+        const t0 = Date.now();
+        const pacedBefore = pacedMs;
+        try {
+          const res = await retryCompile(() =>
+            worker
+              ? worker
+                  .fetch(
+                    new Request('https://command-ai.test/v1/compile', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        redactedText: redaction.redactedText,
+                        // The app sends a help context with every first message and none with a snapshot.
+                        ...(testCase.snapshot
+                          ? { snapshot: testCase.snapshot }
+                          : { helpContext: commandsViaWorker ? (testCase.helpContext ?? null) : testCase.helpContext })
+                      })
+                    }),
+                    {
+                      ALLOWED_ORIGINS: '[]',
+                      GROQ_API_KEY: process.env.GROQ_API_KEY,
+                      COMMAND_AI_MODEL: model,
+                      COMMAND_AI_RATE_LIMIT: { limit: async () => ({ success: true }) }
                     }
-                  }
-                  throw error;
+                  )
+                  .then(async response => {
+                    if (response.ok) return response.json();
+                    const detail =
+                      response.status === 502 && providerFailureDetail ? ` (${providerFailureDetail})` : '';
+                    const error = new Error(`Worker returned ${response.status}${detail}`);
+                    if (response.status === 429) {
+                      const header = response.headers.get('Retry-After');
+                      if (typeof header === 'string' && /^\d+$/.test(header)) {
+                        const seconds = Number(header);
+                        if (Number.isSafeInteger(seconds)) error.retryAfterSeconds = seconds;
+                      }
+                    }
+                    throw error;
+                  })
+              : proxyMod.compileWithGroq({
+                  redactedText: redaction.redactedText,
+                  snapshot: testCase.snapshot,
+                  apiKey: process.env.GROQ_API_KEY,
+                  model
                 })
-            : proxyMod.compileWithGroq({
-                redactedText: redaction.redactedText,
-                snapshot: testCase.snapshot,
-                apiKey: process.env.GROQ_API_KEY,
-                model
-              })
-        );
-        latencies.push(Date.now() - t0);
-        maxPromptTokens = Math.max(maxPromptTokens, res.usage?.prompt_tokens ?? 0);
-        const parsed = schemaMod.parseAiCompilerOutput(res.output);
-        if (!parsed || !redactorMod.verifyProvenance(parsed, redaction.map)) {
-          modelFailures += 1;
-          errors.push(`[MODEL SCHEMA/PROV FAIL] ${testCase.id}: ${JSON.stringify(res.output)}`);
-          continue;
-        }
-        const exp = testCase.expected;
-        const matchesOp = parsed.op === exp.op;
-        const matchesAction = !exp.action || parsed.action === exp.action;
-        const matchesAsset =
-          !exp.asset || (parsed.asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.asset.toUpperCase();
-        const matchesToAsset =
-          !exp.to_asset || (parsed.to_asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.to_asset.toUpperCase();
-        const matchesQuery = !exp.query || parsed.query === exp.query;
-        const matchesTopic = !exp.topic || parsed.topic === exp.topic;
-        const answer = parsed.answer?.toLowerCase().replaceAll('’', "'") ?? '';
-        const answerCoversFacts =
-          testCase.answerContains?.every(requirement => {
-            const alternatives = Array.isArray(requirement) ? requirement : [requirement];
-            return alternatives.some(term => answer.includes(term));
-          }) ?? true;
-        const matchesEarnOp = !exp.earn_op || parsed.earn_op === exp.earn_op;
-        const matchesAmountKind =
-          exp.amountKind === undefined ||
-          (exp.amountKind === null ? parsed.amount === null : parsed.amount?.kind === exp.amountKind);
-
-        if (
-          !matchesOp ||
-          !matchesAction ||
-          !matchesAsset ||
-          !matchesToAsset ||
-          !matchesQuery ||
-          !matchesTopic ||
-          !answerCoversFacts ||
-          !matchesEarnOp ||
-          !matchesAmountKind
-        ) {
-          modelFailures += 1;
-          errors.push(
-            `[MODEL ACCURACY FAIL] ${testCase.id}: got ${JSON.stringify(parsed)}, expected subset ${JSON.stringify(exp)}`
           );
+          latencies.push(Date.now() - t0 - (pacedMs - pacedBefore));
+          maxPromptTokens = Math.max(maxPromptTokens, res.usage?.prompt_tokens ?? 0);
+          const parsed = schemaMod.parseAiCompilerOutput(res.output);
+          result.ops.push(parsed?.op ?? 'invalid');
+          if (!parsed || !redactorMod.verifyProvenance(parsed, redaction.map)) {
+            modelFailures += 1;
+            errors.push(`[MODEL SCHEMA/PROV FAIL] ${testCase.id}: ${JSON.stringify(res.output)}`);
+            continue;
+          }
+          const exp = testCase.expected;
+          const matchesOp = [exp.op].flat().includes(parsed.op);
+          const matchesAction = !exp.action || parsed.action === exp.action;
+          const matchesAsset =
+            !exp.asset || (parsed.asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.asset.toUpperCase();
+          const matchesToAsset =
+            !exp.to_asset || (parsed.to_asset ?? '').toUpperCase().replace(/[<>]/g, '') === exp.to_asset.toUpperCase();
+          const matchesQuery = !exp.query || parsed.query === exp.query;
+          const matchesTopic = !exp.topic || parsed.topic === exp.topic;
+          const answer = parsed.answer?.toLowerCase().replaceAll('’', "'") ?? '';
+          const answerCoversFacts =
+            testCase.answerContains?.every(requirement => {
+              const alternatives = Array.isArray(requirement) ? requirement : [requirement];
+              return alternatives.some(term => answer.includes(term));
+            }) ?? true;
+          const matchesEarnOp = !exp.earn_op || parsed.earn_op === exp.earn_op;
+          const matchesAmountKind =
+            exp.amountKind === undefined ||
+            (exp.amountKind === null ? parsed.amount === null : parsed.amount?.kind === exp.amountKind);
+
+          if (
+            !matchesOp ||
+            !matchesAction ||
+            !matchesAsset ||
+            !matchesToAsset ||
+            !matchesQuery ||
+            !matchesTopic ||
+            !answerCoversFacts ||
+            !matchesEarnOp ||
+            !matchesAmountKind
+          ) {
+            modelFailures += 1;
+            errors.push(
+              `[MODEL ACCURACY FAIL] ${testCase.id}: got ${JSON.stringify(parsed)}, expected subset ${JSON.stringify(exp)}`
+            );
+          } else {
+            result.passes += 1;
+          }
+        } catch (err) {
+          if (result.ops.length === attempt) result.ops.push('error');
+          modelFailures += 1;
+          errors.push(`[MODEL ERR] ${testCase.id}: ${err?.message || err}`);
         }
-      } catch (err) {
-        modelFailures += 1;
-        errors.push(`[MODEL ERR] ${testCase.id}: ${err?.message || err}`);
       }
     }
   }
@@ -273,11 +322,13 @@ export async function runEval({
   return {
     mode: offlineOnly ? 'offline' : `live:${model}`,
     totalCases: cases.length,
+    results,
     redactionFailures,
     provenanceFailures,
     obligationFailures,
     modelFailures,
     maxPromptTokens: maxPromptTokens || null,
+    rateLimitHeaders,
     errors,
     p95LatencyMs:
       latencies.length > 0
@@ -291,9 +342,16 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     throw new Error('The live evaluation requires its model credential.');
   }
   const offlineOnly = process.argv.includes('--offline') || !process.env.GROQ_API_KEY;
-  const summary = await runEval({ offlineOnly, questions: process.argv.includes('--questions') });
+  const summary = await runEval({
+    offlineOnly,
+    questions: process.argv.includes('--questions'),
+    commandsViaWorker: process.argv.includes('--commands')
+  });
+  const summaryPath = process.env.COMMAND_AI_EVAL_SUMMARY;
+  // stdout also carries the Worker's log lines, so the artifact is written separately.
+  if (summaryPath) writeFileSync(summaryPath, JSON.stringify(summary, null, 2));
   for (const err of summary.errors) console.error(err);
-  console.log(JSON.stringify({ ...summary, errors: undefined }, null, 2));
+  console.log(JSON.stringify({ ...summary, errors: undefined, results: undefined }, null, 2));
   if (
     summary.redactionFailures > 0 ||
     summary.provenanceFailures > 0 ||
