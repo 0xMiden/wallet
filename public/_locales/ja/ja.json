@@ -2272,6 +2272,7 @@
   "commandAiChooseEarnVault": "どのEarn金庫に預け入れたいですか？",
   "commandAiChooseEarnPosition": "どのEarnポジションから出金しますか？",
   "commandAiBridgeUnavailable": "現在、対応するブリッジルートは利用できません。",
+  "commandAiBridgeNoRoute": "そのルートは存在しません。他のルートから1つを選択してください：",
   "commandAiSwapUnavailable": "現在、そのペアではスワップが利用できません。",
   "commandAiEarnUnavailable": "現在、Earnの保管庫やポジションは利用できません。",
   "commandAiFiatPriceUnavailable": "そのトークンのリアルタイムUSD価格は利用できません。トークンの数量を入力してください。",

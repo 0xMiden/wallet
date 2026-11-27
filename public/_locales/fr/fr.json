@@ -2268,6 +2268,7 @@
   "commandAiChooseEarnVault": "Dans quel coffre-fort Earn souhaitez-vous effectuer un dépôt ?",
   "commandAiChooseEarnPosition": "De quelle position Earn souhaitez-vous effectuer un retrait ?",
   "commandAiBridgeUnavailable": "Aucun chemin de traduction correspondant n’est disponible pour le moment.",
+  "commandAiBridgeNoRoute": "Il n’existe pas d’itinéraire correspondant à cette définition. Choisissez l’un des autres itinéraires :",
   "commandAiSwapUnavailable": "Le swap n’est pas disponible pour cette paire pour le moment.",
   "commandAiEarnUnavailable": "Aucun coffre-fort ni aucune position « Earn » n’est disponible pour le moment.",
   "commandAiFiatPriceUnavailable": "Le cours en temps réel en USD n’est pas disponible pour ce token. Saisissez un montant en tokens.",

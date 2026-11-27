@@ -10503,6 +10503,10 @@
     "message": "Aucun chemin de traduction correspondant n’est disponible pour le moment.",
     "englishSource": "No matching bridge route is available right now."
   },
+  "commandAiBridgeNoRoute": {
+    "message": "Il n’existe pas d’itinéraire correspondant à cette définition. Choisissez l’un des autres itinéraires :",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
   "commandAiSwapUnavailable": {
     "message": "Le swap n’est pas disponible pour cette paire pour le moment.",
     "englishSource": "Swap is unavailable for that pair right now."

@@ -2272,6 +2272,7 @@
   "commandAiChooseEarnVault": "어떤 Earn 금고에 입금하시겠습니까?",
   "commandAiChooseEarnPosition": "어떤 Earn 포지션에서 인출하시겠습니까?",
   "commandAiBridgeUnavailable": "현재 매칭 가능한 브리지 경로는 없습니다.",
+  "commandAiBridgeNoRoute": "해당 경로는 존재하지 않습니다. 다른 경로 중 하나를 선택하십시오:",
   "commandAiSwapUnavailable": "현재 해당 통화 쌍에 대해서는 스왑을 이용할 수 없습니다.",
   "commandAiEarnUnavailable": "현재 이용 가능한 'Earn' 금고나 포지션은 없습니다.",
   "commandAiFiatPriceUnavailable": "해당 토큰의 실시간 USD 가격은 제공되지 않습니다. 토큰 수량을 입력해 주세요.",

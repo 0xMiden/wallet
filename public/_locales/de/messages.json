@@ -10509,6 +10509,10 @@
     "message": "Derzeit ist keine passende Brückenroute verfügbar.",
     "englishSource": "No matching bridge route is available right now."
   },
+  "commandAiBridgeNoRoute": {
+    "message": "Dafür gibt es keine Route. Wählen Sie eine der anderen Routen:",
+    "englishSource": "There is no route for that. Choose one of the other routes:"
+  },
   "commandAiSwapUnavailable": {
     "message": "Ein Swap ist für dieses Paar derzeit nicht verfügbar.",
     "englishSource": "Swap is unavailable for that pair right now."
