@@ -81,8 +81,11 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const account = useAccount();
   const { signTransaction } = useMidenContext();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [submitErrorId, setSubmitErrorId] = useState<UserErrorId | null>(null);
+  const [submitError, setSubmitError] = useState<{
+    message: string;
+    id: UserErrorId;
+    origin?: 'preflight' | 'open_position';
+  } | null>(null);
   const [spendingLimitChallenge, setSpendingLimitChallenge] =
     useState<Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'>>();
   const assessSpendingLimit = useWalletStore(state => state.assessSpendingLimit);
@@ -157,8 +160,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       return;
     }
     if (!account.evmAddress) {
-      setSubmitError(t('earnNoEvmAddress'));
-      setSubmitErrorId('earnNoEvmAddress');
+      setSubmitError({ message: t('earnNoEvmAddress'), id: 'earnNoEvmAddress' });
       return;
     }
     setIsSubmitting(true);
@@ -208,8 +210,11 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         console.error(challengeError);
       }
       settleRouteFlow('earn', flow => flow.fail(classifyError(e)));
-      setSubmitError(e instanceof Error ? e.message : t('earnFailedToOpenPosition'));
-      setSubmitErrorId(e instanceof Error ? 'raw_earn_deposit_submit_failed' : 'earnFailedToOpenPosition');
+      setSubmitError(
+        e instanceof Error
+          ? { message: e.message, id: 'raw_earn_deposit_submit_failed', origin: 'open_position' }
+          : { message: t('earnFailedToOpenPosition'), id: 'earnFailedToOpenPosition' }
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -219,8 +224,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
   const handleOpenPosition = async () => {
     if (isSubmitting) return;
     if (!account.evmAddress) {
-      setSubmitError(t('earnNoEvmAddress'));
-      setSubmitErrorId('earnNoEvmAddress');
+      setSubmitError({ message: t('earnNoEvmAddress'), id: 'earnNoEvmAddress' });
       return;
     }
     if (
@@ -230,8 +234,7 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
       !found?.info ||
       !earnVaultTakesDeposits(found.info)
     ) {
-      setSubmitError(t('earnFailedToOpenPosition'));
-      setSubmitErrorId('earnFailedToOpenPosition');
+      setSubmitError({ message: t('earnFailedToOpenPosition'), id: 'earnFailedToOpenPosition' });
       return;
     }
     setIsSubmitting(true);
@@ -265,8 +268,11 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
         setIsSubmitting(false);
         return;
       }
-      setSubmitError(error instanceof Error ? error.message : t('earnFailedToOpenPosition'));
-      setSubmitErrorId(error instanceof Error ? 'raw_earn_deposit_submit_failed' : 'earnFailedToOpenPosition');
+      setSubmitError(
+        error instanceof Error
+          ? { message: error.message, id: 'raw_earn_deposit_submit_failed', origin: 'preflight' }
+          : { message: t('earnFailedToOpenPosition'), id: 'earnFailedToOpenPosition' }
+      );
       setIsSubmitting(false);
     }
   };
@@ -323,9 +329,19 @@ const EarnDepositReview: FC<EarnDepositReviewProps> = ({ vaultId }) => {
               ) : (
                 <EarnCollateralNotice reason={collateralReason} />
               )}
-              {submitError && (
-                <Notice errorId={submitErrorId} tone="negative" role="alert" data-testid="earn-deposit-review-error">
-                  {submitError}
+              {submitError?.message && (
+                <Notice
+                  errorId={submitError.id}
+                  errorDiagnostics={
+                    submitError.origin
+                      ? { kind: 'earn_deposit_submit', earnDepositSubmitOrigin: submitError.origin }
+                      : undefined
+                  }
+                  tone="negative"
+                  role="alert"
+                  data-testid="earn-deposit-review-error"
+                >
+                  {submitError.message}
                 </Notice>
               )}
               <Button
