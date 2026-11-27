@@ -236,6 +236,89 @@ function renderBar(route: CommandRoute = { kind: 'dashboard' }) {
 }
 
 describe('CommandAiBar', () => {
+  it('cancels a pending request when the command view closes', async () => {
+    jest.mocked(compileCommandPrompt).mockReset();
+    jest.mocked(compileCommandPrompt).mockReturnValue(new Promise(() => undefined));
+    const view = renderBar();
+    const input = screen.getByTestId('command-ai-input');
+    fireEvent.change(input, { target: { value: 'send 1 MIDEN' } });
+    fireEvent.submit(input.closest('form')!);
+    await waitFor(() => expect(compileCommandPrompt).toHaveBeenCalled());
+    const { signal } = jest.mocked(compileCommandPrompt).mock.calls[0]![0];
+    expect(signal!.aborted).toBe(false);
+
+    view.unmount();
+
+    expect(signal!.aborted).toBe(true);
+  });
+
+  describe('what a clarification follow-up sends', () => {
+    it('uses a placeholder for a held symbol the action rows leave out', async () => {
+      useWalletStore.setState({
+        balances: {
+          [scope.accountId]: [
+            { ...assets[0]!, tokenId: 'faucet-hidden', metadata: { symbol: 'ZORK', name: 'Zork', decimals: 6 } }
+          ]
+        }
+      });
+      jest.mocked(compileCommandPrompt).mockReset();
+      jest.mocked(compileCommandPrompt).mockResolvedValue({ op: 'cancel' });
+      renderBar();
+      const input = screen.getByTestId('command-ai-input');
+      fireEvent.change(input, { target: { value: 'what is my ZORK balance' } });
+      fireEvent.submit(input.closest('form')!);
+
+      await waitFor(() => expect(compileCommandPrompt).toHaveBeenCalled());
+      expect(jest.mocked(compileCommandPrompt).mock.calls[0]![0].redactedText).toBe('what is my <TOKEN_1> balance');
+    });
+
+    const SECOND_ACCOUNT = 'mtst1second0000000000000000000000000';
+    const send: AiCompilerOutput = {
+      op: 'set_intent',
+      action: 'send',
+      amount: { kind: 'exact_ref', ref: 'AMT_1' },
+      asset: 'MIDEN',
+      to_asset: null,
+      from_chain: null,
+      to_chain: null,
+      recipient_ref: null,
+      provider: null,
+      note_type: null,
+      earn_op: null
+    };
+
+    it.each([
+      ['a recipient to pick', 'send 1 MIDEN', send],
+      ['an address prefix with saved matches', 'send 1 MIDEN to 0x02323', { ...send, recipient_ref: 'ADDR_1' }]
+    ])('sends per-request option ids for %s', async (_label, prompt, intent) => {
+      useWalletStore.setState(state => ({
+        accounts: [...state.accounts, { ...state.accounts[0]!, publicKey: SECOND_ACCOUNT, name: 'Savings' }]
+      }));
+      jest.mocked(compileCommandPrompt).mockReset();
+      jest.mocked(compileCommandPrompt).mockResolvedValueOnce(intent).mockResolvedValue({ op: 'cancel' });
+      renderBar();
+      const submit = (value: string) => {
+        const input = screen.getByTestId('command-ai-input');
+        fireEvent.change(input, { target: { value } });
+        fireEvent.submit(input.closest('form')!);
+      };
+
+      submit(prompt);
+      await screen.findByTestId('command-ai-clarification');
+      submit('the work one');
+      await waitFor(() => expect(compileCommandPrompt).toHaveBeenCalledTimes(3));
+
+      const requests = jest.mocked(compileCommandPrompt).mock.calls.map(([{ signal: _signal, ...request }]) => request);
+      const ids = requests[2]!.snapshot!.allowedOptionIds;
+      expect(ids.length).toBeGreaterThan(0);
+      expect(ids).toEqual(ids.map((_, index) => `option_${index + 1}`));
+      const sent = JSON.stringify(requests).toLowerCase();
+      for (const localValue of [ALICE_ADDR, ALICE_WORK_ADDR, SECOND_ACCOUNT, scope.accountId, 'contact:', 'account:']) {
+        expect(sent).not.toContain(localValue.toLowerCase());
+      }
+    });
+  });
+
   describe('review regression', () => {
     beforeEach(() => {
       jest.mocked(compileCommandPrompt).mockReset();

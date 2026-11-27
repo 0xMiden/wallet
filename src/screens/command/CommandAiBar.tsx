@@ -262,6 +262,8 @@ export function CommandAiBar({
   useUserVisibleError(errorState ? 'raw_command_ai_failed' : null, 'inline');
   const [turns, setTurns] = useState<BarTurn[]>([]);
   const activeAbortRef = useRef<AbortController | null>(null);
+  // A request that outlives the view must not apply its result or navigate.
+  useEffect(() => () => activeAbortRef.current?.abort(), []);
 
   const applyResolution = useCallback(
     (resolution: OrchestratorResolution, redactedKinds: RedactedKind[], earnPositions: EarnSubjectSummary[] = []) => {
