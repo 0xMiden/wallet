@@ -684,28 +684,57 @@ describe('ExportFileComplete', () => {
       jest.useRealTimers();
     });
 
-    it.each([false, true])(
-      'reports the export failure with a closed identity importedAccount=%s',
-      async importedAccount => {
-        mockExportWalletBackupMaterial.mockRejectedValueOnce(
-          new Error(importedAccount ? importedAccountBackupFailure(privateErrorFixture) : privateErrorFixture)
-        );
-        jest.spyOn(console, 'error').mockImplementation(() => {});
+    it.each([
+      ['snapshot', (error: Error) => mockExportWalletBackupMaterial.mockRejectedValueOnce(error)],
+      ['file_preparation', (error: Error) => mockEncryptJson.mockRejectedValueOnce(error)],
+      [
+        'browser_handoff',
+        (error: Error) =>
+          jest.mocked(URL.createObjectURL).mockImplementationOnce(() => {
+            throw error;
+          })
+      ]
+    ] as const)('reports only the browser export failure stage %s', async (stage, reject) => {
+      reject(new Error('synthetic export failure details'));
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        await act(async () => {
+          renderComponent();
+        });
+        expect(screen.getByRole('alert')).toHaveTextContent('encryptedWalletFileExportFailedDesc');
+        expect(clickSpy).not.toHaveBeenCalled();
+        expect(mockWriteFile).not.toHaveBeenCalled();
+        expect(mockShare).not.toHaveBeenCalled();
+        dwellForError();
+        expect(jest.mocked(reportUserVisibleError).mock.calls).toEqual([
+          [
+            'encryptedWalletFileExportFailedDesc',
+            'inline',
+            { kind: 'backup_export_failure', backupExportFailureStage: stage }
+          ]
+        ]);
+      } finally {
+        consoleErrorSpy.mockRestore();
+      }
+    });
+
+    it('reports the imported-account export failure without a stage', async () => {
+      mockExportWalletBackupMaterial.mockRejectedValueOnce(
+        new Error(importedAccountBackupFailure(privateErrorFixture))
+      );
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      try {
         await act(async () => {
           renderComponent();
         });
         expect(screen.getByRole('alert')).toHaveTextContent('encryptedWalletFileExportFailedTitle');
-        expect(screen.getByRole('alert')).toHaveTextContent(
-          importedAccount ? privateErrorFixture : 'encryptedWalletFileExportFailedDesc'
-        );
-        expect(reportUserVisibleError).not.toHaveBeenCalled();
+        expect(screen.getByRole('alert')).toHaveTextContent(privateErrorFixture);
         dwellForError();
-        expectDisplayReport(
-          importedAccount ? 'encryptedWalletFileExportFailedAccount' : 'encryptedWalletFileExportFailedDesc',
-          'inline'
-        );
+        expectDisplayReport('encryptedWalletFileExportFailedAccount', 'inline');
+      } finally {
+        consoleErrorSpy.mockRestore();
       }
-    );
+    });
     it('does not report pending export progress', async () => {
       mockExportWalletBackupMaterial.mockReturnValue(new Promise(() => {}));
       await act(async () => {
