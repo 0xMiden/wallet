@@ -692,6 +692,9 @@ jest.mock('screens/send-flow/Route', () => ({
       <span data-testid="selected-route">{route}</span>
       <span data-testid="receive-route-payouts">{JSON.stringify(payouts ?? {})}</span>
       <span data-testid="receive-fast-fee">{fastFeeUsd}</span>
+      <button data-testid="pick-receive-fast" onClick={() => onRouteChange('epoch')}>
+        fast
+      </button>
       <button data-testid="pick-slow" onClick={() => onRouteChange('agglayer')}>
         slow
       </button>
@@ -1016,7 +1019,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     const quote = jest.fn(async (params: { minTokenOut: string }, _sender: string) => {
       await Promise.resolve();
       const isSecondAmount = params.minTokenOut === '1505000';
-      const tokenIn = (isSecondAmount ? 2_005n : 1_750n) * 10n ** BigInt(token.decimals - 3);
+      const tokenIn = (isSecondAmount ? 1_630n : 1_750n) * 10n ** BigInt(token.decimals - 3);
       Object.assign(epochState, {
         status: 'quoted',
         flow: 'evm-to-miden',
@@ -1040,11 +1043,12 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   }
 
   it.each([
-    { label: 'Circle USDC', token: sharedCircleEpoch, alternate: 'usdcx', pick: 'pick-circle-route', fee: 0.5 },
-    { label: 'native ETH', token: sharedNativeEpoch, alternate: 'agglayer', pick: 'pick-slow', fee: 1 }
-  ])('refreshes the $label Fast comparison after a manual alternate choice and an amount edit', async input => {
+    { label: 'Circle USDC', token: sharedCircleEpoch, alternate: 'usdcx', pick: 'pick-circle-route', fee: 0.125 },
+    { label: 'native ETH', token: sharedNativeEpoch, alternate: 'agglayer', pick: 'pick-slow', fee: 0.25 }
+  ])('refreshes the $label Fast comparison without replacing a manual alternate selection', async input => {
     const { token, alternate, pick, fee } = input;
-    const { quote } = await openSharedReceiveRoute(token, 16n * 10n ** BigInt(token.decimals - 1));
+    // The balance covers the refreshed 1.63 Fast quote, but not the initial 1.75 quote.
+    const { quote } = await openSharedReceiveRoute(token, 17n * 10n ** BigInt(token.decimals - 1));
     const initialRoute = selectedReceiveRoute();
     const initialPayout = readReceivePayouts().epoch?.amount;
     const initialCalls = quote.mock.calls.length;
@@ -1069,6 +1073,20 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       payout: '1.505',
       fee
     });
+  });
+
+  it('keeps manually selected Fast on definitive Fast unavailability', async () => {
+    const { view } = await openSharedReceiveRoute(sharedNativeEpoch, FUNDED);
+    fireEvent.click(screen.getByTestId('pick-slow'));
+    expect(selectedReceiveRoute()).toBe('agglayer');
+    fireEvent.click(screen.getByTestId('pick-receive-fast'));
+    await waitFor(() => expect(screen.getByTestId('selected-route')).toHaveTextContent(/^epoch$/));
+
+    mockAvailability = { fastBridgeIn: { state: 'unavailable', reason: 'service-down', detail: 'down' } };
+    view.rerender(depositScreen());
+
+    expect(selectedReceiveRoute()).toBe('epoch');
+    expect(screen.getByTestId('confirm-route')).toBeDisabled();
   });
 
   it('demotes only an automatically promoted Fast route after definitive unavailability', async () => {
