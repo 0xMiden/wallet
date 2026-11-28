@@ -20,9 +20,11 @@ import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
 import type { TokenPriceInfo, TokenPrices } from 'lib/prices';
 import type { BridgeFeature, FeatureAvailability } from 'lib/remote-config/availability';
+import type { BridgeToken } from 'lib/remote-config/derive';
 import type { BridgeConfigSnapshot } from 'lib/remote-config/runtime';
 import type { AgglayerDepositToken, EpochDepositToken } from 'lib/remote-config/values';
 import { bridgeReceiveLibraryError } from 'lib/telemetry/bridge-receive-failure';
+import { quoteExecutorBurn } from 'lib/usdcx/executor';
 import { NativeReown, NativeSessionChainNotApprovedError, prepareNativeSessionChain } from 'lib/walletconnect/native';
 import { EvmTransactionRevertedError, readEvmErc20Allowance, waitForEvmReceipt } from 'lib/walletconnect/receipt';
 
@@ -220,9 +222,13 @@ let mockLastCircleLoading: boolean | undefined;
 let mockBridgeInCapUsd: number | null = null;
 // The ERC-20s the document lists for the AggLayer chain, as the derivation verified them.
 let mockDepositTokens: AgglayerDepositToken[] = [];
+let mockNativeEthToken: BridgeToken | null = null;
+let mockNativeQuotePrice = false;
+const ZERO_EVM_ADDRESS = '0x0000000000000000000000000000000000000000';
 jest.mock('lib/remote-config/values', () => ({
   // These synthetic ETH fixtures do not describe a priced delivery faucet.
   selectNativeEthFaucet: () => undefined,
+  selectNativeEthToken: () => mockNativeEthToken,
   selectAgglayerRecoveryConfig: () =>
     mockAgglayerChainId === null
       ? null
@@ -288,6 +294,20 @@ jest.mock('lib/remote-config/values', () => ({
   // balance updates stop.
   selectAgglayerDepositTokens: () => mockDepositTokens.map(token => ({ ...token })),
   selectAgglayerRegistryToken: () => null
+}));
+jest.mock('lib/prices/evm', () => {
+  const actual = jest.requireActual<typeof import('lib/prices/evm')>('lib/prices/evm');
+  return {
+    ...actual,
+    evmQuote: (...args: Parameters<typeof actual.evmQuote>) =>
+      mockNativeQuotePrice && args[1] === 11155111 && args[2] === ZERO_EVM_ADDRESS
+        ? mockTokenPrices.ETH
+        : actual.evmQuote(...args)
+  };
+});
+jest.mock('lib/usdcx/executor', () => ({
+  ...jest.requireActual<typeof import('lib/usdcx/executor')>('lib/usdcx/executor'),
+  quoteExecutorBurn: jest.fn().mockResolvedValue({ signedQuote: '0x01', feeTotalAmount: 1n })
 }));
 // The receiving account holds nothing, so a ceiling weighs the deposit alone.
 jest.mock('lib/miden/front', () => ({
@@ -394,6 +414,7 @@ let mockFormGuardFrames: Array<{
   onContinue: () => void;
 }> = [];
 let mockReviewGuardFrames: Array<{ canConfirm: boolean; onConfirm: () => unknown }> = [];
+let mockChangeDepositAmount: (amount: string) => void;
 
 // Step components stubbed down to the affordances the deposit path needs.
 jest.mock('./EvmBridgeDepositForm', () => {
@@ -424,6 +445,7 @@ jest.mock('./EvmBridgeDepositForm', () => {
       onSwitch: () => void;
     }) => {
       mockLastOpenTokenDrawer = onSelectToken;
+      mockChangeDepositAmount = onAmountChange;
       return (
         <div>
           <span data-testid="form-ready">{String(isValidAmount)}</span>
@@ -446,6 +468,9 @@ jest.mock('./EvmBridgeDepositForm', () => {
           </button>
           <button data-testid="set-amount-four-places" onClick={() => onAmountChange('10.6512')}>
             four-place amount
+          </button>
+          <button data-testid="set-precise-amount" onClick={() => onAmountChange('1.23456789')}>
+            precise amount
           </button>
           <button data-testid="open-token-drawer" onClick={onSelectToken}>
             token
@@ -622,10 +647,22 @@ jest.mock('./EvmSwitchWalletDrawer', () => ({
 }));
 
 jest.mock('./EvmBridgeUsdcxRoute', () => ({
-  EvmBridgeUsdcxRoute: ({ onConfirm }: { onConfirm: () => void }) => (
-    <button data-testid="usdcx-confirm-route" onClick={onConfirm}>
-      route
-    </button>
+  EvmBridgeUsdcxRoute: ({
+    onConfirm,
+    onSelectCircle,
+    fast
+  }: React.ComponentProps<typeof import('./EvmBridgeUsdcxRoute').EvmBridgeUsdcxRoute>) => (
+    <div>
+      <span data-testid="selected-route">{fast?.selected ? 'epoch' : 'usdcx'}</span>
+      <span data-testid="receive-route-payouts">{JSON.stringify({ epoch: fast?.payout })}</span>
+      <span data-testid="receive-fast-fee">{fast?.feeUsd}</span>
+      <button data-testid="pick-circle-route" onClick={onSelectCircle}>
+        Circle
+      </button>
+      <button data-testid="usdcx-confirm-route" onClick={onConfirm}>
+        route
+      </button>
+    </div>
   )
 }));
 
@@ -927,6 +964,202 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     Object.assign(epochState, idleEpoch);
     mockBridgeSnapshot = undefined;
     mockWebProviderConnected = true;
+    mockNativeEthToken = null;
+    mockNativeQuotePrice = false;
+    mockTokenPrices = {};
+    mockPriceSymbols.clear();
+  });
+
+  const readReceivePayouts = () => JSON.parse(screen.getByTestId('receive-route-payouts').textContent ?? '{}');
+  const selectedReceiveRoute = () => screen.getByTestId('selected-route').textContent;
+  const sharedNativeEpoch: EpochDepositToken = {
+    key: 'ETH',
+    address: ZERO_EVM_ADDRESS,
+    chainId: 11155111,
+    symbol: 'ETH',
+    decimals: 18,
+    midenFaucetId: '0x00000000000000000000000000e2e1',
+    midenSymbol: 'ETH',
+    midenDecimals: 6
+  };
+  const sharedCircleEpoch: EpochDepositToken = {
+    ...sharedNativeEpoch,
+    key: 'USDC',
+    address: '0x3600000000000000000000000000000000000000',
+    chainId: 5042002,
+    symbol: 'USDC',
+    decimals: 6,
+    midenSymbol: 'USDC'
+  };
+
+  async function openSharedReceiveRoute(token: EpochDepositToken, balance: bigint) {
+    mockEpochTokens = [token];
+    if (token === sharedCircleEpoch) {
+      const config = READY_SNAPSHOT.config!;
+      mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+      mockSnapshot = {
+        ...READY_SNAPSHOT,
+        config: {
+          ...config,
+          supportedEvmChains: { ...TEST_BRIDGE_CONFIG.supportedEvmChains, ...config.supportedEvmChains }
+        }
+      };
+    } else {
+      mockNativeQuotePrice = true;
+      mockPriceSymbols.set(token.midenFaucetId!, 'ETH');
+      mockTokenPrices = { ETH: { price: 2, change24h: 0, percentageChange24h: 0, kind: 'market' } };
+    }
+    answerBalance(balance);
+    const quote = jest.fn(async (params: { minTokenOut: string }, _sender: string) => {
+      await Promise.resolve();
+      const isSecondAmount = params.minTokenOut === '1505000';
+      const tokenIn = (isSecondAmount ? 2_005n : 1_750n) * 10n ** BigInt(token.decimals - 3);
+      Object.assign(epochState, {
+        status: 'quoted',
+        flow: 'evm-to-miden',
+        quote: { params, quoteResult: { tokenIn: String(tokenIn), tokenOut: params.minTokenOut } }
+      });
+      view.rerender(depositScreen());
+    });
+    Object.assign(epochState, { quoteEVMToMiden: quote });
+    const view = renderScreen();
+    if (token === sharedNativeEpoch) {
+      fireEvent.click(screen.getByTestId('open-token-drawer'));
+      fireEvent.click(await screen.findByTestId('pick-eth'));
+    }
+    await settle();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await screen.findByTestId('selected-route');
+    await settle();
+    return { quote, view };
+  }
+
+  it.each([
+    { label: 'Circle USDC', token: sharedCircleEpoch, alternate: 'usdcx', pick: 'pick-circle-route', fee: 0.5 },
+    { label: 'native ETH', token: sharedNativeEpoch, alternate: 'agglayer', pick: 'pick-slow', fee: 1 }
+  ])('refreshes the $label Fast comparison after a manual alternate choice and an amount edit', async input => {
+    const { token, alternate, pick, fee } = input;
+    const { quote } = await openSharedReceiveRoute(token, 16n * 10n ** BigInt(token.decimals - 1));
+    const initialRoute = selectedReceiveRoute();
+    const initialPayout = readReceivePayouts().epoch?.amount;
+    const initialCalls = quote.mock.calls.length;
+    fireEvent.click(screen.getByTestId(pick));
+    act(() => mockChangeDepositAmount('1.505'));
+    await settle();
+
+    expect({
+      initialRoute,
+      initialPayout,
+      route: selectedReceiveRoute(),
+      calls: quote.mock.calls.length - initialCalls,
+      minTokenOut: quote.mock.lastCall?.[0].minTokenOut,
+      payout: readReceivePayouts().epoch?.amount,
+      fee: Number(screen.getByTestId('receive-fast-fee').textContent || NaN)
+    }).toEqual({
+      initialRoute: alternate,
+      initialPayout: '1.5',
+      route: alternate,
+      calls: 1,
+      minTokenOut: '1505000',
+      payout: '1.505',
+      fee
+    });
+  });
+
+  it('demotes only an automatically promoted Fast route after definitive unavailability', async () => {
+    const { view } = await openSharedReceiveRoute(sharedNativeEpoch, FUNDED);
+    const promoted = selectedReceiveRoute();
+    mockAvailability = { fastBridgeIn: { state: 'loading' } };
+    view.rerender(depositScreen());
+    const loading = selectedReceiveRoute();
+    Object.assign(epochState, { status: 'quoting' });
+    mockAvailability = { fastBridgeIn: { state: 'unavailable', reason: 'service-down', detail: 'down' } };
+    view.rerender(depositScreen());
+    const quoting = selectedReceiveRoute();
+    Object.assign(epochState, { status: 'quoted' });
+    view.rerender(depositScreen());
+    const unavailable = selectedReceiveRoute();
+    fireEvent.click(screen.getByTestId('pick-slow'));
+    mockAvailability = {};
+    Object.assign(epochState, { status: 'failed', error: 'synthetic quote refusal' });
+    view.rerender(depositScreen());
+
+    expect({ promoted, loading, quoting, unavailable, manual: selectedReceiveRoute() }).toEqual({
+      promoted: 'epoch',
+      loading: 'epoch',
+      quoting: 'epoch',
+      unavailable: 'agglayer',
+      manual: 'agglayer'
+    });
+  });
+
+  it.each([true, false])(
+    'shows the native AggLayer floor only when the registry has the token (%s)',
+    async hasToken => {
+      const nativeFaucet = '0x00000000000000000000000000f3f1';
+      const typed = '1.234567890123456789';
+      mockNativeEthToken = hasToken
+        ? { midenFaucetId: nativeFaucet, originToken: ZERO_EVM_ADDRESS, originNetwork: 0, scale: 10 }
+        : null;
+      renderScreen();
+      fireEvent.click(screen.getByTestId('open-token-drawer'));
+      fireEvent.click(await screen.findByTestId('pick-eth'));
+      act(() => mockChangeDepositAmount(typed));
+      await settle();
+      fireEvent.click(screen.getByTestId('continue'));
+      await settle();
+      const agglayer = readReceivePayouts().agglayer;
+      fireEvent.click(screen.getByTestId('confirm-route'));
+      const review = await screen.findByTestId('review-output');
+      expect({ agglayer, review: review.textContent }).toEqual({
+        agglayer: hasToken ? { assetId: nativeFaucet, amount: '1.23456789', symbol: 'ETH' } : undefined,
+        review: hasToken ? '1.23456789' : typed
+      });
+      expect(screen.getByTestId('review-amount')).toHaveTextContent(typed);
+    }
+  );
+
+  it('retries a failed Epoch quote from the Route step with unchanged inputs before opening Review', async () => {
+    const quote = jest
+      .fn(async (params: { minTokenOut: string }, _sender: string) => {
+        Object.assign(epochState, {
+          status: 'quoted',
+          flow: 'evm-to-miden',
+          error: null,
+          quote: {
+            params,
+            quoteResult: { tokenIn: '1500000000000000000', tokenOut: '1500000' }
+          }
+        });
+        view.rerender(depositScreen());
+      })
+      .mockImplementationOnce(async () => {
+        Object.assign(epochState, { status: 'failed', flow: 'evm-to-miden', error: 'synthetic quote refusal' });
+        view.rerender(depositScreen());
+        throw new Error('synthetic quote refusal');
+      });
+    Object.assign(epochState, { quoteEVMToMiden: quote });
+    const view = renderScreen();
+    fireEvent.click(screen.getByTestId('set-amount'));
+    await settle();
+    fireEvent.click(screen.getByTestId('continue'));
+    await settle();
+    expect(quote).toHaveBeenCalledTimes(1);
+    expect(screen.queryByTestId('review-output')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('confirm-route'));
+    await settle();
+
+    expect(screen.queryByTestId('review-output')).not.toBeInTheDocument();
+    expect(quoteExecutorBurn).not.toHaveBeenCalled();
+    expect(quote.mock.calls).toEqual([quote.mock.calls[0], quote.mock.calls[0]]);
+    fireEvent.click(screen.getByTestId('confirm-route'));
+    expect(await screen.findByTestId('review-output')).toHaveTextContent(/^1\.5$/);
+    expect(quote).toHaveBeenCalledTimes(2);
+    expect(quoteExecutorBurn).not.toHaveBeenCalled();
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
   });
 
   it('disables withdrawal from the Fast route before it permits a new bridge deposit', async () => {
@@ -4618,14 +4851,14 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
     }) as never;
   };
 
-  const openErc20Route = async () => {
+  const openErc20Route = async (amountButton = 'set-amount') => {
     render(depositScreen(undefined, EVM_WALLET));
     await settle();
     fireEvent.click(screen.getByTestId('open-token-drawer'));
     await settle();
     act(() => mockLastTokenSelect({ kind: 'erc20', contractAddress: WBTC }));
     await settle();
-    fireEvent.click(screen.getByTestId('set-amount'));
+    fireEvent.click(screen.getByTestId(amountButton));
     await settle();
     fireEvent.click(screen.getByTestId('continue'));
     await settle();
@@ -4710,6 +4943,19 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
 
     const payouts = JSON.parse(screen.getByTestId('receive-route-payouts').textContent ?? '{}');
     expect(payouts.agglayer).toEqual({ assetId: WBTC_LISTING.midenFaucetId, amount: '1.5', symbol: 'WBTC' });
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('shows the same floored AggLayer payout on Route and Review', async () => {
+    await openErc20Route('set-precise-amount');
+
+    const payouts = JSON.parse(screen.getByTestId('receive-route-payouts').textContent ?? '{}');
+    fireEvent.click(screen.getByTestId('confirm-route'));
+    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^1\.23456789$/);
+    expect({ payout: payouts.agglayer, reviewAmount: screen.getByTestId('review-output').textContent }).toEqual({
+      payout: { assetId: WBTC_LISTING.midenFaucetId, amount: '1.234567', symbol: 'WBTC' },
+      reviewAmount: '1.234567'
+    });
     expect(mockMutateAsync).not.toHaveBeenCalled();
   });
 
