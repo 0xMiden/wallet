@@ -39,6 +39,7 @@ import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { useMobileBackHandler } from 'lib/mobile/useMobileBackHandler';
 import { quotedPrice } from 'lib/prices/binance';
 import { evmQuote } from 'lib/prices/evm';
+import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import { evmUsdcLabel } from 'lib/remote-config/token-labels';
@@ -740,6 +741,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     recipient: string;
     amount: string;
     fee?: bigint | 'unavailable';
+    expiresAt?: number;
   }>();
   const [amount, setAmount] = useState('');
   const [epochBalanceSlot, setEpochBalanceSlot] = useState<StampedBalanceMap<EpochBalancesIdentity> | null>(null);
@@ -1059,7 +1061,11 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     usdcxQuote.amount === amount.trim()
       ? usdcxQuote
       : undefined;
-  const usdcxQuotedFeeUnits = typeof currentUsdcxQuote?.fee === 'bigint' ? currentUsdcxQuote.fee : undefined;
+  const usdcxDeadline = currentUsdcxQuote?.expiresAt === undefined ? undefined : currentUsdcxQuote.expiresAt * 1000;
+  useQuoteClock(usdcxDeadline);
+  const usdcxQuoteExpired = usdcxDeadline !== undefined && usdcxDeadline <= Date.now();
+  const usdcxQuotedFeeUnits =
+    !usdcxQuoteExpired && typeof currentUsdcxQuote?.fee === 'bigint' ? currentUsdcxQuote.fee : undefined;
   const usdcxQuotedFee =
     usdcxQuotedFeeUnits === undefined
       ? undefined
@@ -1374,7 +1380,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           source,
           buildExecutorBurnIntent(scope.amount, source, recipient, scope.sender)
         );
-        if (!cancelled) setUsdcxQuote({ ...scope, fee: quote.feeTotalAmount });
+        if (!cancelled) setUsdcxQuote({ ...scope, fee: quote.feeTotalAmount, expiresAt: quote.expiresAt });
       } catch (err) {
         if (!cancelled) setUsdcxQuote({ ...scope, fee: 'unavailable' });
         console.warn('[EvmBridgeDepositScreen] USDCx fee quote failed', err);
@@ -2272,7 +2278,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     return { assetId: usdcxAssetId, amount: formatUnits(units, USDCX_DECIMALS), symbol: USDCX_SYMBOL };
   }, [amount, token, usdcxAssetId, usdcxAvailable, usdcxQuotedFeeUnits, usdcxSource]);
   const usdcxQuotePending = canQuoteUsdcx && currentUsdcxQuote?.fee === undefined;
-  const usdcxQuoteUnavailable = currentUsdcxQuote?.fee === 'unavailable';
+  const usdcxQuoteUnavailable = usdcxQuoteExpired || currentUsdcxQuote?.fee === 'unavailable';
   const displayedError: DepositError | null =
     route === 'epoch' && epochFlow === 'evm-to-miden'
       ? epochError == null
