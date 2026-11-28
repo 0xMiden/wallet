@@ -1,15 +1,51 @@
 import helpFacts from '../../../src/lib/command-ai/help-facts.json';
 import { COMMAND_AI_MAX_TEXT_CHARS } from '../../../src/lib/command-ai/schema';
 
-import { hasUnsafeSharingAdvice } from './help-safety.mjs';
+import { keepsStaleId } from './follow-up';
+import helpCards from './help-cards.json';
+import {
+  type HelpDataset,
+  buildHelpPrompt,
+  explainReply,
+  isTypedReply,
+  type HelpCard,
+  matchTopicButton,
+  selectCards,
+  takeBackCards
+} from './help';
+import {
+  CHECKER_RULES,
+  CHECKER_SCHEMA,
+  WRITER_SCHEMA,
+  reviewDraft,
+  unknownCard,
+  writeCards,
+  writerInput
+} from './help-write';
 
 export { COMMAND_AI_MAX_TEXT_CHARS };
 
 export const COMMAND_AI_MAX_BODY_BYTES = 16 * 1024;
 export const COMMAND_AI_MAX_SNAPSHOT_BYTES = 8 * 1024;
 const COMMAND_AI_TIMEOUT_MS = 15_000;
+// The app gives up at 12 s, so writing and checking end well before, counted from the request's start.
+const WRITING_DEADLINE_MS = 9_000;
+export const WRITER = {
+  name: 'bread_help_answer',
+  schema: WRITER_SCHEMA,
+  maxTokens: 800,
+  timeoutMs: 4_000,
+  minLeftMs: 2_000
+};
+export const CHECKER = {
+  name: 'bread_help_check',
+  schema: CHECKER_SCHEMA,
+  maxTokens: 600,
+  timeoutMs: 3_000,
+  minLeftMs: 1_000
+};
 const GROQ_ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_MODEL = 'openai/gpt-oss-120b';
+export const DEFAULT_MODEL = 'openai/gpt-oss-120b';
 const DEFAULT_REASONING_EFFORT = 'low';
 const RATE_LIMIT_RETRY_S = '60';
 
@@ -235,6 +271,17 @@ Intent Rules:
 - "cancel": user aborts ("never mind", "cancel", "stop").
 - "unsupported": anything not supported (e.g., NFT mint, perp leverage, contract deployment, exporting seed phrase, general trivia). Give a concise reason and optional suggested_route.`;
 
+// A clarification follow-up gets bare or partial patches without this, and the provider refuses them. Sent only with
+// a snapshot, so every other request stays as it was.
+const SNAPSHOT_RULES = `Always reply as {"result": <command>}, never the bare command. A patch_slots patch lists all of these keys, each unchanged one set to null: ${INTENT_SLOT_REQUIRED.join(', ')}.`;
+
+// The provider refused replies that dropped a slot key or put slot keys beside the patch on the longer help prompt.
+const SLOT_RULES = `A set_intent or set_plan step lists all of these keys, each unset one set to null, and its action is never null: ${INTENT_SLOT_REQUIRED.join(', ')}. A patch_slots patch holds its keys inside patch.`;
+
+const NO_COMMAND = { op: 'unsupported', reason: '', suggested_route: null };
+const TAKE_BACK_OVERRIDES = new Set<unknown>(['cancel', 'set_intent', 'set_plan']);
+
+const HELP_DATA = helpCards as unknown as HelpDataset;
 const HELP_TOPICS = Object.keys(helpFacts.topics);
 const HELP_SCHEMA = {
   ...COMMAND_AI_JSON_SCHEMA,
@@ -245,29 +292,16 @@ const HELP_SCHEMA = {
         {
           type: 'object',
           additionalProperties: false,
-          required: ['op', 'topic', 'answer'],
+          required: ['op', 'cards'],
           properties: {
-            op: { type: 'string', enum: ['explain'] },
-            topic: { type: 'string', enum: HELP_TOPICS },
-            answer: { type: 'string' }
+            op: { type: 'string', enum: ['help'] },
+            cards: { type: 'array', items: { type: 'string' } }
           }
         }
       ]
     }
   }
 };
-const HELP_PROMPT = `${SYSTEM_PROMPT}
-
-${helpFacts.instructions}
-
-${Object.entries(helpFacts.topics)
-  .map(([topic, fact]) => `${topic}: ${fact}`)
-  .join('\n')}
-
-Choose Verify for how to check or be sure a payment is private, even after Privacy. Explain Public/Private and explorer limits.
-Choose Safety for questions about sharing secrets, even with support. Choose Recovery for how to restore wallet access.
-State the validator caveat as written. Infer no other access, public recipient, or unlinkability.
-Choose Assistant for what the AI can see. Help sends no chat or wallet history.`;
 
 class HttpError extends Error {
   readonly status: number;
@@ -437,7 +471,167 @@ function compilationFailed(): HttpError {
   return new HttpError(502, 'service_unavailable', 'Compilation failed.');
 }
 
-async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch): Promise<Response> {
+/** Swaps a help pick for a checked card. Commands pass through; model-written help text never does. */
+function answerHelp(
+  output: Record<string, unknown>,
+  text: string,
+  dataset: HelpDataset
+): { output: object; trace: HelpTrace; selected: HelpCard[] } {
+  // The same unwrapping as the app's parser.
+  const result = 'result' in output && Object.keys(output).length === 1 ? output.result : output;
+  const trace: HelpTrace = { path: 'command', picked: [], unknownIds: [], served: null };
+  if (!isRecord(result) || (result.op !== 'help' && result.op !== 'explain')) return { output, trace, selected: [] };
+  const ids = result.op === 'help' && Array.isArray(result.cards) ? result.cards : [];
+  trace.picked = ids.filter((id): id is string => typeof id === 'string');
+  trace.unknownIds = trace.picked.filter(id => !dataset.cards.some(card => card.id === id));
+  // A typed reply may answer a pending clarification, which an explain reply would drop.
+  if (isTypedReply(text)) {
+    return {
+      output: NO_COMMAND,
+      trace: { ...trace, path: 'placeholder' },
+      selected: []
+    };
+  }
+  const selected = selectCards(ids, dataset);
+  const card = selected[0]!;
+  const unknown = card.id === 'not_covered' || card.id === 'cannot_diagnose';
+  return {
+    output: explainReply(card),
+    trace: { ...trace, path: unknown ? 'unknown' : 'card', served: card.id },
+    selected
+  };
+}
+
+export interface ModelCall {
+  fetchImpl: typeof fetch;
+  apiKey: string;
+  model: string;
+  system: string;
+  user: string;
+  name: string;
+  schema: object;
+  maxTokens: number;
+  timeoutMs: number;
+}
+
+/** One writer or checker call, never retried. `undefined` is any technical failure. */
+export async function askModel(call: ModelCall): Promise<unknown> {
+  const controller = new AbortController();
+  let timer!: ReturnType<typeof setTimeout>;
+  // Raced as well as aborted, so a body that never ends cannot outlast the deadline.
+  const timedOut = new Promise<undefined>(resolve => {
+    timer = setTimeout(() => {
+      controller.abort();
+      resolve(undefined);
+    }, call.timeoutMs);
+  });
+  const reply = async (): Promise<unknown> => {
+    const res = await call.fetchImpl(GROQ_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${call.apiKey}` },
+      body: JSON.stringify({
+        model: call.model,
+        messages: [
+          { role: 'system', content: call.system },
+          { role: 'user', content: call.user }
+        ],
+        temperature: 0.1,
+        reasoning_effort: 'low',
+        include_reasoning: false,
+        max_completion_tokens: call.maxTokens,
+        stream: false,
+        response_format: { type: 'json_schema', json_schema: { name: call.name, strict: true, schema: call.schema } }
+      }),
+      signal: controller.signal
+    });
+    if (!res.ok) return undefined;
+    const choice = firstChoice(await res.json());
+    return choice?.finish_reason === 'stop' && typeof choice.content === 'string'
+      ? JSON.parse(choice.content)
+      : undefined;
+  };
+  try {
+    return await Promise.race([reply(), timedOut]);
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The provider's refusal of a reply its model could not fit to the schema. */
+async function isUnshapedReply(res: Response): Promise<boolean> {
+  if (res.status !== 400) return false;
+  const data: unknown = await res.json().catch(() => null);
+  return isRecord(data) && isRecord(data.error) && data.error.code === 'json_validate_failed';
+}
+
+function firstChoice(data: unknown): { content: unknown; finish_reason: unknown } | undefined {
+  const choice = isRecord(data) && Array.isArray(data.choices) ? data.choices[0] : undefined;
+  return isRecord(choice) && isRecord(choice.message)
+    ? { content: choice.message.content, finish_reason: choice.finish_reason }
+    : undefined;
+}
+
+export const isVerdict = (value: unknown): value is { supported: boolean; answers: boolean } =>
+  isRecord(value) &&
+  Object.keys(value).length === 2 &&
+  typeof value.supported === 'boolean' &&
+  typeof value.answers === 'boolean';
+
+interface Writing {
+  dataset: HelpDataset;
+  question: string;
+  previousTopic: string | null;
+  /** The call's reply, or `undefined` when it fails or the deadline leaves it no time. */
+  ask: (role: typeof WRITER, model: string, system: string, user: string) => Promise<unknown>;
+}
+
+/** Writes from `cards`, then checks. A content failure says it does not know; any other serves a checked answer. */
+async function writeAnswer(cards: HelpCard[], first: HelpCard, trace: HelpTrace, writing: Writing) {
+  const { dataset, question, previousTopic, ask } = writing;
+  const given = cards.map(card => card.id);
+  const serve = (path: 'card' | 'unknown', card: HelpCard, outcome: WritingOutcome) => ({
+    output: explainReply(card),
+    trace: { ...trace, path, served: card.id, writing: { cards: given, outcome } }
+  });
+  const unknown = (outcome: WritingOutcome) => serve('unknown', unknownCard(first, dataset), outcome);
+
+  const input = writerInput(cards, dataset, question, previousTopic);
+  const raw = await ask(WRITER, dataset.writing.writer, input.system, input.user);
+  if (raw === undefined) return serve('card', first, 'writer_technical');
+  const draft = reviewDraft(raw, input, dataset, question, previousTopic);
+  if (draft.kind === 'unknown') return unknown(draft.why);
+  if (draft.kind === 'card') {
+    return serve('card', draft.card, draft.why === 'format' ? 'format' : 'writer_technical');
+  }
+  const verdict = await ask(CHECKER, dataset.writing.checker, CHECKER_RULES, draft.checkerUser);
+  if (!isVerdict(verdict)) return serve('card', draft.fallback, 'checker_technical');
+  if (!verdict.supported) return unknown('not_supported');
+  if (!verdict.answers) return unknown('not_answers');
+  return {
+    output: draft.reply,
+    trace: {
+      ...trace,
+      path: 'written' as const,
+      served: draft.cited[0]!,
+      writing: { cards: draft.cited, given, outcome: 'written' as const }
+    }
+  };
+}
+
+// Aggregate log only. Never log prompt text, model output, or caller IP.
+function compiled(output: object, model: string): Response {
+  console.info(JSON.stringify({ event: 'compile_ok', model }));
+  return jsonResponse({ output }, 200);
+}
+
+async function handleCompile(
+  request: Request,
+  env: Env,
+  { fetchImpl = globalThis.fetch, dataset = HELP_DATA, onTrace, now = Date.now }: ServiceOptions
+): Promise<Response> {
+  const started = now();
   if (!env.COMMAND_AI_RATE_LIMIT) {
     throw new HttpError(503, 'service_unavailable', 'The service is not configured.');
   }
@@ -457,11 +651,25 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
   const { redactedText, snapshot, helpContext } = parseCompileBody(await readJsonBody(request));
   const model = env.COMMAND_AI_MODEL?.trim() || DEFAULT_MODEL;
   const reasoningEffort = env.COMMAND_AI_REASONING_EFFORT?.trim() || DEFAULT_REASONING_EFFORT;
+  if (typeof helpContext === 'string') {
+    const card = matchTopicButton(redactedText, helpContext, dataset);
+    if (card) {
+      onTrace?.({ path: 'button', picked: [], unknownIds: [], served: card.id });
+      return compiled(explainReply(card), model);
+    }
+  }
   const userPayload = snapshot
     ? JSON.stringify({ snapshot, utterance: redactedText })
     : helpContext
       ? JSON.stringify({ utterance: redactedText, previousHelpTopic: helpContext })
       : redactedText;
+
+  // "No command found", for a reply the app must not get. The app shows it as an error and applies nothing.
+  const noCommand = (path: 'refused' | 'declined') => {
+    console.warn(JSON.stringify({ event: `compile_${path}`, model }));
+    onTrace?.({ path, picked: [], unknownIds: [], served: null });
+    return jsonResponse({ output: NO_COMMAND }, 200);
+  };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), COMMAND_AI_TIMEOUT_MS);
@@ -476,7 +684,14 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
       body: JSON.stringify({
         model,
         messages: [
-          { role: 'system', content: helpContext === undefined ? SYSTEM_PROMPT : HELP_PROMPT },
+          {
+            role: 'system',
+            content: snapshot
+              ? `${SYSTEM_PROMPT}\n\n${SNAPSHOT_RULES}`
+              : helpContext === undefined
+                ? SYSTEM_PROMPT
+                : buildHelpPrompt(`${SYSTEM_PROMPT}\n\n${SLOT_RULES}`, dataset)
+          },
           { role: 'user', content: userPayload }
         ],
         temperature: 0.1,
@@ -502,6 +717,9 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
       });
     }
     if (!res.ok) {
+      // The app sends a typed clarification reply without its snapshot first, and sends the snapshot only after a
+      // reply. A short one like "public" can be impossible to shape, so that request says it found no command.
+      if (!snapshot && (await isUnshapedReply(res))) return noCommand('refused');
       throw compilationFailed();
     }
 
@@ -515,13 +733,42 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
     }
 
     const output: unknown = JSON.parse(content);
-    if (!isRecord(output) || (helpContext !== undefined && hasUnsafeSharingAdvice(output))) {
+    if (!isRecord(output)) {
       throw compilationFailed();
     }
+    if (snapshot && keepsStaleId(output, snapshot, redactedText)) return noCommand('declined');
+    if (helpContext === undefined) return compiled(output, model);
 
-    // Aggregate log only — never log prompt text, model output, or caller IP.
-    console.info(JSON.stringify({ event: 'compile_ok', model }));
-    return jsonResponse({ output }, 200);
+    // The router sent "cancel my last payment" to cancel and "my money back from <CONTACT_1>" to a send of
+    // everything. Only such an action is replaced; a help pick of its own stays.
+    const routed = isRecord(output.result) ? output.result : output;
+    const takeBack = TAKE_BACK_OVERRIDES.has(routed.op) ? takeBackCards(redactedText) : undefined;
+    const help = answerHelp(takeBack ? { result: { op: 'help', cards: takeBack } } : output, redactedText, dataset);
+    // Writing spends another model's quota only: on the router's own, it would starve every command.
+    const cards = [dataset.writing.writer, dataset.writing.checker].includes(model)
+      ? []
+      : writeCards(help.selected, dataset);
+    if (cards.length === 0) {
+      onTrace?.(help.trace);
+      return compiled(help.output, model);
+    }
+    clearTimeout(timer);
+    const written = await writeAnswer(cards, help.selected[0]!, help.trace, {
+      dataset,
+      question: redactedText,
+      previousTopic: helpContext,
+      ask: async (role, writingModel, system, user) => {
+        const left = WRITING_DEADLINE_MS - (now() - started);
+        if (left < role.minLeftMs) return undefined;
+        // The writer leaves a second for the check.
+        const timeoutMs = Math.min(role.timeoutMs, role === WRITER ? left - 1_000 : left);
+        const { name, schema, maxTokens } = role;
+        const call = { fetchImpl, apiKey, model: writingModel, system, user, name, schema, maxTokens, timeoutMs };
+        return askModel(call);
+      }
+    });
+    onTrace?.(written.trace);
+    return compiled(written.output, model);
   } catch (error) {
     if (error instanceof HttpError) throw error;
     if ((error instanceof Error && error.name === 'AbortError') || controller.signal.aborted) {
@@ -533,7 +780,7 @@ async function handleCompile(request: Request, env: Env, fetchImpl: typeof fetch
   }
 }
 
-async function dispatch(request: Request, env: Env, fetchImpl: typeof fetch): Promise<Response> {
+async function dispatch(request: Request, env: Env, options: ServiceOptions): Promise<Response> {
   const path = new URL(request.url).pathname;
   if (path === '/healthz') {
     if (request.method !== 'GET') {
@@ -549,13 +796,45 @@ async function dispatch(request: Request, env: Env, fetchImpl: typeof fetch): Pr
         Allow: 'POST'
       });
     }
-    return handleCompile(request, env, fetchImpl);
+    return handleCompile(request, env, options);
   }
   return jsonResponse({ error: 'not_found', message: 'Route not found.' } satisfies ErrorBody, 404);
 }
 
-/** Create the standalone Command AI compiler service. Tests can pass a mock fetchImpl. */
-export function createService({ fetchImpl = globalThis.fetch }: { fetchImpl?: typeof fetch } = {}): Service {
+export interface HelpTrace {
+  path: 'button' | 'command' | 'card' | 'unknown' | 'placeholder' | 'written' | 'refused' | 'declined';
+  picked: string[];
+  unknownIds: string[];
+  /** The card the user got: the first cited one for written text. */
+  served: string | null;
+  /** Set when the writer was eligible. `cards` are the cited ones when written, else the ones it was given. */
+  writing?: {
+    cards: string[];
+    /** On a written reply, every card whose lead and limit it carries. */
+    given?: string[];
+    outcome: WritingOutcome;
+  };
+}
+
+export type WritingOutcome =
+  | 'written'
+  | 'unanswerable'
+  | 'content'
+  | 'not_supported'
+  | 'not_answers'
+  | 'format'
+  | 'writer_technical'
+  | 'checker_technical';
+
+export interface ServiceOptions {
+  fetchImpl?: typeof fetch;
+  dataset?: HelpDataset;
+  onTrace?: (trace: HelpTrace) => void;
+  now?: () => number;
+}
+
+/** Create the standalone Command AI compiler service. Tests can pass a mock fetchImpl, dataset and trace. */
+export function createService(options: ServiceOptions = {}): Service {
   return {
     async fetch(request, env) {
       let origins: Set<string>;
@@ -577,7 +856,7 @@ export function createService({ fetchImpl = globalThis.fetch }: { fetchImpl?: ty
       if (request.method === 'OPTIONS') return withHeaders(preflightResponse(request), headers);
       let response: Response;
       try {
-        response = await dispatch(request, env, fetchImpl);
+        response = await dispatch(request, env, options);
       } catch (error) {
         response = errorResponse(error);
       }

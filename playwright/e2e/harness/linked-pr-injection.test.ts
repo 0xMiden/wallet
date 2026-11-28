@@ -430,6 +430,7 @@ const publishedCheckoutInstall = (file: string, step: Step): boolean =>
 
 const linkedRuntimeExemptJobs = new Set([
   'command-ai.yml check',
+  'command-ai.yml live',
   'deploy-command-ai.yml deploy',
   'deploy-wallet-api.yml deploy',
   'wallet-api.yml check'
@@ -475,6 +476,7 @@ describe('every install a push or a dispatch can run injects the linked PRs firs
   it('keeps Worker service installs outside the linked wallet runtime injection rule', () => {
     for (const name of [
       'command-ai.yml check',
+      'command-ai.yml live',
       'deploy-command-ai.yml deploy',
       'deploy-wallet-api.yml deploy',
       'wallet-api.yml check'
