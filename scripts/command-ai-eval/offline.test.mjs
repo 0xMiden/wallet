@@ -618,8 +618,8 @@ test('runs command cases side by side and keeps their order', async context => {
 test('stops a live run that hangs within minutes, not hours', () => {
   const workflow = readFileSync(new URL('../../.github/workflows/command-ai.yml', import.meta.url), 'utf8');
   const live = workflow.split('\n  live:\n')[1];
-  assert.match(live, /\n {4}timeout-minutes: 12\n/);
-  assert.match(live, /- name: Run the selected suite\n {8}timeout-minutes: 8\n/);
+  assert.match(live, /\n {4}timeout-minutes: 36\n/);
+  assert.match(live, /- name: Run the selected suite\n {8}timeout-minutes: 30\n/);
 });
 
 test('runs the live model job only from a manual dispatch that picks a suite', () => {
@@ -1004,6 +1004,18 @@ for (const [name, broken, message] of [
     assert.throws(() => evaluation.loadSelectionCases({ holdoutPath: holdoutFile(context, cases) }), message);
   });
 }
+
+test('loads a P0 out-of-scope case without a forbidden list and blocks any card it is served', context => {
+  const cases = holdoutCases();
+  const outOfScope = cases.find(item => item.class === 'out_of_scope');
+  outOfScope.priority = 'P0';
+  assert.ok(evaluation.loadSelectionCases({ holdoutPath: holdoutFile(context, cases) }).length > 0);
+  const run = served => ({ op: 'explain', served, unknownIds: [], promptTokens: 1 });
+  const score = evaluation.scoreSelection([
+    { ...outOfScope, set: 'holdout', runs: [run('not_covered'), run('usdcx')] }
+  ]);
+  assert.deepEqual(score.p0Forbidden, [outOfScope.id]);
+});
 
 test('refuses a holdout with too few clusters in a class', context => {
   const holdoutPath = holdoutFile(context, holdoutCases({ answerable: 80, near_miss: 29, out_of_scope: 30 }));

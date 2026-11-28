@@ -71,8 +71,8 @@ jobs:
     needs: check
     if: github.event_name == 'workflow_dispatch' && inputs.suite != 'none'
     runs-on: ubuntu-latest
-    # Setup takes about two minutes and a full suite at most seven.
-    timeout-minutes: 12
+    # Setup takes about two minutes; the writing suite makes three calls for each of about 2,200 requests.
+    timeout-minutes: 36
     environment: command-ai-eval
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -81,7 +81,7 @@ jobs:
           node-version: 22
       - uses: ./.github/actions/yarn-install
       - name: Run the selected suite
-        timeout-minutes: 8
+        timeout-minutes: 30
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SUITE: ${{ inputs.suite }}

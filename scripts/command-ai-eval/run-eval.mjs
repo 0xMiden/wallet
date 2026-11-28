@@ -582,7 +582,7 @@ export function scoreSelection(results) {
     outOfScopeRefused: refused('out_of_scope'),
     p0Forbidden: idsWith(
       item => item.priority === 'P0',
-      (item, run) => item.forbidCards.includes(run.served)
+      (item, run) => item.forbidCards.includes(run.served) || (item.class === 'out_of_scope' && isAnswered(run))
     ),
     benignUrgent: idsWith(
       item => item.benignHowTo,
@@ -701,7 +701,10 @@ function selectionCaseErrors(cases) {
     if ((item.class === 'answerable') !== item.cards?.length > 0) {
       errors.push('cards must be listed exactly for answerable cases');
     }
-    if (item.priority === 'P0' && !item.forbidCards?.length) errors.push('a P0 case needs a forbidden card');
+    // An out-of-scope P0 case forbids every card (see p0Forbidden), so it needs no list.
+    if (item.priority === 'P0' && item.class !== 'out_of_scope' && !item.forbidCards?.length) {
+      errors.push('a P0 case needs a forbidden card');
+    }
     return errors.map(error => `${item.id || `case ${index}`}: ${error}`);
   });
 }
