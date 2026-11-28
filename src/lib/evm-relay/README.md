@@ -75,7 +75,7 @@ Every other refusal goes to the caller as it is.
 
 | POST failure | Class | What the submitter does |
 | --- | --- | --- |
-| `invalid_request`, `unsupported_chain`, `target_not_allowed`, `fee_too_low` (`RelayFeeTooLowError` with `required` and `token`), `fee_token_not_accepted`, `fee_not_needed`, `bad_signature` (400) | refused | Passes on the error |
+| `invalid_request`, `unsupported_chain`, `target_not_allowed`, `fee_too_low`, `invalid_fee_quote`, `fee_token_not_accepted`, `fee_not_needed`, `bad_signature` (400) | refused | Passes on the error |
 | `stale_request`, `simulation_failed`, `busy` (409) | refused | Retries as above, else passes on the error |
 | `relayer_unfunded` (503) | refused | Passes on the error |
 | `rate_limited` (429), `origin_not_allowed` (403), `not_found` (404), `method_not_allowed` (405), `payload_too_large` (413), `not_implemented` (501) | refused | Passes on the error |
@@ -164,7 +164,7 @@ sees only the reports of its own chain and address while it is open, in this rea
   for the same funds: the batch can still execute.
 - A new review is safe after `RelayNotSubmittedError`, `RelayExpiredError`, `RelayRevertedError`, and after a refusal
   that the submitter passes on (the job was not stored). `relayErrorAction` gives `review-again` for the first three
-  and for `stale_request`, `simulation_failed`, `fee_too_low` and `fee_not_needed`.
+  and for `stale_request`, `simulation_failed`, `fee_too_low`, `invalid_fee_quote` and `fee_not_needed`.
 - Known limit: the relay deletes a final job 24 hours after it became final (`RELAY_FINAL_JOB_RETENTION_SECONDS`). A
   `resume` or `check` more than 24 hours after the job became final can thus read `not_found` and report
   `RelayNotSubmittedError` (`not-submitted`) for a job that executed. Resume a stored reference within 24 hours of its
@@ -174,40 +174,43 @@ sees only the reports of its own chain and address while it is open, in this rea
 ### The fee rule (`deduct` mode)
 
 The service is not trusted for anything that decides where funds go or what they cost. In `deduct` mode the relay
-quotes the fee of each batch from its simulation of the calls: the simulated gas cost, priced in the fee token, with
-a margin. There is no fixed fee table. In `sponsor` mode there is no fee, no quote and no fee call.
+uses the batch simulation, the expected gas price and a 15% buffer to quote the fee in the fee token. There is no fixed fee table. In `sponsor` mode there is no fee, no quote and no fee call.
 
 - The wallet pays a fee to one recipient only, for every chain: the `relay.feeRecipient` of the remote config, else
   its `relay.executor` (`configuredFeeRecipient`). The executor is the relayer, which pays the gas. In `deduct` mode
-  `assertRelayAccountMatches` requires the account's `feeRecipient` to be that address. The config `relay.maxFee` is the highest fee that the wallet accepts for each token; a token without
-  an entry is not accepted as a fee.
+  `assertRelayAccountMatches` requires the account's `feeRecipient` to be that address.
+- The config `relay.maxFee` is the highest fee that the wallet accepts for one batch, as a USD value: `maxFee.l1` for
+  Ethereum and Sepolia (`RELAY_L1_CHAIN_IDS`), `maxFee.l2` for every other chain. The defaults are 0.50 USD and
+  0.05 USD. The limit is a USD value, so it applies to every fee token, and the config names no token.
+- The wallet values the fee itself (`relayFeeMicroUsd`): the amount, the decimals that the caller gives for the token,
+  and the wallet's own price of the token (`relayFeeTokenPriceMicroUsd` in `fee-price.ts`: the token is found by its
+  chain and contract in the wallet config, and priced by the wallet's feed, Binance then Kraken). The value is
+  rounded up. No price from the relay service is used. A token that the wallet cannot price cannot pay a fee
+  (`fee-price-unavailable`).
 - `GET /v1/account` gives `feeTokens`: the tokens that the relay takes a fee in (the native coin first), empty in
   `sponsor` mode. It gives no fee amount.
 
 How a caller reviews a fee:
 
-1. Quote: `quoteRelayFee(source or address, chainId, calls, feeToken)` (`quote.ts`) sends `POST /v1/quote` with the
-   calls of the batch WITHOUT the fee call, and checks the answer (`assertRelayQuoteMatches`): the chain, the
-   configured fee recipient, the asked token, a fee above 0 and at most the config `maxFee` of the token
-   (`fee-not-accepted`), and a `validUntil` after now (`quote-expired`). A refusal of the relay goes to the caller as it
+1. Quote: `quoteRelayFee(source or address, chainId, calls, { address, decimals })` (`quote.ts`) reads the wallet's
+   price of the fee token first; without a fresh price it throws `fee-price-unavailable` and does not ask the relay.
+   Then it sends `POST /v1/quote` with the calls of the batch WITHOUT the fee call, and checks the answer
+   (`assertRelayQuoteMatches`): the chain, the configured fee recipient, the asked token, a fee above 0 whose USD
+   value is at most the fee limit of the chain (`fee-not-accepted`), and a `validUntil` after now (`quote-expired`).
+   The checked quote carries `tokenValue`: the decimals and the price that the check used. A refusal of the relay goes to the caller as it
    is: `fee_not_needed` (the relay is in `sponsor` mode), `fee_token_not_accepted`, `simulation_failed` (the calls
    revert), `price_unavailable`.
 2. Show: the review shows `quote.fee` of `quote.token`. The caller can apply its own review limit here. A caller whose
    typed amount pays the fee too uses `amountAfterRelayFee(amount, quote.fee)`: the part of the amount that is left for
-   the bridge calls, or null when the fee is not below the amount. The calls that the caller quoted with and the calls
-   that it submits can differ in the amount only: the gas of the batch does not depend on it.
+   the bridge calls, or null when none of the deposit remains. The final batch must fit the signed quote's gas allowance.
 3. Submit: `submit(calls, { fee: relayQuoteFee(quote) })`. The signed fee call is exactly
    `buildFeeCall({ token: fee.token, recipient: <configured feeRecipient>, amount: fee.amount })`, as the LAST call.
    Before any signature the submitter requires `options.fee` (`no-reviewed-fee`), and refuses a token that is not in
-   the account's `feeTokens` (`no-fee`) and an amount of 0 or above the config `maxFee` of the token, or a token without
-   that entry (`fee-not-accepted`). It never asks for a quote and never signs a higher fee by itself.
+   the account's `feeTokens` (`no-fee`) and an amount of 0 or with a USD value above the fee limit of the chain
+   (`fee-not-accepted`). It values the amount with the `tokenValue` of the reviewed fee, and reads no price itself. It
+   never asks for a quote and never signs a higher fee by itself.
 
-The relay does not store or sign a quote. When it gets the signed batch, it simulates it again and accepts a fee of at
-least its requirement for the real gas estimate, less a tolerance. Else it answers `400 fee_too_low`, which the client
-reads as `RelayFeeTooLowError` with `required` (the fee that the relay would quote now) and `token`. The job was not
-stored; `relayErrorAction` gives `review-again`. The caller shows the new fee in a new review (step 1 again) and
-submits again only after the user accepts it. A `fee_too_low` body without a valid `required` and `token` stays a
-`RelayApiError` with that code and the same action.
+The submitter sends the relayer's quote signature and checks that the quote is valid for the current relay sequence before it signs. The relay checks the quoted fee terms and the signed batch's gas estimate. The relayer pays any extra gas cost due to a price increase. An expired or mismatched quote, or a batch that exceeds its gas allowance, gives `invalid_fee_quote` with the action `review-again`.
 
 `submit` in `sponsor` mode refuses a supplied `fee` (`unexpected-fee`): the review and the service disagree.
 
@@ -220,7 +223,7 @@ result as `fee`. The caller implements it with `quoteRelayFee` and its own revie
 
 ```ts
 const feeFor: RelaySendFee = async calls => {
-  const quote = await quoteRelayFee(source, chainId, calls, feeToken);
+  const quote = await quoteRelayFee(source, chainId, calls, { address: feeToken, decimals });
   if (quote.fee > reviewedLimit) throw new Error('the fee is above the review'); // nothing is signed
   return relayQuoteFee(quote);
 };
@@ -451,7 +454,7 @@ Each call awaits `initBridgeConfig()` (it does not wait for the network), reads 
   zero address is the native coin) asks for balances; the answer must give one balance for each distinct token, in
   the order of the query.
 - `fetchRelayQuote({ chainId, evmAddress, calls, feeToken, authorization? })`: `POST /v1/quote`, the
-  `RelayQuote` `{ chainId, token, recipient, fee, gas, validUntil }`. `calls` are 1 to 7 calls
+  `RelayQuote` `{ chainId, token, recipient, fee, gas, sequence, validUntil, signature }`. `calls` are 1 to 7 calls
   (`MAX_RELAY_QUOTE_CALLS`) without the fee call; a target that is the zero address or the relay address, a value that
   is not a uint256 and calldata that is not whole bytes are a `TypeError`. `authorization` is sent only when given.
   `relayQuoteBody(query)` is the pure JSON body. The caller checks the answer with `assertRelayQuoteMatches`
@@ -460,7 +463,7 @@ Each call awaits `initBridgeConfig()` (it does not wait for the network), reads 
   job.
 - `fetchRelayJob({ id, chainId? })`: `GET /v1/relay/{id}`.
 - `relaySubmissionBody(request)`: the pure JSON body of `POST /v1/relay`. The calls are sent exactly as signed, call
-  values and the batch nonce are decimal strings, and `deadline` is a number.
+  values and the batch nonce are decimal strings, and `deadline` is a number. In deduct mode the body includes the signed quote.
 
 A bad argument (a chain id, an address, a token, a job id or a deadline that is not valid) throws a `TypeError`
 before any request.
@@ -478,13 +481,13 @@ is no partial result. Unknown fields are ignored (also the `fees` table of an ol
 - `RelayApiError`: an error body. `code` (the contract's codes, `service_unavailable`, `internal_error`, or
   `unknown_error` for a code this build does not know), `status`, `message`, `retryAfter` (seconds, from the body,
   else from a delta-seconds `Retry-After` header, at most one hour) and `id` (the open relay, on `busy`).
-- `RelayFeeTooLowError` (a `RelayApiError` with code `fee_too_low`): `required` (base units) and `token`, the fee that
-  the relay asks for now.
+- `RelayFeeTooLowError` is a fee refusal with a new fee when the relay supplies `required` and `token`.
 - `RelayUnavailableError`: `reason` is `not_configured`, `network`, `timeout` or `bad_response`.
 - `RelayMismatchError`: a guard refused the answer, or the backend signed something that the submitter did not ask
   for.
 - `RelayRefusedError`: the wallet refused a quote or refused to sign. `reason` is `no-reviewed-fee`,
-  `unexpected-fee`, `no-fee`, `fee-not-accepted`, `quote-expired`, `target-not-allowed` or `too-many-calls`.
+  `unexpected-fee`, `no-fee`, `fee-not-accepted`, `fee-price-unavailable`, `quote-expired`, `target-not-allowed` or
+  `too-many-calls`.
 - `RelayRevertedError`, `RelayExpiredError` (`id`, `txHash`): a final job that did not succeed.
 - `RelayStillPendingError` (`job`, `id`, `txHash`), `RelayUnknownOutcomeError` (`job`, `id`, `cause`): follow the job
   with `resume(job)`.
@@ -498,7 +501,7 @@ is no partial result. Unknown fields are ignored (also the `fees` table of an ol
     later; `beforeSign` checks the review again).
   - `review-again`: this attempt is over and no batch of it can execute, so a new review can start.
     `RelayNotSubmittedError`, `RelayExpiredError`, `RelayRevertedError`, `stale_request`, `simulation_failed`,
-    `fee_too_low` (show `required` in the new review), `fee_not_needed` (the relay sponsors the gas now), and the
+    `fee_too_low`, `invalid_fee_quote`, `fee_not_needed`, and the
     refusal `quote-expired`.
   - `stop`: every other error (`fee_token_not_accepted` included).
 
@@ -510,9 +513,9 @@ is no partial result. Unknown fields are ignored (also the `fees` table of an ol
   (`deductFeeRecipient`). Else it throws `RelayMismatchError`.
 - `assertRelayServiceMatches(service, relay)`: the service names the configured `relay.executor` (letter case
   ignored). Else it throws `RelayMismatchError`.
-- `assertRelayQuoteMatches(quote, chain, feeToken, nowSeconds)`: see the fee rule. `assertFeeWithinCap` (the config
-  `maxFee`), `assertRelayTakesFeeToken` (the account's `feeTokens`) and `relayFeeToken` are the parts that `submit`
-  also uses.
+- `assertRelayQuoteMatches(quote, chain, feeToken, tokenValue, nowSeconds)`: see the fee rule. `assertFeeWithinCap`
+  (the USD value of the fee against `chain.maxFeeMicroUsd`, the config `maxFee.l1` or `maxFee.l2`),
+  `assertRelayTakesFeeToken` (the account's `feeTokens`) and `relayFeeToken` are the parts that `submit` also uses.
 - `assertRelayJobMatches(job, expectedId)`: the job id is the EIP-712 digest that the wallet computed. Else it
   throws `RelayMismatchError`.
 

@@ -24,7 +24,7 @@ import {
   type RelayProviderOptions
 } from './provider';
 import type { RelayJobRef } from './submit';
-import { CHAIN, EXECUTOR, FEE_RECIPIENT, NATIVE, SALT, USDC, upperHex } from './testing';
+import { CHAIN, EXECUTOR, FEE_RECIPIENT, NATIVE, QUOTE_PROOF, SALT, USDC, USDC_VALUE, upperHex } from './testing';
 import type { RelayAccount, RelayJob, RelayJobState, RelaySubmission } from './types';
 
 // Any key works: the relay key is the key of the relay address, so the signatures recover to RELAY.
@@ -394,7 +394,7 @@ describe('the submit options', () => {
         refs.push(job);
         events.push('onJob');
       },
-      fee: { token: USDC, amount: 1000n }
+      fee: { token: USDC, amount: 1000n, tokenValue: USDC_VALUE, quote: QUOTE_PROOF }
     });
     h.accounts = [DEDUCT];
     await sendTransaction(h.provider, { to: TARGET, data: '0xcafe0001' });
@@ -417,7 +417,7 @@ describe('the submit options', () => {
         events.push('feeFor');
         const amount = fees[asked.length - 1];
         if (amount === undefined) throw new Error('no fee');
-        return { token: USDC, amount };
+        return { token: USDC, amount, tokenValue: USDC_VALUE, quote: QUOTE_PROOF };
       }
     });
     h.accounts = [DEDUCT];
@@ -447,8 +447,10 @@ describe('the submit options', () => {
   });
 
   it('refuses a fee and feeFor together', () => {
-    const feeFor = async () => ({ token: USDC, amount: 1n });
-    expect(() => harness({ fee: { token: USDC, amount: 1n }, feeFor })).toThrow(TypeError);
+    const feeFor = async () => ({ token: USDC, amount: 1n, tokenValue: USDC_VALUE, quote: QUOTE_PROOF });
+    expect(() =>
+      harness({ fee: { token: USDC, amount: 1n, tokenValue: USDC_VALUE, quote: QUOTE_PROOF }, feeFor })
+    ).toThrow(TypeError);
   });
 
   it('gives the job to onJob before an answer is lost, and the submitter resumes it', async () => {

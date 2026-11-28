@@ -297,6 +297,22 @@ export interface RelayCaliburConfig {
 }
 
 /**
+ * The highest relay fee that the wallet accepts for one batch in `deduct` mode, in micro-dollars (1 USD is 1,000,000).
+ * `l1` applies to the chains of `RELAY_L1_CHAIN_IDS`, and `l2` to every other chain. The limit is a USD value, so it
+ * is the same for every fee token.
+ */
+export interface RelayMaxFee {
+  l1: number;
+  l2: number;
+}
+
+/** The chains that take the `l1` fee limit: Ethereum and its Sepolia testnet. Every other chain takes `l2`. */
+export const RELAY_L1_CHAIN_IDS: ReadonlySet<number> = new Set([1, 11155111]);
+
+/** The fee limits of a document that gives none: 0.50 USD on an L1 chain and 0.05 USD on every other chain. */
+export const DEFAULT_RELAY_MAX_FEE: RelayMaxFee = { l1: 500_000, l2: 50_000 };
+
+/**
  * The deposit-address relay service (`services/evm-relay`). One set of values applies to every chain of the
  * document's `supportedEvmChains`: the document names no chain list for the relay. The service tells at run time
  * whether it serves a chain (`unsupported_chain`).
@@ -309,14 +325,13 @@ export interface RelayConfig {
   /** The Calibur contract that the deposit address delegates to, the same on every chain. */
   calibur: RelayCaliburConfig;
   /**
-   * The highest fee the wallet accepts per fee token, in base units as a decimal string, on every chain. The key is
-   * the token address in lowercase; the zero address is the chain's native coin. A token without an entry is not
-   * accepted as a fee. Empty when the document gives no `maxFee`.
+   * The fee limits in micro-dollars. The document gives `maxFee.l1` and `maxFee.l2` as USD decimal strings; a limit
+   * that it does not give is the one of `DEFAULT_RELAY_MAX_FEE`.
    */
-  maxFee: Record<EvmAddress, string>;
+  maxFee: RelayMaxFee;
   /**
-   * The only fee recipient that the wallet pays in `deduct` mode. Never the zero address. Without it the wallet does
-   * not take `deduct` mode: it refuses a relayer that asks for a fee there.
+   * The fee recipient that the wallet pays in `deduct` mode. Never the zero address. Without it the wallet pays the
+   * `executor`.
    */
   feeRecipient?: EvmAddress;
 }
@@ -329,8 +344,8 @@ export interface RelayChainConfig {
   /** The account that executes the signed batches. Never the zero address. */
   executor: EvmAddress;
   calibur: RelayCaliburConfig;
-  /** `RelayConfig.maxFee`. */
-  maxFee: Record<EvmAddress, string>;
+  /** The fee limit of this chain in micro-dollars: `RelayConfig.maxFee.l1` or `RelayConfig.maxFee.l2`. */
+  maxFeeMicroUsd: number;
   /** `RelayConfig.feeRecipient`. */
   feeRecipient?: EvmAddress;
 }
@@ -338,9 +353,8 @@ export interface RelayChainConfig {
 const EVM_ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const BYTES32 = /^0x[0-9a-fA-F]{64}$/;
 const ZERO_EVM_ADDRESS = '0x0000000000000000000000000000000000000000';
-// A positive integer in decimal, with no sign and no leading zero.
-const POSITIVE_DECIMAL = /^[1-9][0-9]*$/;
-const UINT256_LIMIT = 2n ** 256n;
+// A USD amount in decimal: at most 6 digits before the point and at most 6 after it, with no sign and no leading zero.
+const USD_AMOUNT = /^(?:0|[1-9][0-9]{0,5})(?:\.[0-9]{1,6})?$/;
 const MIDEN_ACCOUNT_ID = /^0x[0-9a-fA-F]{30}$/;
 // An ERC-20 symbol as an AggLayer or Epoch route keys it: 1 to 11 upper-case ASCII letters or digits. The same rule
 // as the config repo's validator (scripts/validate.mjs).
@@ -606,21 +620,23 @@ function nonZeroEvmAddress(value: unknown): EvmAddress {
   return address === ZERO_EVM_ADDRESS ? invalid() : address;
 }
 
-// A uint256 above zero, as a decimal string. A JSON number is refused: it loses precision above 2^53.
-function positiveUint256(value: unknown): string {
-  if (typeof value !== 'string' || !POSITIVE_DECIMAL.test(value) || BigInt(value) >= UINT256_LIMIT) return invalid();
-  return value;
+// A USD amount above zero as a decimal string, in micro-dollars: at most 6 digits before the point and at most 6
+// after it, with no sign and no leading zero. A JSON number is refused, as for every other amount of the document.
+function usdMicro(value: unknown): number {
+  if (typeof value !== 'string' || !USD_AMOUNT.test(value)) return invalid();
+  const [whole, fraction = ''] = value.split('.');
+  const micro = Number(whole) * 1_000_000 + Number(fraction.padEnd(6, '0'));
+  return micro > 0 ? micro : invalid();
 }
 
-// The fee ceilings by token address. The map can be empty. Two keys that differ only in case are ambiguous.
-function relayMaxFee(value: unknown): Record<EvmAddress, string> {
-  const maxFee: Record<EvmAddress, string> = {};
-  for (const [token, amount] of Object.entries(record(value))) {
-    const address = evmAddress(token);
-    if (Object.prototype.hasOwnProperty.call(maxFee, address)) return invalid();
-    maxFee[address] = positiveUint256(amount);
-  }
-  return maxFee;
+// The fee limits in USD by chain class. A limit that the section does not give is the default one. Unknown keys are
+// ignored; this includes the token addresses of an older document shape.
+function relayMaxFee(value: unknown): RelayMaxFee {
+  const maxFee = record(value);
+  return {
+    l1: maxFee.l1 === undefined ? DEFAULT_RELAY_MAX_FEE.l1 : usdMicro(maxFee.l1),
+    l2: maxFee.l2 === undefined ? DEFAULT_RELAY_MAX_FEE.l2 : usdMicro(maxFee.l2)
+  };
 }
 
 function relayCalibur(value: unknown): RelayCaliburConfig {
@@ -647,7 +663,7 @@ function readRelay(value: ConfigValue, enabled: boolean): RelayConfig | undefine
     baseUrl: backupBaseUrl(relay.baseUrl),
     executor: nonZeroEvmAddress(relay.executor),
     calibur: relayCalibur(relay.calibur),
-    maxFee: relay.maxFee === undefined ? {} : relayMaxFee(relay.maxFee),
+    maxFee: relay.maxFee === undefined ? { ...DEFAULT_RELAY_MAX_FEE } : relayMaxFee(relay.maxFee),
     // The fee recipient receives funds, so the zero address is refused.
     ...(relay.feeRecipient === undefined ? {} : { feeRecipient: nonZeroEvmAddress(relay.feeRecipient) })
   };

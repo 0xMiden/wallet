@@ -1,12 +1,12 @@
 // POST /v1/quote: the fee that a `deduct` batch must pay, before the wallet signs it. The route simulates the calls
 // with a fee call at their end (quote-gas.ts), prices the gas in the fee token (pricing.ts) and adds QUOTE_MARGIN.
-// The quote is not stored and not signed: the relay route decides again from its own simulation. The route never logs
-// the body or an RPC URL.
-import { buildFeeCall, type BatchCall } from '../../../../src/lib/evm-relay/batch';
-import { ChainIntegrityError, RpcUnavailableError, maxFeeOf, type QuoteCall, type QuoteState } from '../chain';
+// Sign the quote so the relay can honor the price when it receives the batch.
+import { batchNonceOf, buildFeeCall, type BatchCall } from '../../../../src/lib/evm-relay/batch';
+import { ChainIntegrityError, RpcUnavailableError, type QuoteCall, type QuoteState } from '../chain';
 import { routeConfig, type ChainConfig } from '../config';
 import { ApiError, invalidRequest, notConfigured } from '../errors';
 import { QUOTE_VALID_SECONDS, quotedFee } from '../fee';
+import { signFeeQuote } from '../fee-quote-proof';
 import { json, readJson } from '../http';
 import { address, fail, safeInteger, shape, type Hex } from '../parse';
 import { feeIn, isFeeToken } from '../pricing';
@@ -107,16 +107,30 @@ export async function quote(context: RequestContext): Promise<Response> {
   });
   const exact = await feeIn(context.prices, chain, request.feeToken, {
     gas,
-    maxFeePerGas: maxFeeOf(state),
+    gasPrice: state.baseFee + state.priorityFee,
     tokenDecimals: state.feeTokenDecimals
+  });
+  const fee = quotedFee(exact);
+  const validUntil = Math.floor(Date.now() / 1000) + QUOTE_VALID_SECONDS;
+  const signature = await signFeeQuote(context.env, {
+    chainId: chain.chainId,
+    evmAddress: request.evmAddress,
+    batchNonce: batchNonceOf(state.sequence),
+    token: request.feeToken,
+    recipient,
+    amount: fee,
+    gas,
+    validUntil
   });
   const answer: QuoteResponse = {
     chainId: chain.chainId,
     token: request.feeToken,
     recipient,
-    fee: quotedFee(exact).toString(),
+    fee: fee.toString(),
     gas: gas.toString(),
-    validUntil: Math.floor(Date.now() / 1000) + QUOTE_VALID_SECONDS
+    sequence: state.sequence.toString(),
+    validUntil,
+    signature
   };
   return json(answer);
 }

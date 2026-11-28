@@ -3,7 +3,7 @@ import { TEST_EARN_VAULT_INFO } from 'lib/epoch/testing/bridge-config';
 import type { DerivedBridgeConfig, DerivedChainConfig } from './derive';
 import { _resetE2eOverridesForTest, setEarnCollateralFaucetOverride } from './e2e-overrides';
 import { type BridgeConfigSnapshot, getBridgeConfigSnapshot } from './runtime';
-import type { BridgeConfig, RelayChainConfig, RelayConfig } from './schema';
+import { RELAY_L1_CHAIN_IDS, type BridgeConfig, type RelayChainConfig, type RelayConfig } from './schema';
 import { bridgeConfigBaseUrl, bridgeConfigUrl } from './source';
 import {
   BridgeConfigUnavailableError,
@@ -460,7 +460,7 @@ describe('the deposit-address relay', () => {
       domainName: 'Calibur',
       domainVersion: '1.0.0'
     },
-    maxFee: { '0x0000000000000000000000000000000000000000': '1000000000000000' },
+    maxFee: { l1: 500_000, l2: 50_000 },
     feeRecipient: '0xfefefefefefefefefefefefefefefefefefefefe'
   };
   const SEPOLIA_RELAY: RelayChainConfig = {
@@ -468,7 +468,7 @@ describe('the deposit-address relay', () => {
     chainId: 11155111,
     executor: RELAY.executor,
     calibur: RELAY.calibur,
-    maxFee: RELAY.maxFee,
+    maxFeeMicroUsd: RELAY.maxFee.l1,
     feeRecipient: '0xfefefefefefefefefefefefefefefefefefefefe'
   };
   const RELAY_CONFIG: BridgeConfig = {
@@ -486,7 +486,29 @@ describe('the deposit-address relay', () => {
   });
 
   it('applies the one set of values to every chain of supportedEvmChains, under its own key', () => {
-    expect(selectRelayChain(on, 84532)).toEqual({ ...SEPOLIA_RELAY, key: 'base-sepolia', chainId: 84532 });
+    expect(selectRelayChain(on, 84532)).toEqual({
+      ...SEPOLIA_RELAY,
+      key: 'base-sepolia',
+      chainId: 84532,
+      maxFeeMicroUsd: RELAY.maxFee.l2
+    });
+  });
+
+  it('gives the L1 fee limit to Ethereum and Sepolia, and the L2 fee limit to every other chain', () => {
+    const chains = {
+      ethereum: { chainId: 1, bridges: {} },
+      sepolia: { chainId: 11155111, bridges: {} },
+      base: { chainId: 8453, bridges: {} },
+      polygon: { chainId: 137, bridges: {} }
+    };
+    const all = snapshot({ ...RELAY_CONFIG, supportedEvmChains: chains });
+    expect([...RELAY_L1_CHAIN_IDS]).toEqual([1, 11155111]);
+    expect([1, 11155111, 8453, 137].map(chainId => selectRelayChain(all, chainId)?.maxFeeMicroUsd)).toEqual([
+      RELAY.maxFee.l1,
+      RELAY.maxFee.l1,
+      RELAY.maxFee.l2,
+      RELAY.maxFee.l2
+    ]);
   });
 
   it('leaves the fee recipient out of the chain view when the section has none', () => {

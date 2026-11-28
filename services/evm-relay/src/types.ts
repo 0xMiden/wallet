@@ -11,6 +11,7 @@ export type ErrorCode =
   | 'unsupported_chain'
   | 'target_not_allowed'
   | 'fee_too_low'
+  | 'invalid_fee_quote'
   | 'fee_token_not_accepted'
   | 'fee_not_needed'
   | 'bad_signature'
@@ -67,10 +68,6 @@ export interface ErrorBody {
   retryAfter?: number;
   /** The id of the open relay, on `busy`. */
   id?: string;
-  /** On `fee_too_low`: the fee that the Worker quotes now, in base units of `token`, a decimal string. */
-  required?: string;
-  /** On `fee_too_low`: the fee token of the batch. The zero address is the native coin. */
-  token?: Hex;
 }
 
 export interface HealthResponse {
@@ -116,7 +113,7 @@ export interface AccountResponse {
   balances: AccountBalance[];
 }
 
-/** The body of `POST /v1/quote`. The Worker does not store it and does not sign it. */
+/** The signed fee quote from `POST /v1/quote`. */
 export interface QuoteResponse {
   chainId: number;
   /** The fee token. The zero address is the native coin. */
@@ -127,6 +124,10 @@ export interface QuoteResponse {
   fee: string;
   /** The gas that the fee pays for, a decimal string. */
   gas: string;
+  /** The Calibur relay sequence for this quote, a decimal string. */
+  sequence: string;
   /** Unix seconds: the time of the quote plus QUOTE_VALID_SECONDS. */
   validUntil: number;
+  /** The relayer's signature of the quote terms. */
+  signature: Hex;
 }

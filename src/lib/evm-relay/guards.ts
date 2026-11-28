@@ -10,7 +10,7 @@ import type { RelayChainConfig, RelayConfig } from 'lib/remote-config/schema';
 
 import { RelayMismatchError, RelayRefusedError } from './errors';
 import { lowerAddress } from './parse';
-import type { RelayAccount, RelayJob, RelayQuote, RelayService } from './types';
+import type { RelayAccount, RelayFeeQuoteProof, RelayJob, RelayQuote, RelayService } from './types';
 
 function sameHex(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
@@ -86,39 +86,69 @@ export function assertRelayTakesFeeToken(account: RelayAccount, token: Address):
 }
 
 /**
- * Throws `RelayRefusedError` (`fee-not-accepted`) unless the amount is above 0 and at most the config `maxFee` of the
- * token. A token without a `maxFee` entry is not accepted as a fee. The batch module refuses a zero fee call.
+ * The fee token as the wallet values it. Both values are wallet data: the decimals come from the caller's own token
+ * record, and the price comes from the wallet's price feed. A value from the relay service never goes here.
  */
-export function assertFeeWithinCap(chain: RelayChainConfig, token: Address, amount: bigint): void {
-  const key = token.toLowerCase();
-  const maxFee = Object.entries(chain.maxFee).find(([configured]) => configured.toLowerCase() === key)?.[1];
-  if (maxFee === undefined || amount <= 0n || amount > BigInt(maxFee)) {
+export interface RelayFeeTokenValue {
+  /** The decimals of the token: 0 to 36. */
+  decimals: number;
+  /** The price of one whole token in micro-dollars (1 USD is 1,000,000). Above 0. */
+  priceMicroUsd: bigint;
+}
+
+const MAX_FEE_TOKEN_DECIMALS = 36;
+
+/**
+ * The USD value of `amount` base units of the fee token, in micro-dollars, rounded up. A negative amount, decimals
+ * out of range or a price that is not above 0 is a `TypeError`: it is a defect of the caller.
+ */
+export function relayFeeMicroUsd(amount: bigint, tokenValue: RelayFeeTokenValue): bigint {
+  const { decimals, priceMicroUsd } = tokenValue;
+  if (amount < 0n) throw new TypeError('relay: the fee is not valid');
+  if (!Number.isInteger(decimals) || decimals < 0 || decimals > MAX_FEE_TOKEN_DECIMALS) {
+    throw new TypeError('relay: the decimals of the fee token are not valid');
+  }
+  if (priceMicroUsd <= 0n) throw new TypeError('relay: the price of the fee token is not valid');
+  const unit = 10n ** BigInt(decimals);
+  return (amount * priceMicroUsd + unit - 1n) / unit;
+}
+
+/**
+ * Throws `RelayRefusedError` (`fee-not-accepted`) unless the amount is above 0 and its USD value is at most the fee
+ * limit of the chain (`maxFeeMicroUsd`: the config `maxFee.l1` or `maxFee.l2`). The limit is a USD value, so it
+ * applies to every fee token. The batch module refuses a zero fee call.
+ */
+export function assertFeeWithinCap(chain: RelayChainConfig, amount: bigint, tokenValue: RelayFeeTokenValue): void {
+  if (amount <= 0n || relayFeeMicroUsd(amount, tokenValue) > BigInt(chain.maxFeeMicroUsd)) {
     throw new RelayRefusedError('fee-not-accepted');
   }
 }
 
 /**
- * A fee that the user reviewed: `amount` base units of `token`. The zero address is the native coin. It comes from a
- * checked quote (`relayQuoteFee` in `quote.ts`).
+ * A fee that the user reviewed: `amount` base units of `token`, with the wallet's value of the token at the review.
+ * The zero address is the native coin. It comes from a checked quote (`relayQuoteFee` in `quote.ts`).
  */
 export interface RelayReviewedFee {
   token: Address;
   amount: bigint;
+  tokenValue: RelayFeeTokenValue;
+  quote: RelayFeeQuoteProof;
 }
 
 /**
  * Throws unless the wallet may show the quote to the user and sign its fee:
  * - `RelayMismatchError` when the quote is for another chain, the recipient is not `configuredFeeRecipient` of the
  *   chain, or the token is not the asked `feeToken`;
- * - `RelayRefusedError` (`fee-not-accepted`) when the fee is 0, the config has no `maxFee` entry for the token, or the
- *   fee is above that entry;
+ * - `RelayRefusedError` (`fee-not-accepted`) when the fee is 0, or its USD value (from `tokenValue`) is above the fee
+ *   limit of the chain;
  * - `RelayRefusedError` (`quote-expired`) when `validUntil` is not after `nowSeconds`.
- * A `feeToken` that is not an address is a `TypeError`.
+ * A `feeToken` that is not an address, or a `tokenValue` that is not valid, is a `TypeError`.
  */
 export function assertRelayQuoteMatches(
   quote: RelayQuote,
   chain: RelayChainConfig,
   feeToken: Address,
+  tokenValue: RelayFeeTokenValue,
   nowSeconds: number
 ): void {
   const token = relayFeeToken(feeToken);
@@ -127,7 +157,7 @@ export function assertRelayQuoteMatches(
     throw new RelayMismatchError('relay: the fee recipient is not the configured fee recipient');
   }
   if (!sameHex(quote.token, token)) throw new RelayMismatchError('relay: the quote is for another fee token');
-  assertFeeWithinCap(chain, token, quote.fee);
+  assertFeeWithinCap(chain, quote.fee, tokenValue);
   if (quote.validUntil <= nowSeconds) throw new RelayRefusedError('quote-expired');
 }
 

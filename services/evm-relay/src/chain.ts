@@ -71,8 +71,6 @@ export interface RelayState {
   gasEstimate: bigint | null;
   /** `getSeq(RELAY_NONCE_KEY)` of the address: the sequence that the next relay batch must use. */
   sequence: bigint;
-  /** The decimals of the fee token, when the read asked for a fee token. */
-  feeTokenDecimals?: number;
 }
 
 /**
@@ -104,6 +102,8 @@ export interface QuoteState {
   priorityFee: bigint;
   /** The gas estimate of the unsigned batch as the address itself, or null when it reverts. */
   batchEstimate: bigint | null;
+  /** The Calibur sequence for the next relay batch. */
+  sequence: bigint;
   /** The estimates of the calibration batch: as itself, signed, and signed with an authorization. */
   calibration: { self: bigint; signed: bigint; signedWithAuthorization: bigint };
   feeTokenDecimals: number;
@@ -132,7 +132,7 @@ export interface ChainReader {
   /** Read the address and the balance of each token. The zero address is the native coin. */
   readAccount(chain: ChainConfig, address: Hex, tokens: readonly Hex[]): Promise<AccountState>;
   /** With a fee token, the state also has the decimals of that token. */
-  readRelay(chain: ChainConfig, call: RelayCall, feeToken?: Hex): Promise<RelayState>;
+  readRelay(chain: ChainConfig, call: RelayCall): Promise<RelayState>;
   readQuote(chain: ChainConfig, call: QuoteCall): Promise<QuoteState>;
 }
 
@@ -398,13 +398,10 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
     };
   }
 
-  async function readRelay(chain: ChainConfig, call: RelayCall, feeToken?: Hex): Promise<RelayState> {
+  async function readRelay(chain: ChainConfig, call: RelayCall): Promise<RelayState> {
     const url = rpcUrlOf(env, chain.chainId);
     if (url === null) throw notConfigured();
     const { evmAddress, relayer } = call;
-    // In `deduct` mode the batch also asks the fee token for its decimals, when the cache does not know them.
-    const known = feeToken === undefined ? null : knownDecimals(chain, feeToken);
-    const decimals = feeToken !== undefined && known === null ? [decimalsCall(feeToken)] : [];
     // One batch. The estimate includes the authorization when the request has one: a plain call on an address that
     // does not delegate executes nothing and succeeds, so only a simulation with the authorization checks the batch.
     // `getSeq` sends a state override that puts the EIP-7702 delegation to the pinned Calibur on the address. The
@@ -424,12 +421,11 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
         FEE_HISTORY,
         PRIORITY_FEE,
         { method: 'eth_estimateGas', params: [estimateOf(call)] },
-        getSeqCall(evmAddress, delegation),
-        ...decimals
+        getSeqCall(evmAddress, delegation)
       ],
       AbortSignal.timeout(RPC_TIMEOUT_MS)
     );
-    const state: RelayState = {
+    return {
       delegated: isCaliburDelegation(hexOf(outcomes[0]), chain.calibur),
       authorizationNonce: decodeNonce(hexOf(outcomes[1])),
       relayerNonce: decodeNonce(hexOf(outcomes[2])),
@@ -439,8 +435,6 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
       gasEstimate: gasEstimateOf(outcomes[6]),
       sequence: decodeSequence(hexOf(outcomes[7]))
     };
-    if (feeToken !== undefined) state.feeTokenDecimals = decimalsFrom(chain, feeToken, known, outcomes[8]);
-    return state;
   }
 
   async function readQuote(chain: ChainConfig, call: QuoteCall): Promise<QuoteState> {
@@ -481,6 +475,7 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
             })
           ]
         },
+        getSeqCall(evmAddress, { [evmAddress]: { code: delegationCode } }),
         ...(known === null ? [decimalsCall(call.feeToken)] : [])
       ],
       AbortSignal.timeout(RPC_TIMEOUT_MS)
@@ -495,7 +490,8 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
         signed: calibrationEstimateOf(outcomes[5]),
         signedWithAuthorization: calibrationEstimateOf(outcomes[6])
       },
-      feeTokenDecimals: decimalsFrom(chain, call.feeToken, known, outcomes[7])
+      sequence: decodeSequence(hexOf(outcomes[7])),
+      feeTokenDecimals: decimalsFrom(chain, call.feeToken, known, outcomes[8])
     };
   }
 
