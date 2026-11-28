@@ -33,6 +33,8 @@ export interface BridgeRouteSummary {
   destinationSymbol: string;
   destinationNetwork: string;
   contractAddress?: string;
+  /** The route's Miden token: the only key to its logo. */
+  midenFaucetId?: string;
   estimateFee?: string;
   etaLabel?: string;
 }
@@ -98,6 +100,10 @@ export interface ClarificationChip {
   id: string;
   label: string;
   subtitle?: string;
+  /** Set on a bridge route chip, which is rendered from the route instead of `label`. */
+  route?: BridgeRouteSummary;
+  /** The contract address, shown when two route chips would otherwise read the same. */
+  addressHint?: string;
   patch: Partial<HydratedIntentDraft>;
 }
 
@@ -484,15 +490,16 @@ function shortAddr(addr: string): string {
   return addr.length > 14 ? `${addr.slice(0, 7)}…${addr.slice(-4)}` : addr;
 }
 
-function bridgeClarificationLabels(routes: readonly BridgeRouteSummary[]): string[] {
-  const bases = routes.map(
-    route =>
-      `${route.sourceSymbol} → ${route.destinationSymbol} · ${route.provider} (${route.sourceNetwork} → ${route.destinationNetwork})`
+function bridgeAddressHints(routes: readonly BridgeRouteSummary[]): (string | undefined)[] {
+  const bases = routes.map(route =>
+    [route.sourceSymbol, route.destinationSymbol, route.provider, route.sourceNetwork, route.destinationNetwork].join(
+      '|'
+    )
   );
   return routes.map((route, index) => {
     const base = bases[index]!;
     const address = route.contractAddress;
-    if (!address || bases.filter(candidate => candidate === base).length === 1) return base;
+    if (!address || bases.filter(candidate => candidate === base).length === 1) return undefined;
     const shortened = shortAddr(address);
     const shortenedCount = routes.filter(
       (candidate, candidateIndex) =>
@@ -500,7 +507,7 @@ function bridgeClarificationLabels(routes: readonly BridgeRouteSummary[]): strin
         candidate.contractAddress !== undefined &&
         shortAddr(candidate.contractAddress) === shortened
     ).length;
-    return `${base} ${shortenedCount === 1 ? shortened : address}`;
+    return shortenedCount === 1 ? shortened : address;
   });
 }
 
@@ -786,10 +793,12 @@ function bridgeRouteCarries(route: BridgeRouteSummary, asset: string): boolean {
 }
 
 function bridgeRouteChips(draft: HydratedIntentDraft, routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
-  const labels = bridgeClarificationLabels(routes);
+  const addressHints = bridgeAddressHints(routes);
   return routes.map((route, index) => ({
     id: route.id,
-    label: labels[index]!,
+    label: `${route.sourceSymbol} → ${route.destinationSymbol}`,
+    route,
+    addressHint: addressHints[index],
     subtitle: [route.estimateFee, route.etaLabel].filter(Boolean).join(' · ') || undefined,
     patch: {
       routeId: route.id,

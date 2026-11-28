@@ -78,6 +78,13 @@ export const EARN_POSITIONS_LOAD_STAGES = [
 export const EARN_POSITIONS_LOAD_OUTCOMES = ['complete_failure', 'partial_failure'] as const;
 export const EARN_DEPOSIT_SUBMIT_ORIGINS = ['preflight', 'open_position'] as const;
 export const SWAP_SUBMIT_FAILURE_ORIGINS = ['review_submit_catch', 'run_swap_catch'] as const;
+export const FAUCET_FAILURE_PHASES = [
+  'local_request_guard',
+  'request_preparation',
+  'definitive_refusal',
+  'unrecorded'
+] as const;
+export type FaucetFailurePhase = (typeof FAUCET_FAILURE_PHASES)[number];
 export const CONFIRM_APPROVAL_FAILURE_ORIGINS = ['approve', 'decline', 'automatic_reconnect'] as const;
 export type ConfirmApprovalFailureOrigin = (typeof CONFIRM_APPROVAL_FAILURE_ORIGINS)[number];
 export type EarnPositionsLoadStage = (typeof EARN_POSITIONS_LOAD_STAGES)[number];
@@ -189,6 +196,7 @@ export type UiEvidenceInput =
   | { kind: 'guardian_outage'; guardianOutageReason: GuardianOutageReason }
   | { kind: 'earn_deposit_submit'; earnDepositSubmitOrigin: EarnDepositSubmitOrigin }
   | { kind: 'swap_submit_failure'; swapSubmitFailureOrigin: SwapSubmitFailureOrigin }
+  | { kind: 'faucet_failure'; faucetFailurePhase: FaucetFailurePhase }
   | { kind: 'confirm_approval_failure'; confirmApprovalFailureOrigin: ConfirmApprovalFailureOrigin }
   | {
       kind: 'bridge_balance_read';
@@ -238,6 +246,7 @@ export type UiProducerDiagnostics = {
   earnPositionsLoadOutcome?: EarnPositionsLoadOutcome;
   earnDepositSubmitOrigin?: EarnDepositSubmitOrigin;
   swapSubmitFailureOrigin?: SwapSubmitFailureOrigin;
+  faucetFailurePhase?: FaucetFailurePhase;
   bridgeBalanceBranch?: BridgeBalanceBranch;
   bridgeBalanceStage?: BridgeBalanceStage;
   featureUnavailableFeature?: FeatureUnavailableFeature;
@@ -265,6 +274,7 @@ export const UI_PRODUCER_KEYS = [
   'earnPositionsLoadOutcome',
   'earnDepositSubmitOrigin',
   'swapSubmitFailureOrigin',
+  'faucetFailurePhase',
   'bridgeBalanceBranch',
   'bridgeBalanceStage',
   'featureUnavailableFeature',
@@ -305,6 +315,11 @@ const groups = {
     id: 'raw_swap_submit_failed',
     surface: 'review',
     fields: { swapSubmitFailureOrigin: SWAP_SUBMIT_FAILURE_ORIGINS }
+  },
+  faucet_failure: {
+    id: 'raw_home_faucet_failed',
+    surface: 'prompt',
+    fields: { faucetFailurePhase: FAUCET_FAILURE_PHASES }
   },
   earn_positions_load: {
     id: 'earnPositionsLoadError',
