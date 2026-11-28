@@ -6382,6 +6382,68 @@
     "message": "토큰 정보",
     "englishSource": "Token info"
   },
+  "tokenDetailPnlTitle": {
+    "message": "손익",
+    "englishSource": "Profit and loss"
+  },
+  "tokenDetailPnlUnrealized": {
+    "message": "미실현",
+    "englishSource": "Unrealized"
+  },
+  "tokenDetailPnlCost": {
+    "message": "비용",
+    "englishSource": "Cost"
+  },
+  "tokenDetailPnlAverageCost": {
+    "message": "평균 비용",
+    "englishSource": "Average cost"
+  },
+  "tokenDetailPnlAverageCostValue": {
+    "message": "$amount$당 $symbol$",
+    "englishSource": "$amount$ per $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailPnlPercent": {
+    "message": "$percent$",
+    "englishSource": "$percent$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailPnlSince": {
+    "message": "$date$ 이후, 이 기기에 기록된 결제 내역 중",
+    "englishSource": "Since $date$, from payments recorded on this device",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailPnlUnknown": {
+    "message": "알 수 없음",
+    "englishSource": "Not known"
+  },
+  "tokenDetailPnlIncompleteBody": {
+    "message": "이 잔액의 일부는 이 기기가 비용을 기록하기 시작하기 전에 입금되었거나, 여기에 기록되지 않았습니다. 해당 부분이 지출된 후에야 손익이 표시됩니다.",
+    "englishSource": "Part of this balance arrived before this device began recording costs, or was not recorded here. Profit and loss shows once that part has been spent."
+  },
+  "tokenDetailPnlNoPriceBody": {
+    "message": "이 토큰의 현재 시세는 없습니다.",
+    "englishSource": "There is no current price for this token."
+  },
+  "tokenDetailPnlBasketBody": {
+    "message": "바스켓 토큰의 경우 추적되지 않습니다.",
+    "englishSource": "Not tracked for basket tokens."
+  },
   "basketComposition": {
     "message": "구성",
     "englishSource": "Composition"

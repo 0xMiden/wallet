@@ -6386,6 +6386,68 @@
     "message": "Informations sur le jeton",
     "englishSource": "Token info"
   },
+  "tokenDetailPnlTitle": {
+    "message": "Profits et pertes",
+    "englishSource": "Profit and loss"
+  },
+  "tokenDetailPnlUnrealized": {
+    "message": "Non réalisé",
+    "englishSource": "Unrealized"
+  },
+  "tokenDetailPnlCost": {
+    "message": "Coût",
+    "englishSource": "Cost"
+  },
+  "tokenDetailPnlAverageCost": {
+    "message": "Coût moyen",
+    "englishSource": "Average cost"
+  },
+  "tokenDetailPnlAverageCostValue": {
+    "message": "$amount$ par $symbol$",
+    "englishSource": "$amount$ per $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailPnlPercent": {
+    "message": "$percent$",
+    "englishSource": "$percent$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailPnlSince": {
+    "message": "Depuis le $date$, d’après les paiements enregistrés sur cet appareil",
+    "englishSource": "Since $date$, from payments recorded on this device",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailPnlUnknown": {
+    "message": "Inconnu",
+    "englishSource": "Not known"
+  },
+  "tokenDetailPnlIncompleteBody": {
+    "message": "Une partie de ce solde est arrivée avant que cet appareil ne commence à enregistrer les coûts, ou n’a pas été enregistrée ici. Les profits et pertes apparaissent une fois que cette partie a été dépensée.",
+    "englishSource": "Part of this balance arrived before this device began recording costs, or was not recorded here. Profit and loss shows once that part has been spent."
+  },
+  "tokenDetailPnlNoPriceBody": {
+    "message": "Il n’existe actuellement aucun cours pour ce jeton.",
+    "englishSource": "There is no current price for this token."
+  },
+  "tokenDetailPnlBasketBody": {
+    "message": "Non pris en compte pour les jetons de panier.",
+    "englishSource": "Not tracked for basket tokens."
+  },
   "basketComposition": {
     "message": "Composition",
     "englishSource": "Composition"

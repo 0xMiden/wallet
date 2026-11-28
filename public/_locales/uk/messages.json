@@ -6384,6 +6384,68 @@
     "message": "Інформація про токен",
     "englishSource": "Token info"
   },
+  "tokenDetailPnlTitle": {
+    "message": "Прибуток і збиток",
+    "englishSource": "Profit and loss"
+  },
+  "tokenDetailPnlUnrealized": {
+    "message": "Нереалізовані",
+    "englishSource": "Unrealized"
+  },
+  "tokenDetailPnlCost": {
+    "message": "Вартість",
+    "englishSource": "Cost"
+  },
+  "tokenDetailPnlAverageCost": {
+    "message": "Середня вартість",
+    "englishSource": "Average cost"
+  },
+  "tokenDetailPnlAverageCostValue": {
+    "message": "$amount$ за $symbol$",
+    "englishSource": "$amount$ per $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailPnlPercent": {
+    "message": "$percent$",
+    "englishSource": "$percent$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailPnlSince": {
+    "message": "З $date$ року, за даними про платежі, зареєстровані на цьому пристрої",
+    "englishSource": "Since $date$, from payments recorded on this device",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailPnlUnknown": {
+    "message": "Невідомо",
+    "englishSource": "Not known"
+  },
+  "tokenDetailPnlIncompleteBody": {
+    "message": "Частина цього залишку надійшла до того, як цей пристрій почав фіксувати витрати, або не була зафіксована тут. Прибуток і збиток відображаються після того, як ця частина була витрачена.",
+    "englishSource": "Part of this balance arrived before this device began recording costs, or was not recorded here. Profit and loss shows once that part has been spent."
+  },
+  "tokenDetailPnlNoPriceBody": {
+    "message": "Цей токен наразі не має ринкової ціни.",
+    "englishSource": "There is no current price for this token."
+  },
+  "tokenDetailPnlBasketBody": {
+    "message": "Не відстежується для токенів кошика.",
+    "englishSource": "Not tracked for basket tokens."
+  },
   "basketComposition": {
     "message": "Склад",
     "englishSource": "Composition"

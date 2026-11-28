@@ -6386,6 +6386,68 @@
     "message": "Информация о токене",
     "englishSource": "Token info"
   },
+  "tokenDetailPnlTitle": {
+    "message": "Прибыль и убыток",
+    "englishSource": "Profit and loss"
+  },
+  "tokenDetailPnlUnrealized": {
+    "message": "Нереализованный",
+    "englishSource": "Unrealized"
+  },
+  "tokenDetailPnlCost": {
+    "message": "Стоимость",
+    "englishSource": "Cost"
+  },
+  "tokenDetailPnlAverageCost": {
+    "message": "Средняя стоимость",
+    "englishSource": "Average cost"
+  },
+  "tokenDetailPnlAverageCostValue": {
+    "message": "$amount$ за $symbol$",
+    "englishSource": "$amount$ per $symbol$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "symbol": {
+        "content": "$2"
+      }
+    }
+  },
+  "tokenDetailPnlPercent": {
+    "message": "$percent$",
+    "englishSource": "$percent$%",
+    "placeholders": {
+      "percent": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailPnlSince": {
+    "message": "С $date$, по платежам, зарегистрированным на этом устройстве",
+    "englishSource": "Since $date$, from payments recorded on this device",
+    "placeholders": {
+      "date": {
+        "content": "$1"
+      }
+    }
+  },
+  "tokenDetailPnlUnknown": {
+    "message": "Неизвестно",
+    "englishSource": "Not known"
+  },
+  "tokenDetailPnlIncompleteBody": {
+    "message": "Часть этого остатка поступила до того, как данное устройство начало регистрировать расходы, либо не была здесь зарегистрирована. Прибыль и убытки отображаются после того, как эта часть была потрачена.",
+    "englishSource": "Part of this balance arrived before this device began recording costs, or was not recorded here. Profit and loss shows once that part has been spent."
+  },
+  "tokenDetailPnlNoPriceBody": {
+    "message": "Текущая цена этого токена отсутствует.",
+    "englishSource": "There is no current price for this token."
+  },
+  "tokenDetailPnlBasketBody": {
+    "message": "Не отслеживается для токенов корзины.",
+    "englishSource": "Not tracked for basket tokens."
+  },
   "basketComposition": {
     "message": "Состав",
     "englishSource": "Composition"
