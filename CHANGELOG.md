@@ -3,6 +3,9 @@
 ## 1.18.3 (TBD)
 
 - [CHANGE][all] Add small motion cues: a rejected code shakes, inline errors open in place, the progress meter travels to its value, revealed recovery words fade in, a new unread dot pops in, and token rows show a pressed fill. Success receipts stack each label above its value.
+- [FIX][all] Show the bridge routes the Bread assistant offers with token and network logos and names, from and to, and the provider's name, instead of internal network and provider ids; bridge steps in a plan use the same names.
+- [FIX][all] Distinguish Swap review checks from initiation failures in opt-in reports.
+- [FIX][extension] Keep the fullscreen button in the Home balance card.
 - [CHANGE][ios] On iOS, require device authentication when opening a biometric wallet, move an existing wallet to a new device key at its next unlock, and show one prompt per action, with text naming that action (revealing the everyday key and exporting the wallet file each asked twice).
 - [FIX][all] Distinguish Earn deposit checks from position-opening failures in opt-in reports.
 - [FIX][all] Keep the whole typed dotted name when a contact name is only part of it, and cancel a pending assistant request when the command view closes.
