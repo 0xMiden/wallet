@@ -38,7 +38,7 @@ import { isUnconfirmedFailure } from 'lib/miden/transaction/constants';
 import { completeVerifiedLandedTransaction } from 'lib/miden/transaction/helper';
 import type { ConsumableNote } from 'lib/miden/types';
 import { ensureSdkWasmReady } from 'lib/miden-chain/constants';
-import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { annotateFaucetFailurePhase, FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { isOneClickTerminalPhase } from 'lib/one-click/expiry';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 import type { TokenPrices } from 'lib/prices';
@@ -714,6 +714,14 @@ export class FaucetRequestUnresolvedError extends Error {
 
 async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, replaces?: number): Promise<void> {
   const controller = new AbortController();
+  const guardMarker = async (operation: () => Promise<void>) => {
+    try {
+      await withFaucetFundingMarkerLock(address, operation);
+    } catch (error) {
+      if (controller.signal.aborted && error === controller.signal.reason) throw error;
+      throw annotateFaucetFailurePhase(error, 'local_request_guard');
+    }
+  };
   let submitted = false;
   // Set once the submitted flag is being stored: from then on the flag may land, and every
   // surface would read the request as sent.
@@ -736,7 +744,7 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, r
   });
   const work = (async () => {
     if (marker) {
-      await withFaucetFundingMarkerLock(address, async () => {
+      await guardMarker(async () => {
         // Another surface's request may already be minting: a surface that read no marker
         // before that tap still offers Fund, and overwriting its marker would let this one
         // pass its own check below and mint again. Nothing of that request runs here.
@@ -778,7 +786,7 @@ async function runFaucetRequest(address: string, marker?: FaucetFundingMarker, r
       controller.signal,
       async () => {
         if (marker) {
-          await withFaucetFundingMarkerLock(address, async () => {
+          await guardMarker(async () => {
             // Another surface ends an unflagged marker as abandoned once its request timeout
             // has passed; if this realm's timers were held back that long, the request is
             // over as far as every surface knows, and sending now could mint twice.

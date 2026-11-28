@@ -4571,7 +4571,26 @@ describe('HomePrompts', () => {
       await settleTelemetry();
       expect(screen.getByText(text)).toBeInTheDocument();
       expect(screen.getByRole('status', { name: 'failed' })).toBeInTheDocument();
-      await expectErrorAfterDwell(id, 'prompt');
+      const diagnostics =
+        id === 'raw_home_faucet_failed' ? { kind: 'faucet_failure', faucetFailurePhase: 'unrecorded' } : undefined;
+      await expectErrorAfterDwell(id, 'prompt', diagnostics);
+    });
+
+    it('keeps waiting without reporting a faucet failure when the mint outcome is unknown', async () => {
+      mockFaucet.mockRejectedValueOnce(new FaucetOutcomeUnknownError('synthetic unknown mint outcome'));
+      render(renderTelemetryHome());
+      await settleTelemetry();
+      fireEvent.click(screen.getByRole('button', { name: /faucetPromptTitle/ }));
+      await settleTelemetry();
+
+      expect(mockFaucet).toHaveBeenCalledTimes(1);
+      expect(screen.getByText('faucetPromptFunding')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /faucetPromptTitle/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('status', { name: 'failed' })).not.toBeInTheDocument();
+      await act(async () => {
+        jest.advanceTimersByTime(2000);
+      });
+      expect(mockReportUserVisibleError.mock.calls).toEqual([]);
     });
 
     it.each([
@@ -4790,7 +4809,8 @@ jest.mock('lib/telemetry/user-visible-error', () => ({
   reportUserVisibleError: (...args: unknown[]) => mockReportUserVisibleError(...args)
 }));
 
-const expectErrorAfterDwell = async (id: string, surface: string) => {
+const expectErrorAfterDwell = async (id: string, surface: string, diagnostics?: Record<string, unknown>) => {
+  const expected = diagnostics === undefined ? [id, surface] : [id, surface, diagnostics];
   await act(async () => {
     jest.advanceTimersByTime(999);
   });
@@ -4798,9 +4818,9 @@ const expectErrorAfterDwell = async (id: string, surface: string) => {
   await act(async () => {
     jest.advanceTimersByTime(1);
   });
-  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  expect(mockReportUserVisibleError.mock.calls).toEqual([expected]);
   await act(async () => {
     jest.advanceTimersByTime(1000);
   });
-  expect(mockReportUserVisibleError.mock.calls).toEqual([[id, surface]]);
+  expect(mockReportUserVisibleError.mock.calls).toEqual([expected]);
 };
