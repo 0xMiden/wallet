@@ -1883,6 +1883,7 @@
   "bridgePayoutTiming": "L’arrivée dépend du réseau de destination",
   "bridgeSourceWallet": "Portefeuille",
   "bridgeRouteFee": "Frais de pont",
+  "bridgeRankBestPrice": "Meilleur prix",
   "bridgeRankBestValue": "Meilleur rapport qualité-prix",
   "bridgeRankCheapest": "Le moins cher",
   "bridgeRankFastest": "Le plus rapide",

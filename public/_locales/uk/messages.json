@@ -8659,6 +8659,10 @@
     "message": "Комісія за міст",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "Найкраща ціна",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "Найкраща вартість",
     "englishSource": "Best value"

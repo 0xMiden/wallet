@@ -1885,6 +1885,7 @@
   "bridgePayoutTiming": "Час прибуття залежить від мережі призначення",
   "bridgeSourceWallet": "Гаманець",
   "bridgeRouteFee": "Комісія за міст",
+  "bridgeRankBestPrice": "Найкраща ціна",
   "bridgeRankBestValue": "Найкраща вартість",
   "bridgeRankCheapest": "Найдешевше",
   "bridgeRankFastest": "Найшвидше",

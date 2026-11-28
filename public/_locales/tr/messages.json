@@ -8658,6 +8658,10 @@
     "message": "Köprü ücreti",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "En İyi Fiyat",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "En iyi değer",
     "englishSource": "Best value"

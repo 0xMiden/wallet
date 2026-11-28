@@ -8666,6 +8666,10 @@
     "message": "Brückengebühr",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "Bester Preis",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "Best Value",
     "englishSource": "Best value"

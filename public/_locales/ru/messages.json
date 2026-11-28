@@ -8661,6 +8661,10 @@
     "message": "Комиссия за мост",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "Лучшая цена",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "Наилучшая стоимость",
     "englishSource": "Best value"

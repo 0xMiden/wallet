@@ -1885,6 +1885,7 @@
   "bridgePayoutTiming": "Czas dotarcia zależy od sieci docelowej",
   "bridgeSourceWallet": "Portfel",
   "bridgeRouteFee": "Opłata za most",
+  "bridgeRankBestPrice": "Najlepsza cena",
   "bridgeRankBestValue": "Najlepsza wartość",
   "bridgeRankCheapest": "Najtańszy",
   "bridgeRankFastest": "Najszybszy",
