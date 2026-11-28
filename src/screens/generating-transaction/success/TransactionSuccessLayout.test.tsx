@@ -101,14 +101,22 @@ it('draws the outline receipt on the page with a hairline edge, in the heading f
   expect(card).not.toHaveClass('bg-fill');
 });
 
-it('keeps the receipt on the fill card, in the default face, when no surface is given', () => {
+it('draws the receipt as an outlined card in the heading face, with every row stacked, when no surface is given', () => {
   const { container } = render(<ReceiptRows rows={[{ label: 'Network fee', value: '1 MDN' }]} />);
 
   const card = container.firstElementChild!;
-  expect(card).toHaveClass('bg-fill');
-  expect(card).not.toHaveClass('bg-page');
-  expect(card).not.toHaveClass('border-hairline');
-  expect(card).not.toHaveClass('face-heading');
+  expect(card).toHaveClass('border-hairline');
+  expect(card).toHaveClass('face-heading');
+  expect(card).not.toHaveClass('bg-fill');
+  // Label above value: the row is a column, and the value sits on the left edge.
+  expect(card.firstElementChild).toHaveClass('flex-col');
+  expect(screen.getByText('1 MDN')).toHaveClass('font-extrabold');
+});
+
+it('keeps the fill card for a caller that asks for it', () => {
+  const { container } = render(<ReceiptRows surface="fill" rows={[{ label: 'Network fee', value: '1 MDN' }]} />);
+
+  expect(container.firstElementChild).toHaveClass('bg-fill');
 });
 
 it('takes focus on mount so the outcome is announced', () => {

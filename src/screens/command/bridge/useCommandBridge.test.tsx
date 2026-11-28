@@ -765,7 +765,8 @@ it('keeps the rejected admitted workbench readonly with original disclosure and 
     fireEvent.submit(form);
   });
   expect(screen.getByRole('button', { name: 'commandBridgeViewStatus' })).toHaveAttribute('type', 'button');
-  expect(screen.getByText('bridgeReviewChanged')).toBeVisible();
+  // The error line opens its height when it arrives, so it is visible once that has settled.
+  await waitFor(() => expect(screen.getByText('bridgeReviewChanged')).toBeVisible());
   expect(screen.getByText('commandBridgeAdmitted')).toBeVisible();
   expect(screen.queryByRole('button', { name: 'recoverLockedFunds' })).not.toBeInTheDocument();
   expect(screen.queryByRole('textbox', { name: 'amount' })).toBeNull();
