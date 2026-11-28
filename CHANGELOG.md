@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Show the bridge routes the Bread assistant offers with token and network logos and names, from and to, and the provider's name, instead of internal network and provider ids; bridge steps in a plan use the same names.
 - [FIX][all] Distinguish Swap review checks from initiation failures in opt-in reports.
 - [FIX][extension] Keep the fullscreen button in the Home balance card.
 - [CHANGE][ios] On iOS, require device authentication when opening a biometric wallet, move an existing wallet to a new device key at its next unlock, and show one prompt per action, with text naming that action (revealing the everyday key and exporting the wallet file each asked twice).
@@ -60,6 +61,7 @@
 - [FIX][all] Ground Bread Command answers about privacy, refunds, and what information the assistant receives in the wallet facts.
 - [FIX][ci] Pin signed iOS store archives to the last working Xcode 26.6 toolchain.
 - [FIX][ci] Align the cached solver registry test with the token list readiness field.
+- [FIX][all] Identify which step stopped a Home faucet request in opt-in reports.
 
 ## 1.18.2 (TBD)
 
