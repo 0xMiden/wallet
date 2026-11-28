@@ -225,6 +225,9 @@ describe('HomePanes', () => {
       for (const el of [root, ...panes()]) {
         expect(['auto', 'scroll']).not.toContain(el.style.overflowX);
         expect(el.style.scrollSnapType).toBe('');
+        expect(el.className).not.toMatch(
+          /\b(?:overflow-x-(?:auto|scroll)|overflow-(?:auto|scroll)|snap-(?:x|y|both|mandatory|proximity))\b/
+        );
       }
       expect(root).toHaveAttribute('data-home-panes');
     });
