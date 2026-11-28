@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][ios] Ask for Face ID, Touch ID or the passcode once when setting up a biometric wallet, instead of on two screens (#2417).
 - [FIX][all] Show the bridge routes the Bread assistant offers with token and network logos and names, from and to, and the provider's name, instead of internal network and provider ids; bridge steps in a plan use the same names.
 - [FIX][all] Distinguish Swap review checks from initiation failures in opt-in reports.
 - [FIX][extension] Keep the fullscreen button in the Home balance card.
