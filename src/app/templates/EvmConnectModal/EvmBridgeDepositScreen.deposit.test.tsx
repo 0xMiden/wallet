@@ -472,6 +472,9 @@ jest.mock('./EvmBridgeDepositForm', () => {
           <button data-testid="set-precise-amount" onClick={() => onAmountChange('1.23456789')}>
             precise amount
           </button>
+          <button data-testid="set-sub-delivery-amount" onClick={() => onAmountChange('0.00000099')}>
+            sub-delivery amount
+          </button>
           <button data-testid="open-token-drawer" onClick={onSelectToken}>
             token
           </button>
@@ -4956,6 +4959,17 @@ describe('EvmBridgeDepositScreen Slow-route ERC-20 deposit', () => {
       payout: { assetId: WBTC_LISTING.midenFaucetId, amount: '1.234567', symbol: 'WBTC' },
       reviewAmount: '1.234567'
     });
+    expect(mockMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('shows zero when registered AggLayer delivery precision floors the payout to zero', async () => {
+    await openErc20Route('set-sub-delivery-amount');
+
+    const payouts = JSON.parse(screen.getByTestId('receive-route-payouts').textContent ?? '{}');
+    expect(payouts.agglayer).toEqual({ assetId: WBTC_LISTING.midenFaucetId, amount: '0', symbol: 'WBTC' });
+    fireEvent.click(screen.getByTestId('confirm-route'));
+    expect(await screen.findByTestId('review-amount')).toHaveTextContent(/^0\.00000099$/);
+    expect(screen.getByTestId('review-output')).toHaveTextContent(/^0$/);
     expect(mockMutateAsync).not.toHaveBeenCalled();
   });
 
