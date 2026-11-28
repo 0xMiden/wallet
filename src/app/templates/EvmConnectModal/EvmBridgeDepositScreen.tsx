@@ -31,6 +31,7 @@ import { evmToMidenMinTokenOut, MIDEN_DESTINATION_CHAIN_ID, useEpochStore } from
 import { formatAmountDisplay } from 'lib/i18n/amount-display';
 import { amountExceedsTokenDecimals } from 'lib/i18n/numbers';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
+import { agglayerDeliveredAmount } from 'lib/miden/activity/bridge-in';
 import { startBridgeReceiveSubmission } from 'lib/miden/activity/bridge-receive';
 import { IBridgeProvider } from 'lib/miden/db/types';
 import { priceSymbolFor } from 'lib/miden/swap/tokens';
@@ -44,7 +45,6 @@ import type { FeatureAvailability } from 'lib/remote-config/availability';
 import type { MidenUsdc } from 'lib/remote-config/e2e-overrides';
 import { evmUsdcLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot, useFeatureAvailability } from 'lib/remote-config/use-feature-availability';
-import { selectNativeEthFaucet } from 'lib/remote-config/values';
 import {
   type EvmUsdc,
   selectAgglayerChain,
@@ -52,7 +52,9 @@ import {
   selectAgglayerRecoveryConfig,
   selectAgglayerRegistryToken,
   selectEpochDepositTokens,
-  selectEvmUsdc
+  selectEvmUsdc,
+  selectNativeEthFaucet,
+  selectNativeEthToken
 } from 'lib/remote-config/values';
 import { withRequestTimeout } from 'lib/remote-json';
 import { WalletAccount } from 'lib/shared/types';
@@ -1070,9 +1072,13 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     usdcxQuotedFeeUnits === undefined
       ? undefined
       : formatAmountDisplay(usdcxQuotedFeeUnits, { decimals: CIRCLE_USDC_DECIMALS, formatting: 'exact' });
-  const canPreselectFast =
-    activeRoute?.name === ReceiveStep.ShowBridgePageRoute && !routeChosen && route !== 'epoch' && !!sharedFastToken;
-  const quoteToken = fastToken ?? (canPreselectFast ? sharedFastToken : undefined);
+  const onRouteStep = activeRoute?.name === ReceiveStep.ShowBridgePageRoute;
+  const canPreselectFast = onRouteStep && !routeChosen && route !== 'epoch' && !!sharedFastToken;
+  const quoteToken = fastToken ?? (onRouteStep ? sharedFastToken : undefined);
+  const quoteTokenAddress = quoteToken?.address;
+  const quoteTokenChain = quoteToken?.chainId;
+  const quoteFaucet = quoteToken?.midenFaucetId;
+  const quoteFaucetDecimals = quoteToken?.midenDecimals;
   const canQuoteEpoch = !!quoteToken && fastAvailability.state === 'available';
   const [debouncedAmount] = useDebounce(canQuoteEpoch && isValidAmount(amount) ? amount.trim() : '', 500);
 
@@ -1287,23 +1293,33 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // re-quote to recover (executeEVMToMiden requires status 'quoted', so without
   // this a failed attempt dead-ends until the amount is edited).
   const requote = useCallback(() => {
-    if (!quoteToken?.midenFaucetId) return undefined;
-    const minTokenOut = evmToMidenMinTokenOut(debouncedAmount, quoteToken.midenDecimals);
+    if (!quoteFaucet || !quoteTokenAddress || quoteTokenChain === undefined || quoteFaucetDecimals === undefined)
+      return undefined;
+    const minTokenOut = evmToMidenMinTokenOut(debouncedAmount, quoteFaucetDecimals);
     if (!minTokenOut) return undefined;
     return quoteEVMToMiden(
       {
-        sourceChainId: quoteToken.chainId,
+        sourceChainId: quoteTokenChain,
         destinationChainId: MIDEN_DESTINATION_CHAIN_ID,
         evmSourceAddress: evmAddress,
-        evmTokenAddress: quoteToken.address,
-        isNative: quoteToken.address.toLowerCase() === NATIVE_TOKEN_ADDRESS,
+        evmTokenAddress: quoteTokenAddress,
+        isNative: quoteTokenAddress.toLowerCase() === NATIVE_TOKEN_ADDRESS,
         midenRecipientId: midenAccount.publicKey,
-        midenFaucetId: quoteToken.midenFaucetId,
+        midenFaucetId: quoteFaucet,
         minTokenOut
       },
       evmAddress
     ).catch(err => console.error('[EvmBridgeDepositScreen] quote failed', err));
-  }, [debouncedAmount, evmAddress, midenAccount.publicKey, quoteEVMToMiden, quoteToken]);
+  }, [
+    debouncedAmount,
+    evmAddress,
+    midenAccount.publicKey,
+    quoteEVMToMiden,
+    quoteFaucet,
+    quoteFaucetDecimals,
+    quoteTokenAddress,
+    quoteTokenChain
+  ]);
 
   // The store quotes through the configured allocator, which it reads itself: a move of it quotes anew.
   useEffect(() => {
@@ -2108,6 +2124,23 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   useEffect(() => {
     if (fastComparisonReady && !confirming.current) setRoute('epoch');
   }, [fastComparisonReady]);
+  const fallbackRoute = token === 'CIRCLE_USDC' ? 'usdcx' : 'agglayer';
+  const slowAvailable = agglayerChainId !== undefined && slowAvailability.state === 'available';
+  useEffect(() => {
+    const fallbackAvailable = fallbackRoute === 'usdcx' ? usdcxAvailable : slowAvailable;
+    if (
+      onRouteStep &&
+      !routeChosen &&
+      route === 'epoch' &&
+      !confirming.current &&
+      epochStatus !== 'quoting' &&
+      fastAvailability.state === 'unavailable' &&
+      fastAvailability.reason !== 'pending' &&
+      fallbackAvailable
+    ) {
+      setRoute(fallbackRoute);
+    }
+  }, [epochStatus, fallbackRoute, fastAvailability, onRouteStep, route, routeChosen, slowAvailable, usdcxAvailable]);
 
   // Picking Slow can move the USDC to the AggLayer chain's, so the amount is held to that balance here as well.
   const slowReady =
@@ -2204,52 +2237,67 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     : formatMoneyAmount(amount, 'typed');
   // The Fast fee in US dollars: what goes in less what comes out. USDC in and USDCx out are both at par; any other
   // token is valued at the feed's price on each side, and the fee is not shown while either side has none.
+  const quoteSymbol = quoteToken?.midenSymbol;
+  const quoteDecimals = quoteToken?.decimals;
   const fastInputPrice =
-    fastKey === 'USDC' ? 1 : evmQuote(usdPrices, evmUsdc?.chainId, evmUsdc?.address, bridgeConfig)?.price;
-  const fastOutputPrice =
-    fastKey === 'USDC' || !midenUsdc
-      ? 1
-      : quotedPrice(usdPrices, priceSymbolFor(midenUsdc.faucetId, midenUsdc.symbol))?.price;
+    quoteToken?.key === 'USDC' ? 1 : evmQuote(usdPrices, quoteTokenChain, quoteTokenAddress, bridgeConfig)?.price;
+  const fastOutputPrice = (() => {
+    if (quoteToken?.key === 'USDC' || !quoteFaucet || quoteSymbol === undefined) return 1;
+    return quotedPrice(usdPrices, priceSymbolFor(quoteFaucet, quoteSymbol))?.price;
+  })();
   const fastFeeUsd = useMemo(() => {
     const rawIn = currentFastQuote?.quoteResult.tokenIn;
     const rawOut = currentFastQuote?.quoteResult.tokenOut;
-    if (!rawIn || !rawOut || !midenUsdc || fastInputPrice === undefined || fastOutputPrice === undefined) {
+    if (
+      !rawIn ||
+      !rawOut ||
+      !quoteFaucet ||
+      quoteFaucetDecimals === undefined ||
+      quoteDecimals === undefined ||
+      fastInputPrice === undefined ||
+      fastOutputPrice === undefined
+    ) {
       return undefined;
     }
     try {
-      const input = parseFloat(formatUnits(BigInt(String(rawIn)), usdcDecimals)) * fastInputPrice;
-      const output = parseFloat(formatUnits(BigInt(String(rawOut)), midenUsdc.decimals)) * fastOutputPrice;
+      const input = parseFloat(formatUnits(BigInt(String(rawIn)), quoteDecimals)) * fastInputPrice;
+      const output = parseFloat(formatUnits(BigInt(String(rawOut)), quoteFaucetDecimals)) * fastOutputPrice;
       if (!Number.isFinite(input) || !Number.isFinite(output)) return undefined;
       return Math.max(0, input - output);
     } catch {
       return undefined;
     }
-  }, [currentFastQuote, midenUsdc, usdcDecimals, fastInputPrice, fastOutputPrice]);
+  }, [currentFastQuote, quoteFaucet, quoteFaucetDecimals, quoteDecimals, fastInputPrice, fastOutputPrice]);
   const fastPayout = useMemo(() => {
     const raw = String(currentFastQuote?.quoteResult.tokenOut ?? '');
-    if (!midenUsdc || !/^[1-9]\d*$/.test(raw)) return undefined;
+    if (!quoteFaucet || quoteFaucetDecimals === undefined || quoteSymbol === undefined || !/^[1-9]\d*$/.test(raw))
+      return undefined;
     return {
-      assetId: midenUsdc.faucetId,
-      amount: formatUnits(BigInt(raw), midenUsdc.decimals),
-      symbol: midenUsdc.symbol
+      assetId: quoteFaucet,
+      amount: formatUnits(BigInt(raw), quoteFaucetDecimals),
+      symbol: quoteSymbol
     };
-  }, [currentFastQuote, midenUsdc]);
+  }, [currentFastQuote, quoteFaucet, quoteFaucetDecimals, quoteSymbol]);
   const slowPayout = useMemo(() => {
     if (slowAvailability.state !== 'available' || !isValidAmount(amount)) return undefined;
     const delivery =
-      erc20?.delivery ??
-      (ownFastKey === 'USDC' && evmUsdc && evmUsdc.chainId === agglayerChainId
-        ? selectAgglayerRegistryToken(bridgeConfig, evmUsdc.address.toLowerCase(), agglayerChainId)
-        : undefined);
+      token === 'ETH'
+        ? selectNativeEthToken(bridgeConfig, agglayerChainId)
+        : (erc20?.delivery ??
+          (ownFastKey === 'USDC' && evmUsdc && evmUsdc.chainId === agglayerChainId
+            ? selectAgglayerRegistryToken(bridgeConfig, evmUsdc.address.toLowerCase(), agglayerChainId)
+            : undefined));
     if (!delivery) return undefined;
     const decimals = slowSourceDecimals - delivery.scale;
-    if (decimals < 0 || amountExceedsTokenDecimals(amount, decimals)) return undefined;
-    const units = toBaseUnits(amount, decimals);
-    if (!units || units <= 0n) return undefined;
+    if (decimals < 0) return undefined;
+    const units = toBaseUnits(amount, slowSourceDecimals);
+    if (!units) return undefined;
+    const delivered = agglayerDeliveredAmount(units, delivery.scale);
+    if (delivered <= 0n) return undefined;
     return {
       assetId: delivery.midenFaucetId,
-      amount: formatUnits(units, decimals),
-      symbol: erc20?.symbol ?? usdcSymbol
+      amount: formatUnits(delivered, decimals),
+      symbol: token === 'ETH' ? 'ETH' : (erc20?.symbol ?? usdcSymbol)
     };
   }, [
     agglayerChainId,
@@ -2260,6 +2308,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     ownFastKey,
     slowAvailability.state,
     slowSourceDecimals,
+    token,
     usdcSymbol
   ]);
   const usdcxAssetId = getNativeAssetIdSync();
@@ -2371,6 +2420,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // error) so the Review isn't a dead-end — handleConfirm re-quotes to recover.
   const fastRetryable =
     route === 'epoch' && fastKey !== null && epochFlow === 'evm-to-miden' && epochStatus === 'failed';
+  const routeRetryable = (() => {
+    return fastRetryable && canQuoteEpoch && !!minTokenOut && debouncedAmount === amount.trim() && !capHold;
+  })();
   const reviewCanConfirm = (canConfirmRoute || (fastRetryable && !capHold)) && !submitting && !submitted;
   // Relabel Confirm → Retry after a failed Fast attempt (the tap re-quotes).
   const reviewConfirmLabel = fastRetryable ? t('retry') : undefined;
@@ -2393,11 +2445,15 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // From the Route step: proceed to Review (once the route is confirmable) rather
   // than submitting directly. The Review step's Confirm runs handleConfirm.
   const handleContinueToReview = useCallback(() => {
+    if (routeRetryable) {
+      if (!confirming.current && useEpochStore.getState().status === 'failed') void requote();
+      return;
+    }
     if (!canConfirmRoute) return;
     setRouteChosen(true);
     hapticMedium();
     navigateTo(ReceiveStep.ShowBridgePageReview);
-  }, [canConfirmRoute, navigateTo]);
+  }, [canConfirmRoute, navigateTo, requote, routeRetryable]);
 
   const handleConfirm = useCallback(async () => {
     // A tap that lands once a row exists (Review is still on screen while the Navigator leaves it) changes nothing.
@@ -2551,7 +2607,10 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               outputFaucetId={outputFaucetId}
               deliveredSymbol={route === 'epoch' ? deliveredSymbol : undefined}
               route={route}
-              outputAmount={formatMoneyAmount(outputAmount, 'typed')}
+              outputAmount={formatMoneyAmount(
+                route === 'agglayer' ? (slowPayout?.amount ?? outputAmount) : outputAmount,
+                'typed'
+              )}
               fee={usdcxQuotedFee}
               networkName={networkName}
               networkId={bridgeNetwork?.id}
@@ -2590,7 +2649,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
           if (token === 'CIRCLE_USDC') {
             return (
               <EvmBridgeUsdcxRoute
-                confirmDisabled={!canConfirmRoute}
+                confirmDisabled={!canConfirmRoute && !routeRetryable}
+                confirmLabel={routeRetryable ? t('retry') : undefined}
                 onConfirm={handleContinueToReview}
                 onSelectCircle={() => handleRouteChange('usdcx')}
                 fast={
@@ -2634,7 +2694,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
               payouts={{ epoch: fastPayout, agglayer: slowPayout }}
               fastQuoteLoading={canQuoteEpoch && epochFlow === 'evm-to-miden' && epochStatus === 'quoting'}
               notice={routeNotice}
-              confirmDisabled={!canConfirmRoute}
+              confirmDisabled={!canConfirmRoute && !routeRetryable}
+              confirmLabel={routeRetryable ? t('retry') : undefined}
               onConfirm={handleContinueToReview}
               fastFeature="fastBridgeIn"
               fastAvailability={fastAvailability}
@@ -2729,6 +2790,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       t,
       handleRouteChange,
       route,
+      routeRetryable,
       routeNotice,
       usdcxFeeHoldNotice,
       usdcxQuotedFee,

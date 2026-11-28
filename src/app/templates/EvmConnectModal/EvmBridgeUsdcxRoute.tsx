@@ -30,6 +30,7 @@ export interface EvmBridgeUsdcxFastOption {
 
 export interface EvmBridgeUsdcxRouteProps {
   confirmDisabled?: boolean;
+  confirmLabel?: string;
   footerClassName?: string;
   notice?: string;
   fee?: string;
@@ -46,6 +47,7 @@ export interface EvmBridgeUsdcxRouteProps {
 
 export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
   confirmDisabled = false,
+  confirmLabel,
   notice,
   fee,
   payout,
@@ -139,7 +141,7 @@ export const EvmBridgeUsdcxRoute: React.FC<EvmBridgeUsdcxRouteProps> = ({
       top="header"
       footer={
         <Button
-          title={t('continue')}
+          title={confirmLabel ?? t('continue')}
           accent="receive"
           onClick={onConfirm}
           disabled={confirmDisabled}

@@ -71,6 +71,7 @@ export interface RouteStepProps {
   notice?: React.ReactNode;
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
   confirmDisabled?: boolean;
+  confirmLabel?: string;
   onConfirm: () => void;
   /** Each route's feature: an unavailable or still-loading route is greyed out and takes no tap. */
   fastFeature?: FeatureUnavailableFeature;
@@ -643,6 +644,7 @@ export const Route: React.FC<RouteStepProps> = ({
   fastQuoteLoading,
   notice,
   confirmDisabled,
+  confirmLabel,
   onConfirm,
   fastFeature,
   slowFeature,
@@ -656,9 +658,10 @@ export const Route: React.FC<RouteStepProps> = ({
       top="header"
       footer={
         <Button
-          title={t(
-            route === 'agglayer' ? 'bridgeContinueAgglayer' : route === 'epoch' ? 'bridgeContinueEpoch' : 'continue'
-          )}
+          title={
+            confirmLabel ??
+            t(route === 'agglayer' ? 'bridgeContinueAgglayer' : route === 'epoch' ? 'bridgeContinueEpoch' : 'continue')
+          }
           variant={ButtonVariant.Primary}
           accent={accent}
           onClick={onConfirm}
