@@ -83,9 +83,27 @@ describe('rowFlows', () => {
         new Map([['faucet-a', { arrived: 0n, departed: 4n }]])
       );
     }
+    expect(rowFlows(row({ type: 'register-name', faucetId: 'faucet-a', amount: 4n }))).toEqual(
+      new Map([['faucet-a', { arrived: 0n, departed: 4n }]])
+    );
     expect(
       rowFlows(row({ type: 'execute', faucetId: 'faucet-a', amount: 4n, feeFaucetId: 'fee', feeAmount: 2n }))
     ).toEqual(new Map([['fee', { arrived: 0n, departed: 2n }]]));
+    expect(
+      rowFlows(
+        row({
+          type: 'execute',
+          spentAssetTotals: [{ faucetId: 'faucet-a', amount: 5n }],
+          feeFaucetId: 'fee',
+          feeAmount: 2n
+        })
+      )
+    ).toEqual(
+      new Map([
+        ['faucet-a', { arrived: 0n, departed: 5n }],
+        ['fee', { arrived: 0n, departed: 2n }]
+      ])
+    );
     expect(rowFlows(row({ type: 'send', faucetId: 'faucet-a', amount: 0n }))).toEqual(new Map());
   });
 });

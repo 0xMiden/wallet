@@ -10,7 +10,7 @@ import { appendPositionEvents, type PositionEvent, type PositionQuote } from '..
 import * as Repo from '../repo';
 import { identifyValuedAsset, loadValuationContext } from '../spending-limits/valuation';
 
-const OUTGOING_TYPES: ReadonlySet<string> = new Set(['send', 'swap', 'bridged-send', 'earn-deposit']);
+const OUTGOING_TYPES: ReadonlySet<string> = new Set(['send', 'swap', 'bridged-send', 'earn-deposit', 'register-name']);
 
 type Flow = { arrived: bigint; departed: bigint };
 
@@ -29,6 +29,8 @@ export function rowFlows(row: ITransaction): Map<string, Flow> {
     else add(row.faucetId, row.amount, 'arrived');
   } else if (OUTGOING_TYPES.has(row.type)) {
     add(row.faucetId, row.amount, 'departed');
+  } else if (row.type === 'execute') {
+    for (const total of row.spentAssetTotals ?? []) add(total.faucetId, total.amount, 'departed');
   }
   // A fee leaves in the fee asset; it is never part of the cost of what was sent.
   add(row.feeFaucetId, row.feeAmount, 'departed');
