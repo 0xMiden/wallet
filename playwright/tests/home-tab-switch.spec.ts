@@ -122,7 +122,13 @@ test.describe('Home tab switch', () => {
       const visible = frame.filter(pane => pane.opacity > 0.05);
       expect(visible.length, `panes drawn at ${at}ms: ${JSON.stringify(frame)}`).toBeLessThanOrEqual(1);
       await saveFrame(page, info, `home-tab-switch-overview-to-send-${at}ms`);
-      await page.evaluate(() => document.getAnimations().forEach(a => a.finish()));
+      // Let the held switch run to its end; only the panes' finite animations.
+      await page.evaluate(() =>
+        document
+          .getAnimations()
+          .filter(a => (a.effect as KeyframeEffect | null)?.target?.hasAttribute?.('data-home-page'))
+          .forEach(a => a.finish())
+      );
       await settledOn(page, 'send');
       await page.locator('[data-home-actions] [role="tab"]').nth(0).click();
       await settledOn(page, 'overview');
