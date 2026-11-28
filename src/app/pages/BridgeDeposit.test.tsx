@@ -484,6 +484,20 @@ describe('BridgeDeposit fund step progression', () => {
     expect(mockBeginFlow.mock.results[0]!.value.complete).not.toHaveBeenCalled();
   });
 
+  it('retains the reviewed wallet when a different EVM address appears during a retained attempt', () => {
+    mockHoldDeposit = true;
+    mockConnection = { address: '0xabc', connected: true };
+    const view = render(<BridgeDeposit />);
+    fireEvent.click(screen.getByRole('button', { name: 'hold confirmation' }));
+
+    mockConnection = { address: '0xdef', connected: true };
+    view.rerender(<BridgeDeposit />);
+
+    expect(screen.getByTestId('bridge-deposit-screen')).toHaveAttribute('data-wallet', '0xabc');
+    expect(screen.queryByRole('button', { name: 'bridgeConnectWalletAction' })).not.toBeInTheDocument();
+    act(() => mockReleaseDeposit?.());
+  });
+
   it('retains the reviewed wallet through readiness loss before row creation', () => {
     mockHoldDeposit = true;
     mockConnection = { address: '0xabc', connected: true };

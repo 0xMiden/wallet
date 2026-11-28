@@ -39,7 +39,8 @@ jest.mock('./client', () => ({
   getEvmConnection: () => mockConnection(),
   switchWebWalletChain: jest.fn()
 }));
-jest.mock('./sdk', () => ({ getEpochSdk: async () => ({}) }));
+const mockGetEpochSdk = jest.fn(async (..._args: unknown[]) => ({}));
+jest.mock('./sdk', () => ({ getEpochSdk: (...args: unknown[]) => mockGetEpochSdk(...args) }));
 jest.mock('lib/miden/activity/bridge-in', () => ({
   ...jest.requireActual('lib/miden/activity/bridge-in'),
   registerPendingBridgeIn: (...args: unknown[]) => mockRegister(...args)
@@ -234,6 +235,7 @@ beforeEach(async () => {
   await Repo.transactions.clear();
   useEpochStore.getState().reset();
   mockConnection.mockReset().mockResolvedValue({ address: accounts.evmAddress, isNative: true });
+  mockGetEpochSdk.mockClear();
   mockBuildIntent
     .mockReset()
     .mockResolvedValue({ taskTypeString: 'bridge', intentData: {}, solveResult: { hash, nonce: '42' } });
@@ -241,6 +243,47 @@ beforeEach(async () => {
   mockUpdatePhase.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => jest.restoreAllMocks());
+
+const makeUntaggedEpochRow = async () => {
+  const { id } = await admitEpoch();
+  await Repo.transactions.update(id, row => {
+    delete row.extraInputs.bridgeOperation;
+  });
+  return id;
+};
+
+it('does not solve an untagged Epoch deposit for a different live signer', async () => {
+  const id = await makeUntaggedEpochRow();
+  mockConnection.mockResolvedValue({ address: '0x2222222222222222222222222222222222222222', isNative: true });
+
+  await useEpochStore.getState().executeEVMToMiden(id);
+
+  expect(mockBuildIntent).not.toHaveBeenCalled();
+  expect(mockUpdatePhase).toHaveBeenCalledWith(id, 'failed', expect.any(Object));
+});
+
+it('passes a before-solve signer check on an untagged Epoch deposit', async () => {
+  const id = await makeUntaggedEpochRow();
+  const solve = jest.fn();
+  mockBuildIntent.mockImplementationOnce(async (_sdk, _params, beforeSolve?: () => Promise<void>) => {
+    mockConnection.mockResolvedValue({ address: '0x2222222222222222222222222222222222222222', isNative: true });
+    await beforeSolve?.();
+    solve();
+    return { taskTypeString: 'bridge', intentData: {}, solveResult: { hash, nonce: '42' } };
+  });
+
+  await useEpochStore.getState().executeEVMToMiden(id);
+
+  expect(mockBuildIntent.mock.calls[0]?.[2]).toEqual(expect.any(Function));
+  expect(solve).not.toHaveBeenCalled();
+});
+
+it('asks getEpochSdk for the reviewed account on a tagged Epoch deposit', async () => {
+  const { id } = await admitEpoch();
+  await useEpochStore.getState().executeEVMToMiden(id);
+
+  expect(mockGetEpochSdk).toHaveBeenCalledWith(expect.objectContaining({ account: accounts.evmAddress }));
+});
 
 it.each(['missing-epoch-row', '', '   '])(
   'a supplied missing or empty Epoch tracking id %j cannot become legacy source permission',

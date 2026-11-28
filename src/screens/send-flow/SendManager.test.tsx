@@ -2751,6 +2751,26 @@ describe('send telemetry', () => {
     expect(handleAt(0).complete).not.toHaveBeenCalled();
   });
 
+  const latestReviewEntry = () => {
+    const url: string = navigateMock.mock.calls.at(-1)?.[0];
+    return new URLSearchParams(url.slice(url.indexOf('?') + 1)).get('reviewEntry');
+  };
+
+  it('compact continue to review puts an opaque reviewEntry on the review location', () => {
+    reachReview('5', 'mtst1recipient');
+    expect(latestReviewEntry()).toMatch(/^[a-f0-9-]{36}$/i);
+  });
+
+  it('a second compact handoff mints a different reviewEntry for the same amount recipient and token', () => {
+    const firstReview = reachReview('5', 'mtst1recipient');
+    const first = latestReviewEntry();
+    firstReview.unmount();
+    consumeSendDraft();
+    reachReview('5', 'mtst1recipient');
+
+    expect(latestReviewEntry()).not.toBe(first);
+  });
+
   it('keeps the flow open across the handoff to the review page', () => {
     const { unmount } = reachReview('5', 'mtst1recipient');
     expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('/send/review'));

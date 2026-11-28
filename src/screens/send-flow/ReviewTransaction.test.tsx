@@ -51,7 +51,7 @@ import { isValidMidenAddress } from 'utils/miden';
 
 import { dateTimeToRecallBlocks } from './RecallCalendarDrawer';
 import { nearIntentsSendFailureId, ReviewTransaction } from './ReviewTransaction';
-import { clearSendDraft } from './send-draft';
+import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { enterSendFlow, hasActiveSendSession, hasOpenSendFlow, settleSendFlow } from './send-telemetry';
 import type { NearIntentsSendQuote, NearIntentsSendQuoteParams } from './useNearIntentsSendQuote';
 
@@ -143,6 +143,9 @@ jest.mock('lib/usdcx/use-burn-minimum', () => ({
 }));
 
 const mockWalletStoreState = {
+  get currentAccount() {
+    return mockPublicKey ? { publicKey: mockPublicKey } : null;
+  },
   tokenPrices: { USDC: { price: 2 } } as Record<string, { price: number; observedAt?: number }>,
   setLastCompletedTxHash: jest.fn(),
   assessSpendingLimit: jest.fn(),
@@ -638,9 +641,10 @@ jest.mock('./RecallCalendarDrawer', () => ({
   )
 }));
 
-jest.mock('./send-draft', () => ({
-  clearSendDraft: jest.fn()
-}));
+jest.mock('./send-draft', () => {
+  const actual = jest.requireActual<typeof import('./send-draft')>('./send-draft');
+  return { ...actual, clearSendDraft: jest.fn(actual.clearSendDraft) };
+});
 
 // The Miden Name lookup and the network deployment check. By default the network
 // has no deployment, so the suites above see the plain address behaviour.
@@ -795,6 +799,9 @@ beforeEach(() => {
   mockBridgeAvailability = { state: 'available' };
   mockIsMobile = false;
   jest.resetAllMocks();
+  const actualSendDraft = jest.requireActual<typeof import('./send-draft')>('./send-draft');
+  actualSendDraft.clearSendDraft();
+  jest.mocked(clearSendDraft).mockImplementation(actualSendDraft.clearSendDraft);
   jest.mocked(useFeatureAvailability).mockImplementation(() => mockBridgeAvailability);
   mockBurnMinimum = 5_000_000n;
   jest.mocked(initiateUsdcxBurn).mockResolvedValue('burn-tx');
@@ -3786,6 +3793,168 @@ describe('ReviewTransaction — send telemetry', () => {
     expect(initiateMock).toHaveBeenCalledTimes(1);
   });
 
+  const setCompactReview = (entry: string) => {
+    setValidRoute();
+    mockSearch += `&reviewEntry=${entry}`;
+  };
+
+  it('a same-chain row that resolves while review is unmounted opens on the same review entry', async () => {
+    setCompactReview('resolve-before-review-remount');
+    const row = deferred<string>();
+    initiateMock.mockReturnValueOnce(row.promise);
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    review.unmount();
+
+    await act(async () => row.resolve('row-before-remount'));
+    expect(navigateMock).not.toHaveBeenCalled();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/row-before-remount', 'replacestate');
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('a same-chain row that resolves after the same review entry remounts opens that row', async () => {
+    setCompactReview('resolve-after-review-remount');
+    const row = deferred<string>();
+    initiateMock.mockReturnValueOnce(row.promise);
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    review.unmount();
+
+    render(<ReviewTransaction />);
+    await act(async () => row.resolve('row-after-remount'));
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/row-after-remount', 'replacestate');
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('remounting the same review entry while same-chain admission is pending does not start a second row', async () => {
+    setCompactReview('pending-review-remount');
+    const row = deferred<string>();
+    initiateMock.mockReturnValueOnce(row.promise);
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    review.unmount();
+
+    render(<ReviewTransaction />);
+    await clickSubmit();
+    const producers = initiateMock.mock.calls.length;
+    await act(async () => row.resolve('row-pending-remount'));
+
+    expect(producers).toBe(1);
+  });
+
+  it('an Epoch row that resolves while review is unmounted opens on the same review entry', async () => {
+    mockDetectedChain = 'ethereum';
+    mockEpochQuote = {
+      ...reviewedEpochBinding,
+      amount: '4.8',
+      decimals: 6,
+      loading: false,
+      error: null,
+      symbol: 'USDC'
+    };
+    mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch&reviewEntry=epoch-remount';
+    mockBalanceData = [VALID_TOKEN];
+    const row = deferred<{ txId: string }>();
+    bridgeEpochSendMock.mockReturnValueOnce(row.promise);
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1);
+    review.unmount();
+
+    await act(async () => row.resolve({ txId: 'epoch-before-remount' }));
+    expect(navigateMock).not.toHaveBeenCalled();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/epoch-before-remount', 'replacestate');
+  });
+
+  it('a row that resolves while the account is null opens after the original account returns', async () => {
+    setCompactReview('locked-account-remount');
+    const row = deferred<string>();
+    initiateMock.mockReturnValueOnce(row.promise);
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    review.unmount();
+
+    mockPublicKey = null;
+    await act(async () => row.resolve('row-while-locked'));
+    expect(navigateMock).not.toHaveBeenCalled();
+    mockPublicKey = 'pubkey-1';
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/row-while-locked', 'replacestate');
+  });
+
+  it('admission stamps the one-shot draft with its review entry', async () => {
+    setCompactReview('admission-draft-entry');
+    setSendDraft({ amount: '5', recipientAddress: '0xrecipient', tokenId: 'tok1' });
+    const row = deferred<string>();
+    initiateMock.mockReturnValueOnce(row.promise);
+    render(<ReviewTransaction />);
+    await clickSubmit();
+    const draft = consumeSendDraft();
+    await act(async () => row.resolve('row-draft-entry'));
+
+    expect(draft).toEqual(expect.objectContaining({ reviewEntry: 'admission-draft-entry' }));
+  });
+
+  it('a different review entry can submit while another entry is pending', async () => {
+    setCompactReview('first-independent-entry');
+    const first = deferred<string>();
+    initiateMock.mockReturnValueOnce(first.promise).mockResolvedValueOnce('row-independent');
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    review.unmount();
+
+    setCompactReview('second-independent-entry');
+    render(<ReviewTransaction />);
+    await clickSubmit();
+    await act(async () => first.resolve('row-original-entry'));
+
+    expect(initiateMock).toHaveBeenCalledTimes(2);
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/row-independent', 'replacestate');
+    expect(navigateMock).not.toHaveBeenCalledWith('/generating-transaction/row-original-entry', 'replacestate');
+  });
+
+  it("a different account does not take a pending review entry's row", async () => {
+    setCompactReview('entry-scoped-to-account');
+    const row = deferred<string>();
+    initiateMock.mockReturnValueOnce(row.promise);
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    review.unmount();
+
+    mockPublicKey = 'pubkey-2';
+    render(<ReviewTransaction />);
+    await act(async () => row.resolve('row-for-first-account'));
+
+    expect(navigateMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
+  it('a failed admission releases the review entry so the same review can submit again', async () => {
+    setCompactReview('failed-review-entry');
+    const row = deferred<string>();
+    initiateMock.mockReturnValueOnce(row.promise).mockResolvedValueOnce('row-after-recovery');
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    review.unmount();
+
+    await act(async () => row.reject(new Error('mock admission declined')));
+    render(<ReviewTransaction />);
+    await clickSubmit();
+
+    expect(initiateMock).toHaveBeenCalledTimes(2);
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/row-after-recovery', 'replacestate');
+  });
+
   it('covering the review during same-chain admission does not arm a second confirm', async () => {
     const row = deferred<string>();
     initiateMock.mockReturnValueOnce(row.promise);
@@ -5096,6 +5265,26 @@ describe('ReviewTransaction — NEAR Intents', () => {
     await flush();
 
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-admitted', 'replacestate');
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('a NEAR row that resolves after its admission guard opens on the same review entry', async () => {
+    setNearIntentsRoute();
+    mockSearch += '&reviewEntry=near-entry-remount';
+    const row = deferred<string>();
+    const start = jest.mocked(startNearIntentsSend);
+    start.mockReturnValueOnce(row.promise);
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    expect(start.mock.calls[0]?.[0].isCurrent?.()).toBe(true);
+    review.unmount();
+
+    await act(async () => row.resolve('near-row-before-remount'));
+    expect(navigateMock).not.toHaveBeenCalled();
+    render(<ReviewTransaction />);
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/near-row-before-remount', 'replacestate');
     expect(start).toHaveBeenCalledTimes(1);
   });
 

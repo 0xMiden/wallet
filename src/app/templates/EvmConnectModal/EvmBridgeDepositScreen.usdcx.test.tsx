@@ -523,14 +523,30 @@ const settle = () =>
   });
 
 const mockCloseDeposit = jest.fn();
-const depositScreen = (evmAddress = '0x1111111111111111111111111111111111111111') => (
-  <EvmBridgeDepositScreen
-    evmAddress={evmAddress}
-    midenAccount={midenAccount as never}
-    onConnectAnother={jest.fn()}
-    onClose={mockCloseDeposit}
-  />
-);
+const REVIEWED_EVM_ADDRESS = '0x1111111111111111111111111111111111111111';
+const NEXT_EVM_ADDRESS = '0x2222222222222222222222222222222222222222';
+let mockReviewedEvmAddress = REVIEWED_EVM_ADDRESS;
+let mockLiveEvmAddress: string | undefined;
+
+jest.mock('lib/epoch/client', () => ({
+  getEvmConnection: async () => ({
+    address: mockLiveEvmAddress ?? mockReviewedEvmAddress,
+    isNative: mockNativeAvailable,
+    chainId: 5042002
+  })
+}));
+
+const depositScreen = (evmAddress = REVIEWED_EVM_ADDRESS) => {
+  mockReviewedEvmAddress = evmAddress;
+  return (
+    <EvmBridgeDepositScreen
+      evmAddress={evmAddress}
+      midenAccount={midenAccount as never}
+      onConnectAnother={jest.fn()}
+      onClose={mockCloseDeposit}
+    />
+  );
+};
 
 const renderScreen = () => render(depositScreen());
 
@@ -601,6 +617,7 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     jest.mocked(usdcxRemoteRecipientFor).mockImplementation(actualUsdcxRemoteRecipientFor);
     jest.mocked(quoteExecutorBurn).mockRejectedValue(new Error('no quote in tests'));
     mockNativeAvailable = false;
+    mockLiveEvmAddress = undefined;
     // A case that fails mid-flow leaves its queued wallet answers behind; each case starts from the plain ones.
     mockWriteContract.mockReset().mockResolvedValue(`0x${'2'.repeat(64)}`);
     mockNativeSend.mockReset().mockResolvedValue({ hash: `0x${'2'.repeat(64)}` });
@@ -849,6 +866,50 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await settle();
 
     expect(screen.getByTestId('review-symbols')).toHaveTextContent('USDC->USDCx');
+  });
+
+  it.each([
+    ['wagmi', false],
+    ['native', true]
+  ])('fails the admitted USDCx row without a %s signature when the live signer changes', async (_wallet, native) => {
+    mockNativeAvailable = native;
+    let resolveRow!: (value: string) => void;
+    jest.mocked(initiateBridgedReceiveTransaction).mockReturnValueOnce(
+      new Promise(resolve => {
+        resolveRow = resolve;
+      })
+    );
+    renderScreen();
+    await reachUsdcxRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
+    mockLiveEvmAddress = NEXT_EVM_ADDRESS;
+
+    await act(async () => resolveRow('bridge-tx'));
+    await settle();
+
+    expect(runUsdcxDeposit).not.toHaveBeenCalled();
+    expect(native ? mockNativeSend : mockWriteContract).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', expect.any(Object));
+  });
+
+  it('binds the USDCx wagmi signer to the reviewed account', async () => {
+    jest.mocked(runUsdcxDeposit).mockImplementationOnce(async (_id, _amount, _recipient, deps) => {
+      return deps.signer.approve('0x3333333333333333333333333333333333333333', 1_500_000n);
+    });
+    renderScreen();
+    await reachUsdcxRoute();
+    fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
+    await settle();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(mockWriteContract).toHaveBeenCalledWith(
+      expect.objectContaining({ account: REVIEWED_EVM_ADDRESS, functionName: 'approve' })
+    );
   });
 
   it('creates a usdcx tracking row and runs the EVM leg with the encoded recipient', async () => {

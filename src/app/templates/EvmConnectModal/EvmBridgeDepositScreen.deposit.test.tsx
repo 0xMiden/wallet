@@ -923,23 +923,42 @@ const reachSlowUsdcReview = async (expectReview = true) => {
 const connectAnother = jest.fn();
 // A real address: the USDC balance read refuses anything else, and the form holds Continue until that read lands.
 const EVM_ADDRESS = '0x00000000000000000000000000000000000000e0';
+const NEXT_EVM_ADDRESS = '0x00000000000000000000000000000000000000e2';
+let mockReviewedEvmAddress = EVM_ADDRESS;
+let mockLiveEvmAddress: string | undefined;
+
+jest.mock('lib/epoch/client', () => ({
+  getEvmConnection: async () => ({
+    address: mockLiveEvmAddress ?? mockReviewedEvmAddress,
+    isNative: mockNativeReown,
+    chainId: mockAgglayerChainId
+  })
+}));
+
+beforeEach(() => {
+  mockLiveEvmAddress = undefined;
+});
+
 const depositScreen = (
   reportDeposit?: ReportDeposit,
   evmAddress = EVM_ADDRESS,
   fundFlow?: FundFlowTelemetry,
   onClose: () => void = jest.fn(),
   retainDepositAttempt?: () => () => void
-) => (
-  <EvmBridgeDepositScreen
-    evmAddress={evmAddress}
-    midenAccount={midenAccount as never}
-    onConnectAnother={connectAnother}
-    onClose={onClose}
-    reportDeposit={reportDeposit}
-    fundFlow={fundFlow}
-    retainDepositAttempt={retainDepositAttempt}
-  />
-);
+) => {
+  mockReviewedEvmAddress = evmAddress;
+  return (
+    <EvmBridgeDepositScreen
+      evmAddress={evmAddress}
+      midenAccount={midenAccount as never}
+      onConnectAnother={connectAnother}
+      onClose={onClose}
+      reportDeposit={reportDeposit}
+      fundFlow={fundFlow}
+      retainDepositAttempt={retainDepositAttempt}
+    />
+  );
+};
 
 const renderScreen = (
   reportDeposit?: ReportDeposit,
@@ -1422,6 +1441,36 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     );
     return { release: () => resolveRow('bridge-tx'), fail: () => rejectRow(new Error('row failed')) };
   };
+
+  it('fails the admitted Epoch row without solve when the live signer changes', async () => {
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+    const row = holdRowCreation();
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
+    mockLiveEvmAddress = NEXT_EVM_ADDRESS;
+
+    await act(async () => row.release());
+    await settle();
+
+    expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', expect.any(Object));
+  });
+
+  it('does not create a bridge row when the live signer already differs', async () => {
+    quoteFast();
+    renderScreen();
+    await reachFastReview();
+    mockLiveEvmAddress = NEXT_EVM_ADDRESS;
+
+    fireEvent.click(screen.getByTestId('confirm-deposit'));
+    await settle();
+
+    expect(initiateBridgedReceiveTransaction).not.toHaveBeenCalled();
+    expect(epochState.executeEVMToMiden).not.toHaveBeenCalled();
+  });
 
   // The store still reads 'quoted' while the row is written, so the status alone cannot tell the deposit has started.
   it.each([...CONFIG_MOVES, NO_MIDEN_USDC].map(([moved, move]) => [moved, move] as const))(
@@ -2175,6 +2224,35 @@ describe('EvmBridgeDepositScreen Slow-route USDC approval', () => {
     });
     return { promise, resolve, reject };
   };
+
+  it.each([
+    ['wagmi', false],
+    ['native', true]
+  ])('fails the admitted AggLayer row without a %s signature when the live signer changes', async (_wallet, native) => {
+    mockNativeReown = native;
+    answerAllowance(DEPOSIT);
+    const row = deferred<string>();
+    jest.mocked(initiateBridgedReceiveTransaction).mockReturnValueOnce(row.promise);
+    await confirmSlowUsdcDeposit();
+    expect(initiateBridgedReceiveTransaction).toHaveBeenCalledTimes(1);
+    mockLiveEvmAddress = NEXT_EVM_ADDRESS;
+
+    await act(async () => row.resolve('bridge-tx'));
+    await settle();
+
+    const signer = native ? NativeReown.sendTransaction : mockMutateAsync;
+    expect(signer).not.toHaveBeenCalled();
+    expect(updateBridgedReceivePhase).toHaveBeenCalledWith('bridge-tx', 'failed', expect.any(Object));
+  });
+
+  it('binds the wagmi deposit to the reviewed account', async () => {
+    answerAllowance(DEPOSIT);
+    await confirmSlowUsdcDeposit();
+
+    expect(mockMutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ account: EVM_WALLET, functionName: 'bridgeAsset' })
+    );
+  });
 
   it.each([false, true])('shows the second-confirmation wait during the approval receipt (native=%s)', async native => {
     mockNativeReown = native;
