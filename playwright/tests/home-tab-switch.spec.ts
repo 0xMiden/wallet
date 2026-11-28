@@ -6,7 +6,7 @@ import { IMPORTED_WALLET_PASSWORD, importWallet } from '../e2e/helpers/import-wa
 import { expect, test } from '../fixtures/extension';
 
 /**
- * The Home panels switch from the top tabs only (#2415): a sideways drag on a pane changes nothing,
+ * The Home panels switch from the top tabs only (#2415): a sideways swipe on a pane changes nothing,
  * and a tab tap fades the old pane out before the new one fades in, so two panes are never drawn
  * together. Each frame below is the switch frozen at a moment of its 260ms (the panes' Web
  * Animations paused at that time), saved for review as `home-tab-switch-*.png`.
@@ -92,16 +92,14 @@ test.describe('Home tab switch', () => {
     const page = await openPopup(extensionContext, extensionId);
     await settledOn(page, 'overview');
 
-    // A sideways drag on the pane is no navigation.
+    // A sideways trackpad swipe (a horizontal wheel) over the pane is no navigation; it paged the old strip.
+    const before = new URL(page.url()).hash;
     const box = await page.locator('[data-home-page="overview"]').boundingBox();
     if (!box) throw new Error('overview pane has no box');
-    const y = box.y + box.height * 0.6;
-    await page.mouse.move(box.x + box.width * 0.85, y);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width * 0.15, y, { steps: 12 });
-    await page.mouse.up();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.3);
+    await page.mouse.wheel(box.width, 0);
     await page.waitForTimeout(500);
-    expect(new URL(page.url()).hash).toBe('#/');
+    expect(new URL(page.url()).hash).toBe(before);
     await settledOn(page, 'overview');
 
     for (const at of FRAMES_MS) {
