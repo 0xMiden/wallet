@@ -290,7 +290,19 @@ test('Bread says when no bridge route matches and leaves the choice to the user'
         }).toPass({ timeout: 60_000 });
         const chips = card.locator('[data-testid^="command-ai-chip-"]');
         await expect(chips.first()).toBeVisible();
-        for (const chip of await chips.all()) await expect(chip).not.toContainText(/solana/i);
+        for (const chip of await chips.all()) {
+          await expect(chip).not.toContainText(/solana/i);
+          // Names a person reads: no network slug or provider id, and nothing clipped.
+          await expect(chip).not.toContainText(/miden-testnet|sepolia|agglayer|epoch|xreserve/);
+          await expect(chip).toHaveAccessibleName(/^From: .+\. To: .+\. via (Agglayer|Epoch|Circle)/);
+          expect(
+            await chip.evaluate(
+              el =>
+                [el, ...el.querySelectorAll('span')].filter(n => n.scrollWidth > n.clientWidth + 1 && n.clientWidth > 0)
+                  .length
+            )
+          ).toBe(0);
+        }
         await expect(card).toBeInViewport({ ratio: 1 });
         expect(await card.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
         await expect(command.getByTestId('command-workbench')).toHaveCount(0);
