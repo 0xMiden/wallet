@@ -288,7 +288,7 @@ export const SelectRecipient: React.FC<SelectRecipientProps> = ({
       <div className="pt-4">
         <NetworkField
           networks={networks}
-          chain={isValidAddress ? chain : 'ethereum'}
+          chain={isValidAddress ? chain : undefined}
           network={network === 'miden' ? undefined : network}
           requireSelection
           onSelect={onSelectNetwork}

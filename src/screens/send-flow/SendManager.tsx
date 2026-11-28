@@ -533,7 +533,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   const isMidenRecipient = !isBridge && isValidRecipient;
   const displayedNetwork: SendNetworkId | undefined = isMidenRecipient
     ? 'miden'
-    : isBridge
+    : isValidRecipient
       ? selectedNetwork?.id
       : offeredNetworks.find(n => n.id === bridgeNetwork)?.id;
   // A network that only USDCx serves takes only USDCx. NEAR Intents and Epoch take other tokens.
@@ -560,9 +560,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // Keep the chosen network while typing. Only a validated Miden recipient replaces it.
   useEffect(() => {
-    if (!isMidenRecipient) return;
-    if (bridgeNetwork) setValue('bridgeNetwork', undefined);
-  }, [isMidenRecipient, bridgeNetwork, setValue]);
+    if (!isMidenRecipient || bridgeNetwork === undefined) return;
+    setValue('bridgeNetwork', undefined);
+    saveCommandDraft({ bridgeNetwork: undefined });
+  }, [isMidenRecipient, bridgeNetwork, setValue, saveCommandDraft]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route, so the Route
   // screen can show a live fee regardless of which route is selected.
@@ -684,7 +685,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     amount: nearIntents?.amount,
     recipient: nearIntents?.recipient,
     enabled:
-      pathname === '/send' && isBridge && nearIntents !== undefined && (command || currentStep === SendFlowStep.Route)
+      pathname === '/send' &&
+      isBridge &&
+      isValidRecipient &&
+      nearIntents !== undefined &&
+      (command || currentStep === SendFlowStep.Route)
   });
   const routeEligibility = useSendRouteEligibility(
     token?.id ?? '',
@@ -1418,15 +1423,10 @@ export const SendManager: React.FC<SendManagerProps> = ({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      const error = applyRecipientValidation(address);
-      const native = address.trim() !== '' && detectAddressChain(address.trim()) === 'miden' && !error;
-      saveCommandDraft({
-        recipientAddress: address,
-        bridgeNetwork: native ? undefined : bridgeNetwork,
-        bridgeRoute: 'epoch'
-      });
+      applyRecipientValidation(address);
+      saveCommandDraft({ recipientAddress: address, bridgeRoute: 'epoch' });
     },
-    [onAction, applyRecipientValidation, bridgeNetwork, saveCommandDraft]
+    [onAction, applyRecipientValidation, saveCommandDraft]
   );
 
   // Apply a scanned recipient address. Shared by the mobile native scanner and
@@ -1486,7 +1486,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       });
       // A saved contact can be the account's own address — same guard as typed entry.
       applyRecipientValidation(contact.id);
-      saveCommandDraft({ recipientAddress: contact.id, bridgeNetwork: contact.network, bridgeRoute: 'epoch' });
+      saveCommandDraft({ recipientAddress: contact.id, bridgeRoute: 'epoch' });
     },
     [onAction, applyRecipientValidation, saveCommandDraft]
   );
@@ -1503,7 +1503,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         : { recipientAddress: preselectedRecipient }
     });
     applyRecipientValidation(preselectedRecipient);
-    saveCommandDraft({ recipientAddress: preselectedRecipient, bridgeNetwork: network });
+    saveCommandDraft({ recipientAddress: preselectedRecipient });
     // Once per contact opened, not on every change of the callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preselectedRecipient, preselectedNetwork]);
