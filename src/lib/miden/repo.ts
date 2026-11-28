@@ -75,6 +75,7 @@ export const PORTFOLIO_OBSERVATIONS_V3_3_STORE =
 
 /** Appended in completion order (`seq`); one row per transaction and faucet (`key`). */
 export const POSITION_EVENTS_V3_5_STORE = '++seq,&key,txId,[accountId+network+faucetId+seq]';
+export const POSITION_EVENTS_V3_6_STORE = `${POSITION_EVENTS_V3_5_STORE},[accountId+network+eventAt]`;
 
 /** The current `spendingLimits` shape (1.9), exported for the same reason as the 1.7 constants above. */
 export const SPENDING_LIMITS_V19_STORE = indexes('accountId', 'revision');
@@ -443,6 +444,14 @@ function defineSchema(target: Dexie): void {
     [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE,
     [Table.PortfolioObservations]: PORTFOLIO_OBSERVATIONS_V3_3_STORE,
     [Table.PositionEvents]: POSITION_EVENTS_V3_5_STORE
+  });
+
+  // v3.6 - index the earliest recorded position event by account and network.
+  target.version(3.6).stores({
+    [Table.Transactions]: TRANSACTIONS_V3_4_STORE,
+    [Table.SpendingLimits]: SPENDING_LIMITS_V19_STORE,
+    [Table.PortfolioObservations]: PORTFOLIO_OBSERVATIONS_V3_3_STORE,
+    [Table.PositionEvents]: POSITION_EVENTS_V3_6_STORE
   });
 
   // Every new transaction row is inserted with add or bulkAdd, so the placeable-`initiatedAt` check

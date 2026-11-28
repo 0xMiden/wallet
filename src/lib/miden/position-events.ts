@@ -69,13 +69,11 @@ export async function readPositionEvents(
 
 /** When this device first recorded an event for the account on the network, in milliseconds. */
 export async function readTrackingSince(accountId: string, network: string): Promise<number | undefined> {
-  let since: number | undefined;
-  await events()
-    .filter(event => event.accountId === accountId && event.network === network)
-    .each(event => {
-      if (since === undefined || event.eventAt < since) since = event.eventAt;
-    });
-  return since;
+  const row = await events()
+    .where('[accountId+network+eventAt]')
+    .between([accountId, network, Dexie.minKey], [accountId, network, Dexie.maxKey])
+    .first();
+  return row?.eventAt;
 }
 
 const toQuote = (quote: PositionQuote | null): TokenPriceInfo | undefined =>

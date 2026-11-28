@@ -122,6 +122,7 @@ describe('position event storage', () => {
     const first = arrival(DOLLAR, DOLLAR);
     const second = event({ departed: DOLLAR, heldAfter: 0n, eventAt: T - 5_000 });
     const other = event({ arrived: DOLLAR, faucetId: 'other', key: 'tx-other:other', txId: 'tx-other' });
+    const where = jest.spyOn(db.table(Table.PositionEvents), 'where');
     expect(await appendPositionEvents(first.txId, [first])).toBe(true);
     expect(await appendPositionEvents(first.txId, [{ ...first, arrived: 7n }])).toBe(false);
     expect(await appendPositionEvents(second.txId, [second])).toBe(true);
@@ -136,5 +137,7 @@ describe('position event storage', () => {
     expect(await readPositionEvents('account-a', 'testnet', 'faucet')).toEqual([]);
     expect(await readTrackingSince('account-a', 'mainnet')).toBe(T - 5_000);
     expect(await readTrackingSince('account-b', 'mainnet')).toBeUndefined();
+    expect(where).toHaveBeenCalledWith('[accountId+network+eventAt]');
+    where.mockRestore();
   });
 });
