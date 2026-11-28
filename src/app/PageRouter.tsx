@@ -421,7 +421,7 @@ const ROUTE_MAP = Woozie.Router.createMap<RouteContext>([
   ],
   [
     // Swap is disabled on iOS (App Store Guideline 3.1.5(iii) — see
-    // isSwapEnabled). The tab and swipe pane are already hidden there; this
+    // isSwapEnabled). The tab and the Swap pane are already hidden there; this
     // redirects any deep link / stale navigation to `/swap` back home so the
     // exchange surface is unreachable on iOS.
     '/swap',

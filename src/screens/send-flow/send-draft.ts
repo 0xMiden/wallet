@@ -1,6 +1,6 @@
 /**
  * In-memory handoff between the send form (`/send`, mounted under TabLayout's
- * HomeSwipeContainer) and the full-screen review page (`/send/review`). The two
+ * HomePanes) and the full-screen review page (`/send/review`). The two
  * routes live in disjoint React trees, so SendManager fully unmounts when the
  * user confirms the amount; backing out of review would otherwise land on an
  * empty recipient step. The draft lets SendManager restore the entered values

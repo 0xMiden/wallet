@@ -250,8 +250,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
 
   // Hide the floating BottomNav once the user moves past recipient selection,
   // so the step CTAs can sit at the actual bottom of the screen. SendManager
-  // stays mounted inside HomeSwipeContainer while another home-group page is
-  // centred; the hook releases the hold while this page is not active.
+  // stays mounted inside HomePanes while another home-group page is
+  // shown; the hook releases the hold while this page is not active.
   const currentStep = cardStack[cardStack.length - 1]?.name;
   const pastRecipientStep = currentStep !== SendFlowStep.SelectRecipient;
   useHideNavbarWhileOpen(pastRecipientStep);
@@ -356,14 +356,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // other unmount is the user leaving the flow, so it is recorded as cancelled
   // rather than left as an unmatched `started`.
   // Gated on the route, NOT on mount. TabLayout renders this screen inside a
-  // five-page carousel that mounts every page at once and keeps them mounted, so
+  // five-page stack that mounts every page at once and keeps them mounted, so
   // a mount-triggered flow fired on every single app open — reporting a send the
-  // user had not asked for, and then never ending it, since swiping away does
+  // user had not asked for, and then never ending it, since switching away does
   // not unmount either. Every wallet launch produced a phantom abandoned send.
-  // `pathname` is the carousel's own source of truth for which page is showing.
+  // `pathname` is the stack's own source of truth for which page is showing.
   //
-  // Dwelled on rather than merely current, because a swipe from Overview to Swap
-  // commits /send on the way past — see `useRouteDwell`.
+  // Dwelled on rather than merely current, because quick taps or back pops
+  // through Send commit /send on the way past (see `useRouteDwell`).
   const onSendRoute = useRouteDwell(pathname === '/send' || pathname.startsWith('/send/'));
   // Set when this screen navigates to review. That unmount is the handoff, not
   // the user leaving, so the review page still owns the terminal call.
@@ -386,7 +386,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
   //
   // Keyed on the route gate as well as the step: the flow now begins when the
   // user arrives at /send, which is AFTER this screen mounted inside the
-  // carousel. Without `onSendRoute` here, the first step would be reported into
+  // stack. Without `onSendRoute` here, the first step would be reported into
   // a flow that did not exist yet and every send would arrive stepless.
   useEffect(() => {
     if (!onSendRoute) return;

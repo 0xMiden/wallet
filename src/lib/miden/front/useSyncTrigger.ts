@@ -176,10 +176,10 @@ export function useSyncTrigger() {
         // remaining checks (the generating-transaction route and the send flow) are
         // what actually keep a sync from queueing behind a long prove.
         if (!onGeneratingTxPage && !inSendFlow && !isTestSyncPaused()) {
-          // A sync's WASM work would land mid-swipe; hold it until the pager settles (capped, never dropped).
+          // A sync's WASM work would land mid-switch; hold it until the Home pages settle (capped, never dropped).
           await whenInteractionIdle();
           if (cancelled) return;
-          // The swipe may have landed on Send (or a prove page) meanwhile; the guards above still apply.
+          // The switch may have landed on Send (or a prove page) meanwhile; the guards above still apply.
           if (isTestSyncPaused() || isInsideSendFlow() || window.location.href.includes('generating-transaction'))
             return;
           // Consumed HERE, not at the top of the run: a run whose guards skip it never

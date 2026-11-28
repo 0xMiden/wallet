@@ -2749,11 +2749,11 @@ describe('send telemetry', () => {
     expect(beginFlowMock).not.toHaveBeenCalled();
   });
 
-  it('reports nothing for a pane the carousel only swiped past', () => {
-    // Reaching Swap from Overview is four swipe releases, and each release
-    // navigates — so /send is committed on the way past. Before the dwell gate
-    // that emitted a matched, plausible, entirely meaningless send: begun and
-    // abandoned at `select_recipient`, by a finger that never stopped there.
+  it('reports nothing for a pane only passed through', () => {
+    // Quick taps and back pops through Send each navigate, so /send is
+    // committed on the way past. Before the dwell gate that emitted a matched,
+    // plausible, entirely meaningless send: begun and abandoned at
+    // `select_recipient`, by a user who never stopped there.
     mockPathname = '/';
     const view = renderFlow();
 

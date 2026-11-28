@@ -61,15 +61,15 @@ const ReceiveManager: React.FC<ReceiveProps> = ({ presentation }) => {
    * Held in a ref rather than state because settling must never re-render.
    */
   const flowRef = useRef<FlowHandle | null>(null);
-  // Gated on the route, not on mount. TabLayout's home carousel mounts this page
+  // Gated on the route, not on mount. TabLayout's Home pages mount this page
   // on every app open, so a mount-triggered flow reported a completed
   // receive-address share every time the wallet was launched — the address
   // renders unconditionally, so it completed immediately too. Those were the
   // most numerous events the wallet emitted and none of them meant anything.
   //
   // Dwelled on rather than merely current. This pane sits between Send and Earn,
-  // so it is the one the carousel transits most, and its flow completes on sight
-  // of the address — meaning a swipe past it produced a `completed` share that
+  // so it is the one taps and back pops pass through most, and its flow completes on
+  // sight of the address, so passing through it produced a `completed` share that
   // no duration filter on `result` could tell from a real one.
   const onReceiveRoute = useRouteDwell(pathname === '/receive' || pathname.startsWith('/receive/'));
   useEffect(() => {

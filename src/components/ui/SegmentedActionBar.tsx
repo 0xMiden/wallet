@@ -18,8 +18,6 @@ export interface SegmentedActionBarItem {
 export interface SegmentedActionBarProps {
   items: SegmentedActionBarItem[];
   activeId: string;
-  /** Segment to display during a pager preview; taps still compare against `activeId`. */
-  displayId?: string | null;
   onChange: (id: string) => void;
   className?: string;
 }
@@ -99,22 +97,14 @@ const Segment: FC<SegmentProps> = ({ item, active, onSelect, motionTokens, swap 
   );
 };
 
-export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
-  items,
-  activeId,
-  displayId,
-  onChange,
-  className
-}) => {
+export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({ items, activeId, onChange, className }) => {
   const tabBarMotion = useTabBarMotion();
-  // A preview moves the pill and displayed segment before the route changes; a Home tab shown again
-  // takes its new segment at once, as the carousel under it does.
-  const visualActiveId = displayId ?? activeId;
+  // A Home tab shown again takes its new segment at once, as the panes under it do.
   const swap = useTabShownAgain();
   const motionTokens = swap ? { ...tabBarMotion, highlight: tabBarSwap, label: tabBarSwap } : tabBarMotion;
 
-  // A tap on another segment buzzes once, here; a swipe between pages buzzes in HomeSwipeContainer,
-  // which owns that gesture. A tap on the active segment is silent and changes nothing.
+  // A tap on another segment buzzes once, here; a route change from anywhere else (back, a link) is
+  // silent. A tap on the active segment is silent and changes nothing.
   const handleSelect = (id: string) => {
     if (id === activeId) return;
     hapticSelection();
@@ -134,7 +124,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
           scoped to this bar, so two mounted bars never trade pills. */}
       <Highlight
         controlledItems
-        value={visualActiveId}
+        value={activeId}
         click={false}
         exitDelay={0}
         transition={motionTokens.highlight}
@@ -148,7 +138,7 @@ export const SegmentedActionBar: FC<SegmentedActionBarProps> = ({
           <Segment
             key={item.id}
             item={item}
-            active={item.id === visualActiveId}
+            active={item.id === activeId}
             onSelect={handleSelect}
             motionTokens={motionTokens}
             swap={swap}

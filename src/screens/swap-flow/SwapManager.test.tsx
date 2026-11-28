@@ -3074,10 +3074,10 @@ describe('SwapFlow / SwapManager', () => {
       expect(mockBeginFlow).not.toHaveBeenCalled();
     });
 
-    it('reports nothing for a pane the carousel only swiped past', () => {
-      // Swap sits at the far end of the carousel, so it is reached — and left —
-      // by swiping through every other pane. Without a dwell each of those
-      // crossings opened and closed a flow that described nothing anyone did.
+    it('reports nothing for a pane only passed through', () => {
+      // Back pops and quick taps pass through Swap on their way elsewhere.
+      // Without a dwell each of those crossings opened and closed a flow that
+      // described nothing anyone did.
       mockPathname = '/';
       const { rerender } = renderFlow();
 

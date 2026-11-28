@@ -1182,7 +1182,7 @@ function useLocalClaimableNotes(publicAddress: string, enabled: boolean) {
 
     const runPromise = (async (): Promise<ClaimableNoteWithMetadata[] | undefined> => {
       // Every read, the 5s SWR poll's included, takes the WASM lock and re-renders the list; let a
-      // moving pager finish first (capped). Gating the fetcher keeps SWR's dedupe and visibility rules.
+      // Home page switch finish first (capped). Gating the fetcher keeps SWR's dedupe and visibility rules.
       await whenInteractionIdle();
       if ((activeCacheKeyCounts.get(cacheKey) ?? 0) === 0) {
         if (coordinatorsByKey.get(cacheKey) === entry) {

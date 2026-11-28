@@ -196,8 +196,8 @@ export const PromptCarousel: FC<PromptCarouselProps> = ({ children, className })
       <div
         ref={setContainer}
         className={classNames('w-full overflow-hidden', paging && 'touch-pan-y')}
-        // `touch-pan-y` is the whole gesture claim: an outer native scroller (the Home pager) cannot
-        // take a sideways pan that starts here, so the drag needs no pointer-event plumbing.
+        // `touch-pan-y` is the whole gesture claim: no outer native scroller can take a sideways pan
+        // that starts here, so the drag needs no pointer-event plumbing.
         // Only the track's transform moves the slides. A browser scrolls this overflow-hidden
         // viewport to reveal a control focused in a hidden slide, and that offset would add to
         // the page focus moves the track by. (overflow: clip would stop it, but not on iOS 15.)

@@ -33,7 +33,6 @@ jest.mock('lib/platform', () => ({
   isMobile: jest.fn(() => false)
 }));
 jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticMedium: jest.fn() }));
-jest.mock('lib/mobile/useNavbarHidden', () => ({ useNavbarHidden: () => true }));
 jest.mock('app/icons/v2', () => ({
   Icon: () => null,
   IconName: { Checkmark: 'checkmark', Close: 'close', ChevronLeft: 'chevron-left' }

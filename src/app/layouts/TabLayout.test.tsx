@@ -11,7 +11,6 @@ import { hapticSelection } from 'lib/mobile/haptics';
 import { useHideNavbarWhileOpen } from 'lib/mobile/useHideNavbarWhileOpen';
 import { navigate } from 'lib/woozie';
 
-import { setHomePagerPreview } from './home-pager-preview';
 import {
   PageActiveContext,
   PageMountedByReturnContext,
@@ -119,15 +118,15 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-// The home-group carousel is E2E territory; a marker div is enough to assert it
-// mounts (vs. `children`) when the action bar is showing.
-const homeSwipeRenders = { count: 0 };
-jest.mock('app/layouts/HomeSwipeContainer', () => ({
+// The Home pages are E2E territory; a marker div is enough to assert they
+// mount (vs. `children`) when the action bar is showing.
+const homePanesRenders = { count: 0 };
+jest.mock('app/layouts/HomePanes', () => ({
   __esModule: true,
   default: () => {
-    homeSwipeRenders.count += 1;
+    homePanesRenders.count += 1;
     return (
-      <div data-testid="home-swipe" data-home-pager="">
+      <div data-testid="home-panes">
         <div data-testid="home-scroll-region" />
       </div>
     );
@@ -176,15 +175,10 @@ jest.mock('components/ui', () => ({
       </button>
     </div>
   ),
-  SegmentedActionBar: ({ items, activeId, displayId, onChange, className }: any) => {
+  SegmentedActionBar: ({ items, activeId, onChange, className }: any) => {
     const tabActive = jest.requireActual('app/layouts/page-active').useTabActive();
     return (
-      <div
-        data-testid="action-bar"
-        data-active={displayId ?? activeId}
-        data-tab-active={String(tabActive)}
-        className={className}
-      >
+      <div data-testid="action-bar" data-active={activeId} data-tab-active={String(tabActive)} className={className}>
         {items.map((it: any) => (
           <button
             key={it.id}
@@ -218,7 +212,6 @@ const getRoot = (container: HTMLElement) => container.firstChild as HTMLElement;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  act(() => setHomePagerPreview(null));
   mockLocation.pathname = '/';
   mockPlatform.isMobile = false;
   mockPlatform.isDesktop = false;
@@ -318,13 +311,13 @@ describe('TabLayout — active action derivation (activeActionFromPath)', () => 
 });
 
 describe('TabLayout — action bar visibility (showActionBar)', () => {
-  it('renders the action bar and HomeSwipeContainer for home-group routes', () => {
+  it('renders the action bar and HomePanes for home-group routes', () => {
     mockLocation.pathname = '/send';
     renderLayout();
     expect(screen.getByTestId('action-bar')).toBeInTheDocument();
     // Nothing pads the row down from the top of the pane: the bar's own 4px is the whole gap.
     expect(screen.getByTestId('action-bar').parentElement!.className).toBe('shrink-0 relative z-10');
-    expect(screen.getByTestId('home-swipe')).toBeInTheDocument();
+    expect(screen.getByTestId('home-panes')).toBeInTheDocument();
     expect(screen.queryByTestId('child-content')).toBeNull();
   });
 
@@ -344,7 +337,7 @@ describe('TabLayout — action bar visibility (showActionBar)', () => {
     mockLocation.pathname = '/history';
     renderLayout();
     expect(screen.queryByTestId('action-bar')).toBeNull();
-    expect(screen.queryByTestId('home-swipe')).toBeNull();
+    expect(screen.queryByTestId('home-panes')).toBeNull();
     expect(screen.getByTestId('child-content')).toBeInTheDocument();
   });
 });
@@ -660,24 +653,6 @@ describe('TabLayout — action change handling (handleActionChange)', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/send');
   });
 
-  it('navigates when the previewed Send segment is tapped while the route is still Overview', () => {
-    mockLocation.pathname = '/';
-    act(() => setHomePagerPreview('send'));
-    renderLayout();
-    expect(screen.getByTestId('action-bar')).toHaveAttribute('data-active', 'send');
-    fireEvent.click(screen.getByTestId('action-send'));
-    expect(mockNavigate).toHaveBeenCalledWith('/send');
-  });
-
-  it('keeps the current Overview segment silent while Send is previewed', () => {
-    mockLocation.pathname = '/';
-    act(() => setHomePagerPreview('send'));
-    renderLayout();
-    fireEvent.click(screen.getByTestId('action-overview'));
-    expect(mockNavigate).not.toHaveBeenCalled();
-    expect(mockHaptic).not.toHaveBeenCalled();
-  });
-
   it('is a no-op when the tapped action is already the current route', () => {
     // Overview maps to '/', matching the current pathname.
     mockLocation.pathname = '/';
@@ -883,26 +858,17 @@ describe('TabLayout mobile navbar presentation', () => {
     }
   });
 
-  it('does not re-render the home carousel while the bar condenses and expands', () => {
+  it('does not re-render the Home pages while the bar condenses and expands', () => {
     mockPlatform.isMobile = true;
     mockLocation.pathname = '/';
     renderLayout();
     const region = screen.getByTestId('home-scroll-region');
-    const before = homeSwipeRenders.count;
+    const before = homePanesRenders.count;
     scrollTo(region, 0, 40);
     expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
     scrollTo(region, 0);
     expect(bar()).toHaveAttribute('data-navbar-presentation', 'expanded');
-    expect(homeSwipeRenders.count).toBe(before);
-  });
-
-  it("ignores the Home pager's horizontal scroll events", () => {
-    mockPlatform.isMobile = true;
-    renderLayout();
-    scrollTo(screen.getByTestId('home-scroll-region'), 0, 40);
-    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
-    scrollTo(screen.getByTestId('home-swipe'), 0, 80);
-    expect(bar()).toHaveAttribute('data-navbar-presentation', 'condensed');
+    expect(homePanesRenders.count).toBe(before);
   });
 
   it('expands on a tab tap and resets its baseline when the route changes', () => {
@@ -1139,11 +1105,11 @@ describe('TabLayout — mount fade and tab panes', () => {
   it('keeps a visited tab mounted but hidden and inert while another tab is active', () => {
     mockLocation.pathname = '/';
     const { rerender } = renderLayout();
-    const homeSwipe = screen.getByTestId('home-swipe');
+    const homeSwipe = screen.getByTestId('home-panes');
 
     mockLocation.pathname = '/history';
     rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(screen.getByTestId('home-swipe')).toBe(homeSwipe);
+    expect(screen.getByTestId('home-panes')).toBe(homeSwipe);
     const homePane = paneOf('home');
     expect(homePane).toContainElement(screen.getByTestId('action-bar'));
     expect(homePane).toHaveStyle({ visibility: 'hidden' });
@@ -1156,7 +1122,7 @@ describe('TabLayout — mount fade and tab panes', () => {
 
     mockLocation.pathname = '/';
     rerender(<TabLayout>{<div data-testid="child-content" />}</TabLayout>);
-    expect(screen.getByTestId('home-swipe')).toBe(homeSwipe);
+    expect(screen.getByTestId('home-panes')).toBe(homeSwipe);
     expect(paneOf('home')).toHaveStyle({ visibility: 'visible' });
     expect(paneOf('activity')).toHaveStyle({ visibility: 'hidden' });
   });
@@ -1177,7 +1143,7 @@ describe('TabLayout — mount fade and tab panes', () => {
     mockLocation.pathname = pathname;
     renderLayout(<div data-testid="routed-content" />);
     const pane = paneOf(tab);
-    expect(pane?.querySelector('[data-testid="routed-content"], [data-testid="home-swipe"]')).not.toBeNull();
+    expect(pane?.querySelector('[data-testid="routed-content"], [data-testid="home-panes"]')).not.toBeNull();
     expect(pane).toHaveStyle({ visibility: 'visible' });
     expect(pane).not.toHaveAttribute('inert');
   });

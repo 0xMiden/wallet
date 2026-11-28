@@ -13,26 +13,20 @@ import { stepFooterCushionClass } from 'components/flow/footer-cushion';
  * The four panes used to root themselves four different ways (a flow frame at a 24px gutter, a
  * bare scroller with its own `touch-action`, a page that padded its own column), which is how they
  * drifted apart: their titles sat at three different heights, the Send pane was inset past the
- * others, and a horizontal scroller inside one of them took the carousel's swipe away. Everything
+ * others, and a horizontal scroller inside one of them took a sideways pan away. Everything
  * structural lives here now, so a pane differs from its neighbours only in what it puts inside.
  *
  * What this owns:
  *
- * - **Full bleed.** The root fills the carousel's pane edge to edge, on the app's own surface.
- * - **Horizontal pans reach the pager.** The body is `touch-action: pan-x pan-y` and
- *   `overflow-x: hidden`. `HomeSwipeContainer` is a native scroll-snap scroller, and `touch-action`
- *   intersects from the touch target up to that scroller, so a body that said `pan-y` alone would
- *   swallow every sideways pan before the pager saw it. `overflow-x: hidden` keeps the body from
- *   becoming a horizontal scroll container itself, which would take the pan from the pager (how the
- *   Send pane once lost its swipe). A pane that genuinely wants a sideways scroller (Earn's position
- *   row) sets `overscroll-behavior-x: contain` on it, so the end of its scroll does not chain into
- *   the pager.
- *   The body itself contains only vertical overscroll: both-axis containment would stop a
- *   sideways pan or trackpad swipe at the body, so it would never chain to the pager.
+ * - **Full bleed.** The root fills its Home pane edge to edge, on the app's own surface.
+ * - **Both axes pan.** The body is `touch-action: pan-x pan-y` and `overflow-x: hidden`: vertical
+ *   scrolls the body, and horizontal stays unrestricted, so a sideways scroller inside a pane (Earn's
+ *   position row) keeps its pan on every engine. Nothing pages the Home panes on a sideways pan
+ *   (#2415). `overflow-x: hidden` keeps the body itself from becoming a horizontal scroller.
  * - **The page margin**: 16px, the design system's, the same on all four, on the body and on the
  *   pinned CTA alike.
  * - **The top offset**, one per kind of pane: 36px to a titled pane's first line (Send, Earn,
- *   Swap), so the title does not move as you swipe between them and a pane's content lands where
+ *   Swap), so the title does not move as you switch between them and a pane's content lands where
  *   a pushed step's does (60px row, 4px rule and 8px under it: 72px); 20px for Receive, which opens
  *   on its code; and a pushed step's own header gap.
  * - **Bottom clearance** over the docked tab bar, from the same expression the pinned CTA uses, so
@@ -109,8 +103,8 @@ export const HomeGroupPaneBody: React.FC<HomeGroupPaneBodyProps> = ({
       <div
         data-testid={testId}
         data-home-pane-body="true"
-        // Both axes pan: vertical scrolls this body, horizontal reaches the pager that scrolls the panes.
-        // Declared here and nowhere else, so no pane can quietly block the swipe.
+        // Both axes pan: vertical scrolls this body, horizontal stays free for a sideways scroller inside.
+        // Declared here and nowhere else, so no pane can quietly block one.
         style={{ touchAction: command ? 'pan-y' : 'pan-x pan-y' }}
         className={clsx(
           // The body is the page's scroller: a flex child that clips (`overflow-hidden`, as reveal

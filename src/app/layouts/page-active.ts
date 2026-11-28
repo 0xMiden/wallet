@@ -7,8 +7,10 @@ import { springs, tabBarSwap, useMotion } from 'lib/animation';
 /**
  * Whether the page a component renders in is the one on screen. TabLayout keeps a visited tab
  * mounted under the active one, MobilePageLayers keeps a page mounted under a slide page, and
- * HomeSwipeContainer keeps every Home page mounted beside the centred one, so work a page does only
- * for display, such as a poll, pauses while this is false. An SWR read gated on it holds a null key
+ * HomePanes keeps every Home page mounted, stacked under the shown one, so work a page does only
+ * for display, such as a poll, pauses while this is false. A hidden Home page still lays out and
+ * still intersects the viewport (`visibility`, not `display`), so display work gates on this, never on
+ * IntersectionObserver, ResizeObserver or `document.visibilityState`. An SWR read gated on it holds a null key
  * while false, never `isPaused`: SWR sends a shared key's mutate and error retry to its first subscriber, and a paused
  * one swallows them (see History).
  */

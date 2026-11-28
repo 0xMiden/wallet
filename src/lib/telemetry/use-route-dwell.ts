@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
 
 /**
- * How long a home-carousel route must hold still before it counts as a visit.
+ * How long a Home page route must hold still before it counts as a visit.
  *
- * The carousel commits a route on every swipe release, and reaching Swap from
- * Overview is four releases — so a user who swipes across passes through Send,
+ * Quick tab taps and back pops commit every route they pass through, so a user
+ * who taps across, or backs out through visited pages, passes through Send,
  * Receive and Earn, and each of those used to open and close a flow. Those
  * pairs were honest (matched, with a real duration) and completely uninformative:
  * they said the finger crossed a pane, not that anyone looked at it, and left
  * unfiltered they dominated the first bucket of exactly the drop-off funnel the
  * `step` field exists to produce.
  *
- * 600ms because the release animation is ~300ms and a fast swipe chain commits
- * each intermediate route for roughly that long, while the shortest deliberate
+ * 600ms because the switch animation is ~260ms and a fast tap or back chain
+ * commits each intermediate route for roughly that long, while the shortest deliberate
  * visit — tap the segment, read the screen, tap back — is comfortably over a
  * second. Erring high is the safe direction: a missed visit costs one event, a
  * spurious one costs the trustworthiness of the whole funnel.

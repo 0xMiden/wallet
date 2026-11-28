@@ -46,7 +46,7 @@ export const tabBarMotion = {
 
 /**
  * The instant move for whatever a retained tab pane draws in the commit `useTabShownAgain` reports
- * (the one rule: the tab bars, the filter row, the Home carousel's track, the Activity list): that
+ * (the one rule: the tab bars, the filter row, the Home pages, the Activity list): that
  * pane changed out of sight, so it shows its new state at once rather than sliding or popping from
  * the one it left. The reduced-motion instant (not `duration: 0`, so completion callbacks still fire),
  * named for the swap so a pane swap never reads as the user's motion preference.
