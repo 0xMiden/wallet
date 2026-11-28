@@ -2,6 +2,7 @@ import { formatBigInt, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18
 import { maxSendableNativeBaseUnits } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { DEFAULT_SWAP_SLIPPAGE_BPS } from 'lib/miden/swap/quote';
 import { getSwapPartners, tokenQuote, type SwapToken } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
@@ -224,8 +225,7 @@ function resolveBalanceAsset(
   balances: readonly TokenBalanceData[]
 ): TokenBalanceData | undefined {
   if (tokenId) {
-    const byId = balances.find(b => b.tokenId === tokenId);
-    if (byId) return byId;
+    return balances.find(b => normalizedFaucetId(b.tokenId) === normalizedFaucetId(tokenId));
   }
   if (!query) return undefined;
   const q = query.trim().toLowerCase();
@@ -242,8 +242,7 @@ function resolveSwapAsset(
   tokens: readonly SwapToken[]
 ): SwapToken | undefined {
   if (tokenId) {
-    const byId = tokens.find(t => t.faucetId === tokenId);
-    if (byId) return byId;
+    return tokens.find(t => t.faucetId === tokenId);
   }
   if (!query) return undefined;
   const q = query.trim().toLowerCase();
@@ -372,8 +371,10 @@ function applyAssetSlot(
   const symbol = resolveAssetRef(value, map).trim();
   const [queryKey, idKey] =
     field === 'asset' ? (['assetQuery', 'tokenId'] as const) : (['toAssetQuery', 'toTokenId'] as const);
-  // A different asset must not keep the old token id: resolution prefers the id over the symbol.
-  if (nicheId || !isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
+  // Resolution prefers the id, so another symbol must drop it. A repeated symbol keeps it: a held
+  // ticker's placeholder always names the first holding, not necessarily the one the user picked.
+  if (!isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
+  else target[idKey] ??= nicheId;
   target[queryKey] = symbol;
 }
 
@@ -424,9 +425,8 @@ export function applyPatchToDraft(
   if (patch.earn_op !== null) next.earnOp = patch.earn_op;
   const bridgeTerms = ['assetQuery', 'toAssetQuery', 'fromChain', 'toChain'] as const;
   if (next.action === 'bridge' && bridgeTerms.some(key => next[key]?.toLowerCase() !== base[key]?.toLowerCase())) {
-    // A chosen route (and a held token) answers the old request, not the changed one.
+    // A chosen route answers the old request, not the changed one.
     next.routeId = undefined;
-    if (patch.asset !== null) next.tokenId = resolveNicheTokenId(patch.asset, map);
   }
   if (patch.recipient_ref !== null) {
     const resolved = resolveRecipientRef(patch.recipient_ref, map);
@@ -821,7 +821,6 @@ function otherBridgeRouteChips(draft: HydratedIntentDraft, routes: readonly Brid
       patch: {
         ...chip.patch,
         toAssetQuery: undefined,
-        tokenId: undefined,
         // An amount of one asset means nothing in another.
         ...(keepsAsset
           ? {}
@@ -905,7 +904,7 @@ function resolveBridgeFlow(
   const chosen = candidates[0]!;
   const routeDirection: 'in' | 'out' = chosen.mode === 'receive' ? 'in' : 'out';
   const held = ctx.balances.find(b => b.tokenId === draft.tokenId);
-  const sourceTokenId = isSameSymbol(held?.metadata.symbol, chosen.sourceSymbol) ? draft.tokenId : undefined;
+  const sourceTokenId = !held || isSameSymbol(held.metadata.symbol, chosen.sourceSymbol) ? draft.tokenId : undefined;
   const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, sourceTokenId, ctx.balances);
   const { amount } = resolveSymbolicAmount(draft, sourceBalance, ctx, chosen.sourceSymbol);
 
@@ -990,7 +989,8 @@ function resolveSwapFlow(
   if (!receive) {
     const partners = getSwapPartners(offer.faucetId);
     const choices = partners.length > 0 ? partners : ctx.swapTokens.filter(t => t.faucetId !== offer.faucetId);
-    if (choices.length === 1) {
+    // A named token that is not listed must not turn into the only partner.
+    if (choices.length === 1 && !draft.toAssetQuery) {
       receive = choices[0];
     } else if (choices.length > 1) {
       const chips: ClarificationChip[] = choices.slice(0, 5).map(tok => ({

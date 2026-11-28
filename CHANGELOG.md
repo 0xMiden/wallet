@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FIX][all] Keep the token you picked when your reply to a Bread assistant question repeats its symbol and you hold two tokens with that symbol, never replace a picked token that is no longer available with another token of the same symbol, and stop a swap from receiving the only available pair when the token you named to receive is not listed.
 - [CHANGE][all] Add small motion cues: a rejected code shakes, inline errors open in place, the progress meter travels to its value, revealed recovery words fade in, a new unread dot pops in, and token rows show a pressed fill. Success receipts stack each label above its value.
 - [FIX][all] Show the bridge routes the Bread assistant offers with token and network logos and names, from and to, and the provider's name, instead of internal network and provider ids; bridge steps in a plan use the same names.
 - [FIX][all] Distinguish Swap review checks from initiation failures in opt-in reports.
