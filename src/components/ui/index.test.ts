@@ -54,6 +54,7 @@ import { SegmentedActionBar } from './SegmentedActionBar';
 import { SegmentedControl } from './SegmentedControl';
 import { SelectionCheck } from './SelectionCheck';
 import { Skeleton } from './Skeleton';
+import { SlideToConfirm } from './SlideToConfirm';
 import { Sparkline } from './Sparkline';
 import { Spinner } from './Spinner';
 import { StatusBadge } from './StatusBadge';
@@ -114,6 +115,7 @@ describe('components/ui barrel', () => {
     TabRootHeader,
     SearchInput,
     ClearFieldButton,
+    SlideToConfirm,
     Sparkline,
     ActivityRow,
     EmptyState,

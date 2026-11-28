@@ -56,6 +56,8 @@ export interface EvmBridgeDepositReviewProps {
   /** The quoted Fast route can execute against collateral already in The Compact. */
   epochResourceLockRequired?: boolean;
   epochQuoteTransactions?: ExecutionTransactionWithChain[];
+  /** Shows the guide to the external wallet's prompts. False for a source that no external wallet signs for. */
+  walletPromptGuide?: boolean;
   /** Show a skeleton on the "You receive" row while the Fast quote is still loading. */
   youReceiveLoading?: boolean;
   /** Drives the confirm-button spinner while the bridge submit is in flight. */
@@ -121,6 +123,7 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
   usdcxExecutor = false,
   epochResourceLockRequired,
   epochQuoteTransactions,
+  walletPromptGuide = true,
   youReceiveLoading = false,
   isSubmitting = false,
   canConfirm = false,
@@ -248,62 +251,64 @@ export const EvmBridgeDepositReview: React.FC<EvmBridgeDepositReviewProps> = ({
           )}
         </DetailRow>
       </DetailCard>
-      <Card className="mt-4" data-testid="bridge-wallet-prompt-guide">
-        <h3 className="text-body-sm font-semibold text-ink">{t('bridgeWalletPromptTitle')}</h3>
-        {extensionId && (
-          <p className="mt-2 text-body-sm text-muted">
-            {t('bridgeWalletPromptIdentity')}
-            <code className="mt-1 block break-all text-ink">{extensionId}</code>
-          </p>
-        )}
-        {epochUsesExistingCollateral ? (
-          <>
+      {walletPromptGuide && (
+        <Card className="mt-4" data-testid="bridge-wallet-prompt-guide">
+          <h3 className="text-body-sm font-semibold text-ink">{t('bridgeWalletPromptTitle')}</h3>
+          {extensionId && (
             <p className="mt-2 text-body-sm text-muted">
-              {t(
-                epochQuoteTransactions?.length
-                  ? 'bridgeWalletPromptEpochExistingCollateral'
-                  : 'bridgeWalletPromptEpochNoTransactions'
-              )}
+              {t('bridgeWalletPromptIdentity')}
+              <code className="mt-1 block break-all text-ink">{extensionId}</code>
             </p>
-            {!!epochQuoteTransactions?.length && (
-              <ol className="mt-2 list-decimal space-y-2 pl-5 text-body-sm text-muted">
-                {epochQuoteTransactions.map((transaction, index) => (
-                  <li key={`${transaction.chainId}-${transaction.target}-${index}`}>
-                    <span>
-                      {t('bridgeWalletPromptQuotedCall', { number: index + 1, chainId: transaction.chainId })}
-                    </span>
-                    <code className="mt-1 block break-all text-ink">{transaction.target}</code>
-                    {transaction.value !== '0' && (
-                      <span className="mt-1 block">
-                        {t('bridgeWalletPromptNativeValue')}{' '}
-                        <code className="break-all text-ink">{transaction.value}</code>
+          )}
+          {epochUsesExistingCollateral ? (
+            <>
+              <p className="mt-2 text-body-sm text-muted">
+                {t(
+                  epochQuoteTransactions?.length
+                    ? 'bridgeWalletPromptEpochExistingCollateral'
+                    : 'bridgeWalletPromptEpochNoTransactions'
+                )}
+              </p>
+              {!!epochQuoteTransactions?.length && (
+                <ol className="mt-2 list-decimal space-y-2 pl-5 text-body-sm text-muted">
+                  {epochQuoteTransactions.map((transaction, index) => (
+                    <li key={`${transaction.chainId}-${transaction.target}-${index}`}>
+                      <span>
+                        {t('bridgeWalletPromptQuotedCall', { number: index + 1, chainId: transaction.chainId })}
                       </span>
-                    )}
-                    {/^0x[0-9a-fA-F]{8}/.test(transaction.callData) && (
-                      <span className="mt-1 block">
-                        {t('bridgeWalletPromptCallSelector')}{' '}
-                        <code className="text-ink">{transaction.callData.slice(0, 10)}</code>
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            )}
-          </>
-        ) : (
-          <ol className="mt-2 list-decimal space-y-1 pl-5 text-body-sm text-muted">
-            {approvalKey && <li>{t(approvalKey, promptCopy)}</li>}
-            {depositKey && <li>{t(depositKey, promptCopy)}</li>}
-          </ol>
-        )}
-        {promptContract && !epochUsesExistingCollateral && (
-          <p className="mt-2 text-body-sm text-muted">
-            {t('bridgeWalletPromptContract')}
-            <code className="mt-1 block break-all text-ink">{promptContract}</code>
-          </p>
-        )}
-        <p className="mt-2 text-body-sm text-muted">{t('bridgeWalletPromptWalletControls')}</p>
-      </Card>
+                      <code className="mt-1 block break-all text-ink">{transaction.target}</code>
+                      {transaction.value !== '0' && (
+                        <span className="mt-1 block">
+                          {t('bridgeWalletPromptNativeValue')}{' '}
+                          <code className="break-all text-ink">{transaction.value}</code>
+                        </span>
+                      )}
+                      {/^0x[0-9a-fA-F]{8}/.test(transaction.callData) && (
+                        <span className="mt-1 block">
+                          {t('bridgeWalletPromptCallSelector')}{' '}
+                          <code className="text-ink">{transaction.callData.slice(0, 10)}</code>
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </>
+          ) : (
+            <ol className="mt-2 list-decimal space-y-1 pl-5 text-body-sm text-muted">
+              {approvalKey && <li>{t(approvalKey, promptCopy)}</li>}
+              {depositKey && <li>{t(depositKey, promptCopy)}</li>}
+            </ol>
+          )}
+          {promptContract && !epochUsesExistingCollateral && (
+            <p className="mt-2 text-body-sm text-muted">
+              {t('bridgeWalletPromptContract')}
+              <code className="mt-1 block break-all text-ink">{promptContract}</code>
+            </p>
+          )}
+          <p className="mt-2 text-body-sm text-muted">{t('bridgeWalletPromptWalletControls')}</p>
+        </Card>
+      )}
     </ReviewLayout>
   );
 };

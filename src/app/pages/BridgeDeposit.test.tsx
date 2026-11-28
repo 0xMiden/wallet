@@ -2,6 +2,7 @@ import React from 'react';
 
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
+import type { RelayServiceState } from 'lib/evm-relay/use-relay-service';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 import { createLocationState, HistoryAction, navigate, resetHistoryPosition } from 'lib/woozie';
@@ -68,7 +69,46 @@ const mockAnyFeatureAvailability = jest.fn(
 );
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useAnyFeatureAvailability: (features: readonly string[], options?: { hold?: boolean }) =>
-    mockAnyFeatureAvailability(features, options)
+    mockAnyFeatureAvailability(features, options),
+  useBridgeConfigSnapshot: () => ({ status: 'ready' })
+}));
+
+// The relay: off unless a case turns it on. With it on, the account has a relay source unless a case removes it.
+let mockRelayOn = false;
+jest.mock('lib/remote-config/values', () => ({
+  ...jest.requireActual('lib/remote-config/values'),
+  getRelayConfig: () => (mockRelayOn ? { chains: {} } : null)
+}));
+jest.mock('lib/evm-relay/base-url', () => ({ getRelayBaseUrl: () => (mockRelayOn ? 'https://relay.test' : null) }));
+const RELAY = '0x00000000000000000000000000000000000000e5';
+let mockRelaySource: { accountPublicKey: string; address: string } | null = null;
+jest.mock('lib/evm-relay/source', () => ({ relaySourceOf: () => mockRelaySource }));
+// The relay service (`GET /v1/chains`): it serves the one chain of the relay token below, unless a case says otherwise.
+let mockService: RelayServiceState = {
+  status: 'ready',
+  service: { mode: 'sponsor', executor: '0x00000000000000000000000000000000000000e1', chains: [1] }
+};
+jest.mock('lib/evm-relay/use-relay-service', () => ({
+  useRelayService: (enabled: boolean) => (enabled ? mockService : { status: 'off' })
+}));
+jest.mock('app/templates/EvmConnectModal/relay-token-choices', () => ({
+  ...jest.requireActual('app/templates/EvmConnectModal/relay-token-choices'),
+  depositSourceNetworks: () => [],
+  relayTokenChoices: () => [
+    {
+      option: {
+        id: '1:ETH',
+        symbol: 'ETH',
+        receivedSymbol: 'ETH',
+        logoFaucetId: undefined,
+        network: { id: 'ethereum', name: 'Ethereum' }
+      },
+      chainId: 1,
+      token: 'ETH',
+      address: '0x0000000000000000000000000000000000000000',
+      routes: ['agglayer']
+    }
+  ]
 }));
 
 jest.mock('components/ui/Button', () => ({
@@ -88,14 +128,38 @@ jest.mock('components/ui/Button', () => ({
 }));
 
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
-  EvmBridgeDepositScreen: ({ onClose, onConnectAnother }: { onClose: () => void; onConnectAnother: () => void }) => (
-    <div data-testid="bridge-deposit-screen">
+  EvmBridgeDepositScreen: ({
+    evmAddress,
+    relaySource,
+    pendingDepositId,
+    onClose,
+    onExit,
+    onConnectAnother
+  }: {
+    evmAddress: string;
+    relaySource?: { address: string };
+    pendingDepositId?: string;
+    onClose: () => void;
+    onExit?: () => void;
+    onConnectAnother?: () => void;
+  }) => (
+    <div
+      data-testid="bridge-deposit-screen"
+      data-source={evmAddress}
+      data-relay={relaySource?.address ?? 'none'}
+      data-pending={pendingDepositId ?? 'none'}
+    >
       <button type="button" onClick={onConnectAnother}>
         switch
       </button>
       <button type="button" onClick={onClose}>
         back
       </button>
+      {onExit && (
+        <button type="button" onClick={onExit}>
+          exit
+        </button>
+      )}
     </div>
   )
 }));
@@ -318,5 +382,74 @@ describe('BridgeDeposit web connect failure (#2109)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'switch' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('picker refused');
+  });
+});
+
+describe('BridgeDeposit: the relay serves the account', () => {
+  let warn: jest.SpyInstance;
+  beforeEach(() => {
+    mockService = {
+      status: 'ready',
+      service: { mode: 'sponsor', executor: '0x00000000000000000000000000000000000000e1', chains: [1] }
+    };
+    mockRelayOn = true;
+    mockRelaySource = { accountPublicKey: 'miden-account', address: RELAY };
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
+    navigate('/bridge/deposit', HistoryAction.Replace);
+    resetHistoryPosition();
+  });
+  afterEach(() => {
+    warn.mockRestore();
+    mockRelayOn = false;
+    mockRelaySource = null;
+  });
+
+  it('opens the deposit screen on the relay address, with no connect step', () => {
+    render(<BridgeDeposit />);
+
+    const depositScreen = screen.getByTestId('bridge-deposit-screen');
+    expect(depositScreen).toHaveAttribute('data-source', RELAY);
+    expect(depositScreen).toHaveAttribute('data-relay', RELAY);
+    expect(screen.queryByText('bridgeConnectWalletAction')).not.toBeInTheDocument();
+  });
+
+  it('names no pending deposit without the query, and leaves for Home from the close', () => {
+    render(<BridgeDeposit />);
+
+    expect(screen.getByTestId('bridge-deposit-screen')).toHaveAttribute('data-pending', 'none');
+    fireEvent.click(screen.getByRole('button', { name: 'exit' }));
+    expect(createLocationState()).toMatchObject({ pathname: '/' });
+  });
+
+  it.each(['/', '/receive'])('returns to %s on back', async origin => {
+    navigate(origin, HistoryAction.Replace);
+    navigate('/bridge/deposit');
+    render(<BridgeDeposit />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    await waitFor(() => expect(createLocationState().pathname).toBe(origin));
+    expect(createLocationState()).toMatchObject({ trigger: HistoryAction.Pop, historyPosition: 0 });
+  });
+
+  it('uses an explicit close handler for back and close when provided', () => {
+    const onClose = jest.fn();
+    render(<BridgeDeposit onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+    fireEvent.click(screen.getByRole('button', { name: 'exit' }));
+
+    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(createLocationState().pathname).toBe('/bridge/deposit');
+  });
+
+  it('says the deposit service cannot be reached when NEAR Intents is off too', () => {
+    mockService = { status: 'unreachable', error: new Error('relay (404 not_found)') };
+    render(<BridgeDeposit />);
+
+    const notice = screen.getByTestId('deposit-unavailable');
+    expect(notice).toHaveAttribute('data-cause', 'unreachable');
+    expect(notice).toHaveTextContent('depositFlowUnavailableUnreachable');
+    expect(warn).toHaveBeenCalledWith('[deposit] the Deposit flow is not available:', 'unreachable');
   });
 });

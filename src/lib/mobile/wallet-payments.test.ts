@@ -1,6 +1,6 @@
 import { isMobile } from 'lib/platform';
 
-import { availablePaymentWallets, openWalletPayment } from './wallet-payments';
+import { availablePaymentWallets, openWalletPayment, WALLET_OPEN_WINDOW_MS } from './wallet-payments';
 
 const mockAvailable = jest.fn();
 const mockOpen = jest.fn();
@@ -39,5 +39,22 @@ it('does not call native APIs on desktop or extension', async () => {
 
 it.each([0, Number.NaN, Number.POSITIVE_INFINITY])('refuses expired or invalid deadlines', async deadline => {
   await expect(openWalletPayment({ wallet: 'trust', url: 'trust://send' }, deadline)).resolves.toBe(false);
+  expect(mockOpen).not.toHaveBeenCalled();
+});
+
+it('gives a link with no deadline a short window from now', async () => {
+  jest.spyOn(Date, 'now').mockReturnValue(1_000);
+  await expect(openWalletPayment({ wallet: 'metamask', url: 'metamask://send/x' })).resolves.toBe(true);
+  expect(mockOpen).toHaveBeenCalledWith({
+    wallet: 'metamask',
+    url: 'metamask://send/x',
+    deadline: 1_000 + WALLET_OPEN_WINDOW_MS
+  });
+  jest.mocked(Date.now).mockRestore();
+});
+
+it('opens nothing off mobile when there is no deadline', async () => {
+  jest.mocked(isMobile).mockReturnValue(false);
+  await expect(openWalletPayment({ wallet: 'trust', url: 'trust://send' })).resolves.toBe(false);
   expect(mockOpen).not.toHaveBeenCalled();
 });

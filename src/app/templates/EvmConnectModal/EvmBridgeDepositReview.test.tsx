@@ -64,6 +64,14 @@ const baseProps = (overrides: Partial<EvmBridgeDepositReviewProps> = {}): EvmBri
 });
 
 describe('EvmBridgeDepositReview', () => {
+  it('shows no wallet prompt guide for a source that no external wallet signs for', () => {
+    const view = render(<EvmBridgeDepositReview {...baseProps()} />);
+    expect(screen.getByTestId('bridge-wallet-prompt-guide')).toBeInTheDocument();
+
+    view.rerender(<EvmBridgeDepositReview {...baseProps({ walletPromptGuide: false })} />);
+    expect(screen.queryByTestId('bridge-wallet-prompt-guide')).not.toBeInTheDocument();
+  });
+
   it('keys the hero logo by the arriving faucet and marks the To row with the Miden logo (#2093)', () => {
     render(
       <EvmBridgeDepositReview

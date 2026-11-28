@@ -43,7 +43,8 @@ interface EvmBridgeDepositFormProps {
   onAmountChange: (value: string) => void;
   onSelectToken: () => void;
   onSelectNetwork?: () => void;
-  onSwitch: () => void;
+  /** Opens the wallet switch. Without it the form shows no wallet pill: the source is no external wallet. */
+  onSwitch?: () => void;
   onContinue: () => void;
 }
 
@@ -102,15 +103,17 @@ export const EvmBridgeDepositForm: React.FC<EvmBridgeDepositFormProps> = ({
       <SectionHeader
         size="lg"
         action={
-          <Pill
-            onClick={onSwitch}
-            aria-label={t('switchWallet')}
-            aria-haspopup="dialog"
-            className="text-accent-receive-ink"
-            data-testid="bridge-source-wallet"
-          >
-            {truncateAddress(evmAddress, false, 6, 4)}
-          </Pill>
+          onSwitch && (
+            <Pill
+              onClick={onSwitch}
+              aria-label={t('switchWallet')}
+              aria-haspopup="dialog"
+              className="text-accent-receive-ink"
+              data-testid="bridge-source-wallet"
+            >
+              {truncateAddress(evmAddress, false, 6, 4)}
+            </Pill>
+          )
         }
       >
         {t('enterAmount')}

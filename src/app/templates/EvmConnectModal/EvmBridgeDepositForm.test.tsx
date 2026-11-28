@@ -76,6 +76,15 @@ it("gives the E2E From row read the network's name alone", () => {
   expect(new Function(BRIDGE_SOURCE_NETWORK_JS)()).toBe('Base Sepolia');
 });
 
+it('shows the wallet pill only for a source that it can switch', () => {
+  const view = render(<EvmBridgeDepositForm {...props} />);
+  fireEvent.click(screen.getByTestId('bridge-source-wallet'));
+  expect(props.onSwitch).toHaveBeenCalledTimes(1);
+
+  view.rerender(<EvmBridgeDepositForm {...props} onSwitch={undefined} />);
+  expect(screen.queryByTestId('bridge-source-wallet')).not.toBeInTheDocument();
+});
+
 it('shows the available balance and retains the test-funds warning', () => {
   render(<EvmBridgeDepositForm {...props} />);
   expect(screen.getByTestId('send-token-selector')).toHaveTextContent('available 100');

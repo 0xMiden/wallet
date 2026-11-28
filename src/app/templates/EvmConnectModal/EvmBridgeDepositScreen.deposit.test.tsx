@@ -15,6 +15,9 @@ import {
   TEST_EVM_USDC,
   TEST_MIDEN_USDC_FAUCET
 } from 'lib/epoch/testing/bridge-config';
+import type { BatchCall } from 'lib/evm-relay/batch';
+import type { RelaySource } from 'lib/evm-relay/source';
+import type { RelaySubmitOptions } from 'lib/evm-relay/submit';
 import { initiateBridgedReceiveTransaction, updateBridgedReceivePhase } from 'lib/miden/activity';
 import { ITransactionStatus, type ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -367,6 +370,21 @@ jest.mock('lib/walletconnect/native', () => ({
   unwrapNativeResult: (value: unknown) => value
 }));
 
+// The relay serves the chains in this set. Its provider hands each batch to `mockRelaySendCalls` with the hooks that
+// the screen gave it, so a case can run `beforeSign` and `onJob` as the submitter does.
+const mockRelayChains = new Set<number>([11155111]);
+const mockRelaySendCalls = jest.fn<Promise<string>, [BatchCall[], RelaySubmitOptions]>();
+const mockBuildRelayProvider = jest.fn((_source: RelaySource, _chainId: number, hooks: RelaySubmitOptions = {}) => ({
+  sendCalls: (calls: BatchCall[]) => mockRelaySendCalls(calls, hooks)
+}));
+jest.mock('lib/evm-relay/source', () => ({
+  relayServesChain: (chainId: number) => mockRelayChains.has(chainId),
+  buildRelayProvider: (source: RelaySource, chainId: number, hooks?: RelaySubmitOptions) =>
+    mockBuildRelayProvider(source, chainId, hooks),
+  findRelaySource: () => null,
+  relaySourceOf: () => null
+}));
+
 jest.mock('lib/walletconnect/receipt', () => ({
   EvmTransactionRevertedError: jest.requireActual('lib/walletconnect/receipt').EvmTransactionRevertedError,
   waitForEvmReceipt: jest.fn().mockResolvedValue(undefined),
@@ -421,7 +439,7 @@ jest.mock('./EvmBridgeDepositForm', () => {
       onAmountChange: (value: string) => void;
       onContinue: () => void;
       onSelectToken: () => void;
-      onSwitch: () => void;
+      onSwitch?: () => void;
     }) => {
       mockLastOpenTokenDrawer = onSelectToken;
       return (
@@ -768,7 +786,7 @@ const failedAt = (
   step: string,
   error: string,
   errorId = 'raw_bridge_deposit_failed',
-  requestClient?: 'native_reown' | 'wagmi'
+  requestClient?: 'native_reown' | 'wagmi' | 'relay'
 ) => ({
   error,
   errorId,
@@ -854,9 +872,10 @@ const reachSlowUsdcReview = async (expectReview = true) => {
 const connectAnother = jest.fn();
 // A real address: the USDC balance read refuses anything else, and the form holds Continue until that read lands.
 const EVM_ADDRESS = '0x00000000000000000000000000000000000000e0';
-const depositScreen = (reportDeposit?: ReportDeposit, evmAddress = EVM_ADDRESS) => (
+const depositScreen = (reportDeposit?: ReportDeposit, evmAddress = EVM_ADDRESS, relaySource?: RelaySource) => (
   <EvmBridgeDepositScreen
     evmAddress={evmAddress}
+    relaySource={relaySource}
     midenAccount={midenAccount as never}
     onConnectAnother={connectAnother}
     onClose={jest.fn()}
