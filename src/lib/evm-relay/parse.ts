@@ -13,6 +13,7 @@ import type { RelayAccount, RelayGasMode, RelayJob, RelayJobState, RelayQuote, R
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const HASH = /^0x[0-9a-fA-F]{64}$/;
+const SIGNATURE = /^0x[0-9a-fA-F]{130}$/;
 // A non-negative integer in decimal, with no sign and no leading zero.
 const DECIMAL = /^(0|[1-9][0-9]*)$/;
 const UINT64_LIMIT = 1n << 64n;
@@ -156,13 +157,19 @@ export function parseRelayAccount(body: unknown, tokens: readonly Address[] = []
  */
 export function parseRelayQuote(body: unknown): RelayQuote {
   const value = record(body, 'the quote');
+  const { signature } = value;
+  if (typeof signature !== 'string' || !SIGNATURE.test(signature)) throw malformed('signature');
+  const gas = readUint(value.gas, UINT64_LIMIT, 'gas');
+  if (gas === 0n) throw malformed('gas');
   return {
     chainId: readChainId(value.chainId),
     token: readAddress(value.token, 'token'),
     recipient: readAddress(value.recipient, 'recipient'),
     fee: readUint(value.fee, UINT256_LIMIT, 'fee'),
-    gas: readUint(value.gas, UINT64_LIMIT, 'gas'),
-    validUntil: readSafeCount(value.validUntil, 'validUntil')
+    gas,
+    sequence: readUint(value.sequence, UINT64_LIMIT, 'sequence'),
+    validUntil: readSafeCount(value.validUntil, 'validUntil'),
+    signature: `0x${signature.slice(2).toLowerCase()}`
   };
 }
 

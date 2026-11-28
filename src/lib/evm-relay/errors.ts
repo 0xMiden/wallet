@@ -8,6 +8,7 @@ export type RelayKnownErrorCode =
   | 'unsupported_chain'
   | 'target_not_allowed'
   | 'fee_too_low'
+  | 'invalid_fee_quote'
   | 'fee_token_not_accepted'
   | 'fee_not_needed'
   | 'price_unavailable'
@@ -32,6 +33,7 @@ export const RELAY_ERROR_CODES: readonly RelayKnownErrorCode[] = [
   'unsupported_chain',
   'target_not_allowed',
   'fee_too_low',
+  'invalid_fee_quote',
   'fee_token_not_accepted',
   'fee_not_needed',
   'price_unavailable',
@@ -74,9 +76,7 @@ export class RelayApiError extends Error {
 }
 
 /**
- * `400 fee_too_low` with the fee that the relay asks for now: `required` base units of `token` (the zero address is
- * the native coin). The relay did not store the job. The caller shows the new fee in a new review; the wallet never
- * signs a higher fee by itself. A `fee_too_low` body without a valid `required` and `token` stays a `RelayApiError`.
+ * A fee refusal from a relay that supplies a new fee. The caller must show the new fee for review.
  */
 export class RelayFeeTooLowError extends RelayApiError {
   readonly required: bigint;
@@ -122,7 +122,7 @@ export type RelayRefusalReason =
   | 'no-fee'
   /** The fee is 0, the config has no `maxFee` entry for the token, or the fee is above that entry. */
   | 'fee-not-accepted'
-  /** The quote is no longer valid (`validUntil` is not in the future). Ask for a new quote. */
+  /** The quote expired or the relay sequence changed. Ask for a new quote. */
   | 'quote-expired'
   /** A call goes to a target that the relayer does not allow. */
   | 'target-not-allowed'
@@ -257,6 +257,7 @@ export function relaySubmitFailure(error: unknown): RelaySubmitFailure {
     case 'unsupported_chain':
     case 'target_not_allowed':
     case 'fee_too_low':
+    case 'invalid_fee_quote':
     case 'fee_token_not_accepted':
     case 'fee_not_needed':
     case 'bad_signature':
@@ -310,11 +311,11 @@ export function relayErrorAction(error: unknown): RelayErrorAction {
   if (error instanceof RelayRefusedError) return error.reason === 'quote-expired' ? 'review-again' : 'stop';
   if (!(error instanceof RelayApiError)) return 'stop';
   switch (error.code) {
-    // `fee_too_low`: the relay asks for a higher fee (`RelayFeeTooLowError` carries it), and the user reviews it.
     // `fee_not_needed`: the relay sponsors the gas now, and a new review shows no fee.
     case 'stale_request':
     case 'simulation_failed':
     case 'fee_too_low':
+    case 'invalid_fee_quote':
     case 'fee_not_needed':
       return 'review-again';
     case 'rate_limited':

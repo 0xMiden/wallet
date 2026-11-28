@@ -29,7 +29,7 @@ export interface QuoteRelayFeeOptions {
  *   `simulation_failed` or `price_unavailable`; `RelayUnavailableError`; a `TypeError` for a bad argument);
  * - the errors of `assertRelayQuoteMatches` (`RelayMismatchError`, `RelayRefusedError` `fee-not-accepted` or
  *   `quote-expired`).
- * The quote is valid until its `validUntil`. The relay decides again from its own simulation when it gets the batch.
+ * Submit the signed quote before its `validUntil` time. The relay checks the gas estimate against the quote.
  */
 export async function quoteRelayFee(
   from: { address: Address } | Address,
@@ -52,7 +52,8 @@ export async function quoteRelayFee(
 
 /** The reviewed fee of a checked quote: give it to `submit` as `options.fee`, or return it from a `feeFor`. */
 export function relayQuoteFee(quote: RelayQuote): RelayReviewedFee {
-  return { token: quote.token, amount: quote.fee };
+  const { token, fee, gas, sequence, validUntil, signature } = quote;
+  return { token, amount: fee, quote: { gas, sequence, validUntil, signature } };
 }
 
 /**

@@ -10,7 +10,7 @@ import type { RelayChainConfig } from 'lib/remote-config/schema';
 
 import { RelayMismatchError, RelayRefusedError } from './errors';
 import { lowerAddress } from './parse';
-import type { RelayAccount, RelayJob, RelayQuote } from './types';
+import type { RelayAccount, RelayFeeQuoteProof, RelayJob, RelayQuote } from './types';
 
 function sameHex(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
@@ -94,6 +94,7 @@ export function assertFeeWithinCap(chain: RelayChainConfig, token: Address, amou
 export interface RelayReviewedFee {
   token: Address;
   amount: bigint;
+  quote: RelayFeeQuoteProof;
 }
 
 /**

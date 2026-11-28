@@ -42,12 +42,19 @@ export interface RelayAccount {
   balances: RelayTokenBalance[];
 }
 
-/**
- * The answer of `POST /v1/quote`: the fee that the relay asks for one batch now, from its simulation of the calls.
- * Addresses are lower case. The relay does not store or sign a quote: the relay route decides again from its own
- * simulation of the signed batch.
- */
-export interface RelayQuote {
+export interface RelayFeeQuoteProof {
+  /** The gas that the relay estimated for the batch with the fee call. */
+  gas: bigint;
+  /** The Calibur sequence for this quote. */
+  sequence: bigint;
+  /** Time of quote expiry in Unix seconds. */
+  validUntil: number;
+  /** The relayer's signature of the quote terms. */
+  signature: Hex;
+}
+
+/** The checked fee terms from `POST /v1/quote`. */
+export interface RelayQuote extends RelayFeeQuoteProof {
   chainId: number;
   /** The fee token. The zero address is the native coin. */
   token: Address;
@@ -55,10 +62,6 @@ export interface RelayQuote {
   recipient: Address;
   /** The fee in base units of `token`. */
   fee: bigint;
-  /** The gas that the relay estimated for the batch with the fee call. */
-  gas: bigint;
-  /** Unix seconds. After this time the relay can ask for another fee. */
-  validUntil: number;
 }
 
 /**
@@ -115,4 +118,5 @@ export interface RelaySubmission {
   /** 65 bytes. */
   signature: Hex;
   authorization?: RelayAuthorization;
+  quote?: RelayFeeQuoteProof;
 }

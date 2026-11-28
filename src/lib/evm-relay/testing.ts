@@ -4,6 +4,7 @@ import type { Address, Hex } from 'viem';
 import type { RelayChainConfig, RelayConfig } from 'lib/remote-config/schema';
 
 import type { RelayResponse } from './client';
+import type { RelayFeeQuoteProof } from './types';
 
 export const RELAY_ADDRESS: Address = '0x00000000000000000000000000000000000000aa';
 export const EXECUTOR: Address = '0x00000000000000000000000000000000000000e1';
@@ -69,8 +70,12 @@ export function deductAccountBody(): Record<string, unknown> {
   return { ...accountBody(), mode: 'deduct', feeRecipient: FEE_RECIPIENT, feeTokens: [NATIVE, upperHex(USDC)] };
 }
 
-/** The `validUntil` of `quoteBody`: unix seconds. */
-export const QUOTE_VALID_UNTIL = 1_800_000_120;
+export const QUOTE_PROOF: RelayFeeQuoteProof = {
+  gas: 210_000n,
+  sequence: 3n,
+  validUntil: 1_800_000_120,
+  signature: `0x${'ab'.repeat(65)}`
+};
 
 /** A valid `POST /v1/quote` body for a fee in USDC on chain 8453, with upper-case hex. */
 export function quoteBody(fee = '1000'): Record<string, unknown> {
@@ -79,8 +84,10 @@ export function quoteBody(fee = '1000'): Record<string, unknown> {
     token: upperHex(USDC),
     recipient: upperHex(FEE_RECIPIENT),
     fee,
-    gas: '210000',
-    validUntil: QUOTE_VALID_UNTIL
+    gas: QUOTE_PROOF.gas.toString(),
+    sequence: QUOTE_PROOF.sequence.toString(),
+    validUntil: QUOTE_PROOF.validUntil,
+    signature: upperHex(QUOTE_PROOF.signature)
   };
 }
 

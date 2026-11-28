@@ -4,7 +4,7 @@ import type { BatchCall } from './batch';
 import type { RelayQuoteQuery } from './client';
 import { RelayApiError, RelayMismatchError, RelayRefusedError, RelayUnavailableError } from './errors';
 import { amountAfterRelayFee, quoteRelayFee, relayQuoteFee } from './quote';
-import { CHAIN, FEE_RECIPIENT, NATIVE, RELAY_ADDRESS, USDC, upperHex } from './testing';
+import { CHAIN, FEE_RECIPIENT, NATIVE, QUOTE_PROOF, RELAY_ADDRESS, USDC, upperHex } from './testing';
 import type { RelayQuote } from './types';
 
 const mockGetRelayChain = jest.fn();
@@ -26,7 +26,9 @@ const QUOTE: RelayQuote = {
   recipient: FEE_RECIPIENT,
   fee: 1000n,
   gas: 210_000n,
-  validUntil: NOW_SECONDS + 120
+  sequence: QUOTE_PROOF.sequence,
+  validUntil: NOW_SECONDS + 120,
+  signature: QUOTE_PROOF.signature
 };
 
 async function failure(promise: Promise<unknown>): Promise<unknown> {
@@ -106,7 +108,11 @@ describe('quoteRelayFee', () => {
 
 describe('relayQuoteFee', () => {
   it('gives the token and the fee of the quote as the reviewed fee', () => {
-    expect(relayQuoteFee(QUOTE)).toEqual({ token: USDC, amount: 1000n });
+    expect(relayQuoteFee(QUOTE)).toEqual({
+      token: USDC,
+      amount: 1000n,
+      quote: { ...QUOTE_PROOF, gas: QUOTE.gas }
+    });
   });
 });
 

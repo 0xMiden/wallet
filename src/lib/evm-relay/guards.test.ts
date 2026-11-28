@@ -16,6 +16,7 @@ import {
   FEE_RECIPIENT,
   JOB_ID,
   NATIVE,
+  QUOTE_PROOF,
   RELAY_ADDRESS,
   SALT,
   TX_HASH,
@@ -119,8 +120,7 @@ describe('assertRelayQuoteMatches', () => {
       token: USDC,
       recipient: FEE_RECIPIENT,
       fee: 1000n,
-      gas: 210_000n,
-      validUntil: NOW + 120,
+      ...QUOTE_PROOF,
       ...overrides
     };
   }

@@ -163,6 +163,7 @@ export interface RelaySubmissionBody {
   deadline: number;
   signature: Hex;
   authorization?: RelayAuthorization;
+  quote?: { gas: string; validUntil: number; signature: Hex };
 }
 
 /** A call as the relay contract sends it: the value as a decimal string. */
@@ -187,6 +188,10 @@ export function relaySubmissionBody(request: RelaySubmission): RelaySubmissionBo
     signature: request.signature
   };
   if (request.authorization !== undefined) body.authorization = { ...request.authorization };
+  if (request.quote !== undefined) {
+    const { gas, validUntil, signature } = request.quote;
+    body.quote = { gas: gas.toString(), validUntil, signature };
+  }
   return body;
 }
 

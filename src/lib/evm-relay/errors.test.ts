@@ -25,6 +25,7 @@ describe('relayErrorAction', () => {
     ['stale_request', 409, 'review-again'],
     ['simulation_failed', 409, 'review-again'],
     ['fee_too_low', 400, 'review-again'],
+    ['invalid_fee_quote', 400, 'review-again'],
     ['fee_not_needed', 400, 'review-again'],
     ['rate_limited', 429, 'wait'],
     ['busy', 409, 'wait'],
