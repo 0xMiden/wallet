@@ -551,10 +551,11 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
     />
   );
   const intentsStatus = nearIntentsCard?.props.quote;
-  const readyIntents = intentsStatus?.status === 'ready' ? intentsStatus : undefined;
+  const intentsPair = intentsStatus?.status === 'ready' ? intentsStatus.pair : undefined;
+  const intentsQuote = intentsStatus?.status === 'ready' ? intentsStatus.quote?.quote : undefined;
   const intentsChain =
-    readyIntents?.pair.chain.addressKind === 'evm' ? nearIntentsEvmChainId(readyIntents.pair.chain.id) : undefined;
-  const intentsContract = readyIntents?.pair.destination.contractAddress;
+    intentsPair?.chain.addressKind === 'evm' ? nearIntentsEvmChainId(intentsPair.chain.id) : undefined;
+  const intentsContract = intentsPair?.destination.contractAddress;
   const intentsAssetId =
     intentsChain !== undefined && intentsContract ? `${intentsChain}:${intentsContract.toLowerCase()}` : undefined;
   const bridgeRoutes = rankBridgeRoutes(
@@ -608,10 +609,10 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
     rankable.push({
       id: 'near-intents',
       disabled: intentsStatus?.status === 'error' || intentsStatus?.status === 'unsupported',
-      etaSeconds: readyIntents?.quote.quote.timeEstimate,
+      etaSeconds: intentsQuote?.timeEstimate,
       receivedValue:
-        comparableWithIntents && readyIntents
-          ? nearIntentsAmount(readyIntents.quote.quote.amountOut, readyIntents.pair.destination.decimals)?.toFixed()
+        comparableWithIntents && intentsQuote && intentsPair
+          ? nearIntentsAmount(intentsQuote.amountOut, intentsPair.destination.decimals)?.toFixed()
           : undefined,
       card: nearIntentsCard
     });
