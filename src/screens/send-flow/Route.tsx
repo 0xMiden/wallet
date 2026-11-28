@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 
+import BigNumber from 'bignumber.js';
 import { useTranslation } from 'react-i18next';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
@@ -558,33 +559,25 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   const intentsContract = intentsPair?.destination.contractAddress;
   const intentsAssetId =
     intentsChain !== undefined && intentsContract ? `${intentsChain}:${intentsContract.toLowerCase()}` : undefined;
-  const bridgeRoutes = rankBridgeRoutes(
-    [
-      {
-        id: 'epoch',
-        visible: showFastRoute,
-        disabled: !fastSelectable,
-        etaSeconds: 30,
-        payout: payouts?.epoch,
-        card: fastCard
-      },
-      {
-        id: 'agglayer',
-        visible: showSlowRoute,
-        disabled: !slowSelectable,
-        etaSeconds: 30 * 60,
-        payout: payouts?.agglayer,
-        card: slowCard
-      }
-    ].filter(option => option.visible),
-    'best-value'
-  );
-  const sameAsset = payouts?.epoch && payouts.epoch.assetId === payouts.agglayer?.assetId;
-  const comparableWithIntents =
-    !usdcxAvailable &&
-    intentsAssetId !== undefined &&
-    bridgeRoutes.filter(option => !option.disabled).at(-1)?.payout?.assetId === intentsAssetId;
-  const routes: (BridgeRouteMetrics & { id: string; card: React.ReactElement })[] = usdcxAvailable
+  const bridgeRoutes = [
+    {
+      id: 'epoch',
+      visible: showFastRoute,
+      disabled: !fastSelectable,
+      etaSeconds: 30,
+      payout: payouts?.epoch,
+      card: fastCard
+    },
+    {
+      id: 'agglayer',
+      visible: showSlowRoute,
+      disabled: !slowSelectable,
+      etaSeconds: 30 * 60,
+      payout: payouts?.agglayer,
+      card: slowCard
+    }
+  ].filter(option => option.visible);
+  const routes: (BridgeRouteMetrics & { id: string; assetId?: string; card: React.ReactElement })[] = usdcxAvailable
     ? [
         {
           id: 'usdcx',
@@ -595,29 +588,45 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
       ]
     : bridgeRoutes.map(option => ({
         ...option,
-        receivedValue:
-          sameAsset || (comparableWithIntents && option.payout?.assetId === intentsAssetId)
-            ? option.payout?.amount
-            : undefined
+        assetId: option.payout?.assetId,
+        receivedValue: option.payout?.amount
       }));
-  const keepAssetOrder = ranking === 'best-value' && comparableWithIntents && !sameAsset;
-  const firstMatch = routes.findIndex(option => option.receivedValue !== undefined && !option.disabled);
-  // Keep the relative position of routes whose destination assets cannot be compared.
-  const rankFrom = keepAssetOrder ? Math.max(0, firstMatch) : 0;
-  const rankable = routes.slice(rankFrom);
   if (nearIntentsCard) {
-    rankable.push({
+    routes.push({
       id: 'near-intents',
       disabled: intentsStatus?.status === 'error' || intentsStatus?.status === 'unsupported',
       etaSeconds: intentsQuote?.timeEstimate,
+      assetId: intentsAssetId,
       receivedValue:
-        comparableWithIntents && intentsQuote && intentsPair
+        intentsQuote && intentsPair
           ? nearIntentsAmount(intentsQuote.amountOut, intentsPair.destination.decimals)?.toFixed()
           : undefined,
       card: nearIntentsCard
     });
   }
-  const ranked = [...routes.slice(0, rankFrom), ...rankBridgeRoutes(rankable, ranking)];
+  const ranked = (() => {
+    if (ranking === 'fastest') return rankBridgeRoutes(routes, ranking);
+    const ordered = [...routes.filter(option => !option.disabled), ...routes.filter(option => option.disabled)];
+    const matchingByAsset = new Map<string, typeof routes>();
+    const comparableAssets = ordered.map(option => {
+      const { assetId, disabled, receivedValue } = option;
+      if (disabled || !assetId || receivedValue === undefined) return undefined;
+      const amount = new BigNumber(receivedValue);
+      if (!amount.isFinite() || amount.lt(0)) return undefined;
+      const matching = matchingByAsset.get(assetId) ?? [];
+      matching.push(option);
+      matchingByAsset.set(assetId, matching);
+      return assetId;
+    });
+    // Only swap cards that quote the same asset, leaving other cards in their slots.
+    for (const [assetId, matching] of matchingByAsset) {
+      if (matching.length > 1) matchingByAsset.set(assetId, rankBridgeRoutes(matching, ranking));
+    }
+    return ordered.map((option, index) => {
+      const assetId = comparableAssets[index];
+      return assetId ? (matchingByAsset.get(assetId)?.shift() ?? option) : option;
+    });
+  })();
 
   return (
     <div className={usdcxAvailable ? 'mt-6 flex flex-col gap-4' : 'mt-4 flex flex-col gap-4'}>
