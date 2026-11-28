@@ -10832,6 +10832,26 @@
       }
     }
   },
+  "depositFlowPendingReceived": {
+    "message": "Para yatırma işlemi tamamlandı. Tamamlamak için dokunun.",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$'dan $network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "Para yatırma işleminizi görüyoruz. Takip etmek için dokunun.",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
   "depositFlowAddressExpiresIn": {
     "message": "Adresin geçerlilik süresi",
     "englishSource": "Address expires in"
@@ -10857,6 +10877,19 @@
   "depositFlowPartialRestBody": {
     "message": "Geri kalanını bu adrese gönderin.",
     "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "Yeni bir para yatırma işlemi başlatarak yeni bir para yatırma adresi alın.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents bu para yatırma işlemini tamamlayamadı ve tutarı $address$ adresine iade etti.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
   "depositFlowRelayReverted": {
     "message": "Para yatırma işlemi zincir üzerinde başarısız oldu, bu nedenle hiçbir şey köprülenmedi. Paranız hâlâ para yatırma adresinizde bulunmaktadır.",
@@ -10936,9 +10969,17 @@
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
   },
+  "depositFlowNearRoute": {
+    "message": "NEAR Niyetleri",
+    "englishSource": "NEAR Intents"
+  },
   "depositFlowNearArrives": {
     "message": "2 ila 3 dakika",
     "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "Ücrete dahil olanlar",
+    "englishSource": "Included in fee"
   },
   "depositFlowUnavailableTitle": {
     "message": "Para yatırma işlemi mevcut değildir",

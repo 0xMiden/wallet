@@ -10838,6 +10838,26 @@
       }
     }
   },
+  "depositFlowPendingReceived": {
+    "message": "Depósito recibido. Toca para finalizar.",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$ de $network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "Vemos tu ingreso. Toca para seguirlo.",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
   "depositFlowAddressExpiresIn": {
     "message": "La dirección caduca en",
     "englishSource": "Address expires in"
@@ -10863,6 +10883,19 @@
   "depositFlowPartialRestBody": {
     "message": "Envía el resto a esta dirección.",
     "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "Inicia un nuevo depósito para obtener una nueva dirección de depósito.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents no ha podido completar este depósito y lo ha reembolsado a $address$.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
   "depositFlowRelayReverted": {
     "message": "La transacción de depósito ha fallado en la cadena, por lo que no se ha transferido nada. Tus fondos siguen estando en tu dirección de depósito.",
@@ -10942,9 +10975,17 @@
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
   },
+  "depositFlowNearRoute": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
   "depositFlowNearArrives": {
     "message": "De 2 a 3 minutos",
     "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "Incluido en la comisión",
+    "englishSource": "Included in fee"
   },
   "depositFlowUnavailableTitle": {
     "message": "El depósito no está disponible",

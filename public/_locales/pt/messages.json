@@ -10838,6 +10838,26 @@
       }
     }
   },
+  "depositFlowPendingReceived": {
+    "message": "Depósito recebido. Toque para concluir.",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$ da $network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "Vemos seu depósito. Toque para acompanhá-lo.",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
   "depositFlowAddressExpiresIn": {
     "message": "O endereço expira em",
     "englishSource": "Address expires in"
@@ -10863,6 +10883,19 @@
   "depositFlowPartialRestBody": {
     "message": "Envie o restante para este endereço.",
     "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "Inicie um novo depósito para obter um novo endereço de depósito.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "A NEAR Intents não conseguiu concluir este depósito e o reembolsou para $address$.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
   "depositFlowRelayReverted": {
     "message": "A transação de depósito falhou na cadeia, portanto nada foi transferido. Seus fundos ainda estão no seu endereço de depósito.",
@@ -10942,9 +10975,17 @@
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
   },
+  "depositFlowNearRoute": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
   "depositFlowNearArrives": {
     "message": "2 a 3 minutos",
     "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "Incluído na taxa",
+    "englishSource": "Included in fee"
   },
   "depositFlowUnavailableTitle": {
     "message": "O depósito não está disponível",

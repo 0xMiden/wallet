@@ -10834,6 +10834,26 @@
       }
     }
   },
+  "depositFlowPendingReceived": {
+    "message": "Депозит получен. Нажмите, чтобы завершить.",
+    "englishSource": "Deposit received. Tap to finish."
+  },
+  "depositFlowPendingFrom": {
+    "message": "$amount$ из $network$",
+    "englishSource": "$amount$ from $network$",
+    "placeholders": {
+      "amount": {
+        "content": "$1"
+      },
+      "network": {
+        "content": "$2"
+      }
+    }
+  },
+  "depositFlowArrivalNotice": {
+    "message": "Мы видим ваш депозит. Нажмите, чтобы отслеживать его.",
+    "englishSource": "We see your deposit. Tap to follow it."
+  },
   "depositFlowAddressExpiresIn": {
     "message": "Срок действия адреса истекает через",
     "englishSource": "Address expires in"
@@ -10859,6 +10879,19 @@
   "depositFlowPartialRestBody": {
     "message": "Остальное отправьте на этот адрес.",
     "englishSource": "Send the rest to this address."
+  },
+  "depositFlowNearExpiredBody": {
+    "message": "Создайте новый депозит, чтобы получить новый адрес депозита.",
+    "englishSource": "Start a new deposit to get a new deposit address."
+  },
+  "depositFlowNearRefunded": {
+    "message": "NEAR Intents не смог завершить этот депозит и вернул средства на $address$.",
+    "englishSource": "NEAR Intents could not complete this deposit and refunded it to $address$.",
+    "placeholders": {
+      "address": {
+        "content": "$1"
+      }
+    }
   },
   "depositFlowRelayReverted": {
     "message": "Транзакция по пополнению счета в цепочке не прошла, поэтому ничего не было переведено через мост. Ваши средства по-прежнему находятся на вашем адресе пополнения.",
@@ -10938,9 +10971,17 @@
     "message": "Circle xReserve",
     "englishSource": "Circle xReserve"
   },
+  "depositFlowNearRoute": {
+    "message": "NEAR Intents",
+    "englishSource": "NEAR Intents"
+  },
   "depositFlowNearArrives": {
     "message": "2–3 минуты",
     "englishSource": "2 to 3 minutes"
+  },
+  "depositFlowNearGasIncluded": {
+    "message": "Включено в комиссию",
+    "englishSource": "Included in fee"
   },
   "depositFlowUnavailableTitle": {
     "message": "Депозит недоступен",
