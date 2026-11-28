@@ -22,6 +22,7 @@ import { BreadMascot } from './BreadMascot';
 import { useCommandAiWalletData } from './command-ai-context';
 import { useOptionalCommandDrafts } from './command-drafts';
 import type { CommandRoute } from './command-routes';
+import { bridgeNetworkName, bridgeProviderName, CommandAiChip } from './CommandAiChip';
 import { useCommandPortfolio } from './useCommandPortfolio';
 
 export type PlanStepStatus = 'pending' | 'active' | 'done' | 'stopped';
@@ -78,7 +79,14 @@ export function stepDisplayLabels(
   draft: HydratedIntentDraft,
   t: (key: string, params?: Record<string, string>) => string
 ): { actionLabel: string; summary: string; detail: string } {
-  const raw = formatPlanStepSummary(draft);
+  // The summary reads direction from the literal "Miden", which several locales translate.
+  const chainName = (chain: string) => bridgeNetworkName(chain, key => (key === 'miden' ? 'Miden' : t(key)));
+  const raw = formatPlanStepSummary({
+    ...draft,
+    ...(draft.fromChain ? { fromChain: chainName(draft.fromChain) } : {}),
+    ...(draft.toChain ? { toChain: chainName(draft.toChain) } : {}),
+    ...(draft.provider ? { provider: bridgeProviderName(draft.provider, t) } : {})
+  });
   const actionLabel = t(draft.action);
   const qty = draft.amount
     ? draft.amount
@@ -421,16 +429,14 @@ function ActivePlanBanner({
         {plan.status === 'clarifying' && plan.clarifying && (
           <div className="flex flex-wrap gap-2.5 pt-1">
             {plan.clarifying.chips.map(chip => (
-              <button
+              <CommandAiChip
                 key={chip.id}
-                type="button"
+                chip={chip}
+                labelClassName="font-medium"
                 data-testid={`command-ai-plan-chip-${chip.id}`}
                 onClick={() => selectPlanChip(chip, getWalletContext())}
                 className="inline-flex items-center gap-2 rounded-xl border border-hairline bg-page px-3.5 py-2 text-body-sm text-ink transition-colors hover:border-accent-primary/60 hover:bg-accent-tint focus-visible:outline-2 focus-visible:outline-accent-primary"
-              >
-                <span className="font-medium">{chip.label}</span>
-                {chip.subtitle && <span className="text-caption text-muted">{chip.subtitle}</span>}
-              </button>
+              />
             ))}
           </div>
         )}
