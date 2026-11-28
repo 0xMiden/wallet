@@ -1685,11 +1685,13 @@ export const ReviewTransaction: React.FC = () => {
         />
       );
     }
+    // A parked admission already owns its row handoff, even if the token balance changed during lock.
     if (
-      paramsInvalid ||
-      bridgeParamsInvalid ||
-      tokenInvalid ||
-      (command && commandReviewId !== undefined && (!commandReviewId || restoredDraft?.reviewId !== commandReviewId))
+      !compactAdmission &&
+      (paramsInvalid ||
+        bridgeParamsInvalid ||
+        tokenInvalid ||
+        (command && commandReviewId !== undefined && (!commandReviewId || restoredDraft?.reviewId !== commandReviewId)))
     ) {
       return <Redirect to="/send" />;
     }
