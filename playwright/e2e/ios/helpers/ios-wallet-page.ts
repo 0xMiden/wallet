@@ -13,10 +13,9 @@ import {
   burnSubmitFailure,
   enText,
   reviewQueryParam,
-  USDCX_DESTINATION_CHIPS,
+  usdcxChipIdsProblem,
   usdcxPayoutRowsText,
-  type BridgedSendRow,
-  type NetworkChipState
+  type BridgedSendRow
 } from '../../helpers/bridge';
 import { claimFromPendingList } from '../../helpers/claim-drain';
 import { SEPOLIA_NETWORK } from '../../helpers/contact-network';
@@ -163,15 +162,6 @@ interface UsdcxReviewView {
   networkFee: string | null;
   fee: string | null;
   notice: string | null;
-}
-
-function sameChipSet(chips: readonly NetworkChipState[]): boolean {
-  return (
-    chips
-      .map(chip => chip.testId)
-      .sort()
-      .join(',') === [...USDCX_DESTINATION_CHIPS].sort().join(',')
-  );
 }
 
 /** The details page's own layer: it slides over the retained tabs. */
@@ -566,7 +556,7 @@ export class IosWalletPage implements WalletPage {
   /**
    * Burns the native USDCx to an address on `opts.payout` (Arc Testnet by default) through the real Send UI and returns
    * once the wallet is on the generating page. Every read is scoped (SEND_FLOW, the network sheet, SEND_REVIEW). Checks
-   * on the way: exactly the four USDCx destinations in the network sheet, the closed field naming the payout chain, the
+   * on the way: the required USDCx destinations in the network sheet, the closed field naming the payout chain, the
    * route card, the payout fee row and the notice on the route and the review, and the review's network and fee rows; a
    * refusal is named from `review-error`, never left to a timeout. Nothing is submitted once `signal` has aborted (R26).
    */
@@ -599,7 +589,7 @@ export class IosWalletPage implements WalletPage {
     const offered = await this.pollEval<SendNetworkView | null>(
       'the four USDCx destinations in the network sheet',
       SEND_NETWORK_JS,
-      view => view !== null && sameChipSet(view.rows),
+      view => view !== null && usdcxChipIdsProblem(view.rows) === undefined,
       15_000
     );
     const defaultPressed = (offered?.rows ?? []).filter(row => row.pressed === 'true').map(row => row.testId);

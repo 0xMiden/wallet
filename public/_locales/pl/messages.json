@@ -8659,6 +8659,10 @@
     "message": "Opłata za most",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "Najlepsza cena",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "Najlepsza wartość",
     "englishSource": "Best value"

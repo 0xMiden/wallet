@@ -120,6 +120,45 @@ describe('Route', () => {
 });
 
 describe('RouteOptions', () => {
+  it('offers Best Price and Fastest when both provider routes are available', () => {
+    render(
+      <RouteOptions route="epoch" onRouteChange={jest.fn()} fastQuoteLoading={false} slowStatus="allowed" {...UP} />
+    );
+
+    const sort = screen.getByRole('radiogroup', { name: 'bridgeRouteSort' });
+    expect(within(sort).getByRole('radio', { name: 'bridgeRankBestPrice' })).toBeChecked();
+    expect(within(sort).getByRole('radio', { name: 'bridgeRankFastest' })).toBeEnabled();
+  });
+
+  it.each([
+    ['sepolia:usdc', 'bridge-route-slow'],
+    ['sepolia:other-usdc', 'bridge-route-fast']
+  ])('compares payouts only for the same destination asset (%s)', (slowAsset, firstRoute) => {
+    const onRouteChange = jest.fn();
+    render(
+      <RouteOptions
+        route="epoch"
+        onRouteChange={onRouteChange}
+        fastQuoteLoading={false}
+        slowStatus="allowed"
+        payouts={{
+          epoch: { assetId: 'sepolia:usdc', amount: '1.000000000000000001', symbol: 'USDC' },
+          agglayer: { assetId: slowAsset, amount: '1.000000000000000002', symbol: 'USDC' }
+        }}
+        {...UP}
+      />
+    );
+    const renderedRoutes = () => screen.getAllByTestId(/^bridge-route-(fast|slow)$/);
+    expect(renderedRoutes()[0]).toHaveAttribute('data-testid', firstRoute);
+    expect(screen.getByTestId('bridge-route-fast')).toHaveTextContent('1.000000000000000001 USDC');
+
+    fireEvent.click(screen.getByRole('radio', { name: 'bridgeRankFastest' }));
+
+    expect(renderedRoutes()[0]).toHaveAttribute('data-testid', 'bridge-route-fast');
+    expect(screen.getByTestId('bridge-route-fast')).toHaveAttribute('aria-pressed', 'true');
+    expect(onRouteChange).not.toHaveBeenCalled();
+  });
+
   it.each<AgglayerEligibility>(['loading', 'unsupported', 'error'])(
     'blocks Slow while %s and keeps Fast available',
     status => {
@@ -716,6 +755,145 @@ describe('NEAR Intents route card', () => {
       slowStatus: 'allowed'
     };
 
+    describe('ranking offered routes', () => {
+      const contractAddress = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const sameContract = '0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa';
+      const intents = (timeEstimate: number, contract = sameContract, chainId = 'eth') => (
+        <NearIntentsRouteCard
+          quote={{
+            status: 'ready',
+            pair: {
+              ...PAIR,
+              chain: { id: chainId, name: chainId, addressKind: 'evm', tokens: [] },
+              destination: { ...PAIR.destination, blockchain: chainId, contractAddress: contract }
+            },
+            quote: quoteWith('2500000', timeEstimate)
+          }}
+          selected={false}
+          onSelect={jest.fn()}
+          accent="send"
+        />
+      );
+      const first = () => screen.getAllByTestId(/^bridge-route-(fast|usdcx|near-intents)$/)[0];
+      const chooseSort = (mode: 'BestPrice' | 'Fastest') =>
+        fireEvent.click(screen.getByRole('radio', { name: `bridgeRank${mode}` }));
+
+      it('ranks one bridge and a faster Intents quote without changing the selection', () => {
+        const onRouteChange = jest.fn();
+        render(
+          <RouteOptions
+            {...base}
+            {...UP}
+            showSlowRoute={false}
+            onRouteChange={onRouteChange}
+            nearIntentsCard={intents(10)}
+          />
+        );
+
+        chooseSort('Fastest');
+
+        expect(first()).toHaveAttribute('data-testid', 'bridge-route-near-intents');
+        expect(screen.getByTestId('bridge-route-fast')).toHaveAttribute('aria-pressed', 'true');
+        expect(onRouteChange).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['same contract', 'eth', sameContract, 'bridge-route-near-intents'],
+        ['different contract', 'eth', '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'bridge-route-fast'],
+        ['different chain', 'base', sameContract, 'bridge-route-fast'],
+        ['unmapped chain', 'unknown', sameContract, 'bridge-route-fast']
+      ])('compares exact Best Price payouts by chain and contract (%s)', (_label, chainId, contract, firstRoute) => {
+        render(
+          <RouteOptions
+            {...base}
+            {...UP}
+            showSlowRoute={false}
+            payouts={{ epoch: { assetId: `1:${contractAddress}`, amount: '1', symbol: 'USDC' } }}
+            nearIntentsCard={intents(10, contract, chainId)}
+          />
+        );
+
+        expect(first()).toHaveAttribute('data-testid', firstRoute);
+      });
+
+      it.each([
+        ['missing', undefined],
+        ['different-asset', { assetId: '1:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', amount: '100', symbol: 'USDC' }]
+      ])(
+        'keeps an enabled Slow route in its slot with a %s payout while ranking matching routes',
+        (_label, agglayer) => {
+          const onRouteChange = jest.fn();
+          render(
+            <RouteOptions
+              {...base}
+              {...UP}
+              onRouteChange={onRouteChange}
+              payouts={{ epoch: { assetId: `1:${contractAddress}`, amount: '1', symbol: 'USDC' }, agglayer }}
+              nearIntentsCard={intents(10)}
+            />
+          );
+
+          const cardIds = () =>
+            screen.getAllByTestId(/^bridge-route-(fast|slow|near-intents)$/).map(card => card.dataset.testid);
+          expect(screen.getByTestId('bridge-route-slow')).toBeEnabled();
+          expect(cardIds()).toEqual(['bridge-route-near-intents', 'bridge-route-slow', 'bridge-route-fast']);
+          chooseSort('Fastest');
+          expect(cardIds()).toEqual(['bridge-route-near-intents', 'bridge-route-fast', 'bridge-route-slow']);
+          expect(screen.getByTestId('bridge-route-fast')).toHaveAttribute('aria-pressed', 'true');
+          expect(onRouteChange).not.toHaveBeenCalled();
+        }
+      );
+
+      it.each([
+        [
+          'unrelated Intents contract',
+          AVAILABLE,
+          '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          ['fast', 'slow', 'near-intents']
+        ],
+        ['unavailable Slow', DOWN, sameContract, ['near-intents', 'fast', 'slow']]
+      ])('preserves Best Price placement with %s', (_label, slowAvailability, contract, order) => {
+        render(
+          <RouteOptions
+            {...base}
+            {...UP}
+            slowAvailability={slowAvailability}
+            payouts={{ epoch: { assetId: `1:${contractAddress}`, amount: '1', symbol: 'USDC' } }}
+            nearIntentsCard={intents(10, contract)}
+          />
+        );
+
+        expect(
+          screen.getAllByTestId(/^bridge-route-(fast|slow|near-intents)$/).map(card => card.dataset.testid)
+        ).toEqual(order.map(id => `bridge-route-${id}`));
+        expect(screen.getByTestId('bridge-route-slow')).toHaveProperty('disabled', slowAvailability === DOWN);
+      });
+
+      it.each([
+        ['unknown', Number.NaN, 'bridge-route-usdcx'],
+        ['finite', 10, 'bridge-route-near-intents']
+      ])('sorts USDCx alongside Intents with a %s ETA', (_label, eta, fastest) => {
+        const onRouteChange = jest.fn();
+        render(
+          <RouteOptions
+            {...base}
+            {...UP}
+            route="usdcx"
+            usdcxAvailable
+            onRouteChange={onRouteChange}
+            nearIntentsCard={intents(eta)}
+          />
+        );
+
+        chooseSort('Fastest');
+        expect(first()).toHaveAttribute('data-testid', fastest);
+        chooseSort('BestPrice');
+        expect(first()).toHaveAttribute('data-testid', 'bridge-route-usdcx');
+        expect(screen.getByTestId('bridge-route-usdcx')).toHaveAttribute('aria-pressed', 'true');
+        expect(onRouteChange).not.toHaveBeenCalled();
+      });
+    });
+
     it('shows the bridge cards and the NEAR Intents card when both serve the network', () => {
       render(<RouteOptions {...base} {...UP} nearIntentsCard={card} />);
 
@@ -739,6 +917,7 @@ describe('NEAR Intents route card', () => {
       expect(screen.queryByTestId('bridge-route-fast')).not.toBeInTheDocument();
       expect(screen.queryByTestId('bridge-route-slow')).not.toBeInTheDocument();
       expect(screen.queryByTestId('bridge-route-usdcx')).not.toBeInTheDocument();
+      expect(screen.queryByRole('radiogroup', { name: 'bridgeRouteSort' })).not.toBeInTheDocument();
     });
   });
 });

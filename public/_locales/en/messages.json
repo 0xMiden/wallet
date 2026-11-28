@@ -8657,6 +8657,10 @@
     "message": "Bridge fee",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "Best Price",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "Best value",
     "englishSource": "Best value"

@@ -729,17 +729,28 @@ export interface NetworkChipState {
   pressed: string | null;
 }
 
-/** Why the rows are not exactly the four USDCx destinations with only `selected` pressed; undefined when they are. */
-export function usdcxChipsProblem(chips: readonly NetworkChipState[], selected: string): string | undefined {
-  const ids = chips.map(chip => chip.testId).sort();
-  const expected = [...USDCX_DESTINATION_CHIPS].sort();
-  if (ids.join(',') !== expected.join(',')) {
-    return `network rows ${JSON.stringify(ids)}, expected exactly ${JSON.stringify(expected)}`;
+const NON_EVM_DESTINATION_CHIPS = ['miden', 'solana', 'bitcoin', 'near'].map(id => `send-network-${id}`);
+
+export function usdcxChipIdsProblem(chips: readonly NetworkChipState[]): string | undefined {
+  const ids = new Set<string>();
+  for (const { testId } of chips) {
+    if (NON_EVM_DESTINATION_CHIPS.includes(testId)) return `unexpected network row ${testId}`;
+    if (ids.has(testId)) return `duplicate network row ${testId}`;
+    ids.add(testId);
   }
+  const missing = USDCX_DESTINATION_CHIPS.find(id => !ids.has(id));
+  return missing === undefined ? undefined : `missing network row ${missing}`;
+}
+
+export function usdcxChipsProblem(chips: readonly NetworkChipState[], selected?: string): string | undefined {
+  const idsProblem = usdcxChipIdsProblem(chips);
+  if (idsProblem) return idsProblem;
+  if (selected !== undefined && !chips.some(chip => chip.testId === selected)) return `missing network row ${selected}`;
   const wrong = chips.filter(chip => chip.pressed !== (chip.testId === selected ? 'true' : 'false'));
+  const expected = selected === undefined ? 'no row may be pressed' : `only ${selected} may be pressed`;
   return wrong.length === 0
     ? undefined
-    : `aria-pressed ${wrong.map(chip => `${chip.testId}=${chip.pressed}`).join(', ')}; only ${selected} may be pressed`;
+    : `aria-pressed ${wrong.map(chip => `${chip.testId}=${chip.pressed}`).join(', ')}; ${expected}`;
 }
 
 /** A query parameter of a hash route such as `fullpage.html#/send/review?network=arc-testnet`. */
@@ -800,20 +811,13 @@ function readNetworkChips(page: Page): Promise<NetworkChipState[]> {
   );
 }
 
-/**
- * Opens the destination sheet, polls until Arc Testnet alone is pressed among exactly the four USDCx destinations, and
- * closes it unchanged. Every token offers the four (#1403), so this proves the set and its default; Arc pressed and
- * `bridge-route-usdcx` prove USDCx mode.
- */
+/** Checks the Circle destinations before the explicit choice and closes the sheet unchanged. */
 export async function expectArcPreselected(page: Page, timeoutMs: number): Promise<void> {
   await page.getByTestId('send-network-picker').click({ timeout: timeoutMs });
   await expect
-    .poll(async () => usdcxChipsProblem(await readNetworkChips(page), ARC_CHIP) ?? 'ok', {
+    .poll(async () => usdcxChipsProblem(await readNetworkChips(page)) ?? 'ok', {
       timeout: timeoutMs,
-      message:
-        'this checks the destination set and its default: exactly the four USDCx destinations in the network ' +
-        'sheet, Arc Testnet alone pressed (every token offers the four, so USDCx mode rests on Arc pressed and ' +
-        'bridge-route-usdcx)'
+      message: 'checks the required Circle destinations and that no row is pressed before choosing a network'
     })
     .toBe('ok');
   await page
@@ -891,8 +895,8 @@ export interface BridgeOutUsdcxResult {
 
 /**
  * Burn the native USDCx to an address on `opts.payoutChain` (default Arc Testnet) through the real Send UI (spec
- * section 5 step 6), ending on the generating-transaction screen. Checks on the way: exactly the four USDCx
- * destinations in the network sheet with Arc pressed by default, the closed field naming the destination picked, the
+ * section 5 step 6), ending on the generating-transaction screen. Checks on the way: the required USDCx
+ * destinations in the network sheet with no initial selection, the closed field naming the destination picked, the
  * route subtitle and fee row naming the native symbol, the payout fee row and the burn notice on route and review, and
  * the review's network.
  */

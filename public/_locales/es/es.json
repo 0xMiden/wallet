@@ -1881,6 +1881,7 @@
   "bridgePayoutTiming": "La llegada depende de la red de destino",
   "bridgeSourceWallet": "Cartera",
   "bridgeRouteFee": "Comisión de puente",
+  "bridgeRankBestPrice": "Mejor precio",
   "bridgeRankBestValue": "Mejor valor",
   "bridgeRankCheapest": "Más barato",
   "bridgeRankFastest": "Más rápido",

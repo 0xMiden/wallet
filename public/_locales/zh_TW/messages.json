@@ -8657,6 +8657,10 @@
     "message": "橋接手續費",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "最佳價格",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "最佳價值",
     "englishSource": "Best value"

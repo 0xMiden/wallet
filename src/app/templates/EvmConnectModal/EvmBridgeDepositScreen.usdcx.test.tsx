@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Dexie from 'dexie';
 import { toFunctionSelector } from 'viem';
 
@@ -157,7 +157,8 @@ jest.mock('lib/miden/sdk/helpers', () => ({
 const USDCX_FAUCET_ID_BECH32 = 'mtst1usdcxnative';
 jest.mock('lib/miden-chain/native-asset', () => ({
   ...jest.requireActual<typeof import('lib/miden-chain/native-asset')>('lib/miden-chain/native-asset'),
-  getNativeAssetId: async () => 'mtst1usdcxnative'
+  getNativeAssetId: async () => 'mtst1usdcxnative',
+  getNativeAssetIdSync: () => 'mtst1usdcxnative'
 }));
 
 jest.mock('lib/usdcx/deposit', () => ({
@@ -447,39 +448,54 @@ jest.mock('./EvmSwitchWalletDrawer', () => ({
   EvmSwitchWalletDrawer: () => null
 }));
 
-jest.mock('./EvmBridgeUsdcxRoute', () => ({
-  EvmBridgeUsdcxRoute: ({
+let mockRealUsdcxRoute = false;
+jest.mock('./EvmBridgeUsdcxRoute', () => {
+  type RouteProps = React.ComponentProps<typeof import('./EvmBridgeUsdcxRoute').EvmBridgeUsdcxRoute>;
+  const stub = ({
     confirmDisabled,
     onConfirm,
     fee,
+    payout,
     notice,
     sourceChainId,
-    fast
-  }: {
-    confirmDisabled?: boolean;
-    onConfirm: () => void;
-    fee?: string;
-    notice?: string;
-    sourceChainId: number;
-    fast?: { onSelect: () => void };
-  }) => (
+    fast,
+    onSelectCircle
+  }: RouteProps) => (
     <div>
       {fee && <span data-testid="usdcx-route-fee">{fee}</span>}
+      {payout && <span data-testid="usdcx-route-payout">{payout.amount}</span>}
       <span data-testid="usdcx-route-notice">{notice}</span>
       <span data-testid="usdcx-route-source">{String(sourceChainId)}</span>
       {fast && (
-        <button data-testid="circle-fast" onClick={fast.onSelect}>
-          fast
-        </button>
+        <>
+          <button data-testid="circle-fast" aria-pressed={fast.selected} onClick={fast.onSelect}>
+            fast
+          </button>
+          <button data-testid="circle-direct" aria-pressed={!fast.selected} onClick={onSelectCircle}>
+            Circle
+          </button>
+        </>
       )}
       <button data-testid="usdcx-route-confirm" disabled={confirmDisabled} onClick={onConfirm}>
         usdcx
       </button>
     </div>
-  )
-}));
+  );
+  return {
+    EvmBridgeUsdcxRoute: (props: RouteProps) =>
+      mockRealUsdcxRoute
+        ? React.createElement(
+            jest.requireActual<typeof import('./EvmBridgeUsdcxRoute')>('./EvmBridgeUsdcxRoute').EvmBridgeUsdcxRoute,
+            props
+          )
+        : stub(props)
+  };
+});
 
 jest.mock('screens/send-flow/Route', () => ({
+  get RouteCard() {
+    return jest.requireActual<typeof import('screens/send-flow/Route')>('screens/send-flow/Route').RouteCard;
+  },
   Route: ({
     onConfirm,
     onRouteChange,
@@ -1183,6 +1199,90 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     expect(screen.getByTestId('review-fee')).toHaveTextContent('0.031908');
   });
 
+  const displayQuoteDeadline = 1_800_000_005;
+  it.each<{ name: string; expiry: Pick<CctpBurnQuote, 'expiresAt' | 'expiry'>; unavailable: boolean }>([
+    {
+      name: 'shows the Circle fee as unavailable at timestamp expiry without requesting another quote',
+      expiry: { expiresAt: displayQuoteDeadline, expiry: { mode: 'TIMESTAMP', expiresAt: displayQuoteDeadline } },
+      unavailable: true
+    },
+    {
+      name: 'keeps a Circle fee with only block expiry current as time passes',
+      expiry: { expiry: { mode: 'BLOCK_NUMBER', expiresAtBlock: 400 } },
+      unavailable: false
+    }
+  ])('$name', async ({ expiry, unavailable }) => {
+    jest.useFakeTimers({ now: 1_800_000_000_000, advanceTimers: true });
+    mockRealUsdcxRoute = true;
+    jest.mocked(quoteExecutorBurn).mockResolvedValue({ ...FEE_QUOTE, ...expiry });
+    const view = renderScreen();
+    try {
+      await reachBaseSepoliaRoute();
+      const card = screen.getByTestId('bridge-route-usdcx');
+      expect(card).toHaveTextContent('0.031908');
+      expect(card).toHaveTextContent('1.5 USDCx');
+      expect(quoteExecutorBurn).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(displayQuoteDeadline * 1000 - Date.now() + 1);
+      });
+
+      expect(quoteExecutorBurn).toHaveBeenCalledTimes(1);
+      expect(card).toHaveAttribute('aria-pressed', 'true');
+      expect({
+        busy: card.getAttribute('aria-busy'),
+        unavailable: within(card).queryByText('unavailable') !== null,
+        fee: card.textContent?.includes('0.031908'),
+        payout: card.textContent?.includes('1.5 USDCx')
+      }).toEqual({ busy: 'false', unavailable, fee: !unavailable, payout: !unavailable });
+    } finally {
+      view.unmount();
+      mockRealUsdcxRoute = false;
+      jest.useRealTimers();
+    }
+  });
+
+  it('retains the current Circle executor fee when switching to an eligible Epoch route', async () => {
+    const snapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
+    const config = snapshot.config!;
+    const chain = config.supportedEvmChains['base-sepolia']!;
+    const token = chain.bridges.usdcx!.tokens.USDC!;
+    const epoch = config.supportedEvmChains.sepolia!.bridges.epoch!;
+    const derived = snapshot.derived!;
+    const epochReads = derived.chains[11155111]!.epoch;
+    mockBridgeSnapshot = {
+      ...snapshot,
+      config: {
+        ...config,
+        supportedEvmChains: {
+          ...config.supportedEvmChains,
+          'base-sepolia': {
+            ...chain,
+            bridges: {
+              ...chain.bridges,
+              epoch: {
+                ...epoch,
+                tokens: { USDC: { ...epoch.tokens.USDC!, contractAddress: token.contractAddress } }
+              }
+            }
+          }
+        }
+      },
+      derived: { ...derived, chains: { ...derived.chains, 84532: { ...derived.chains[84532]!, epoch: epochReads } } }
+    };
+    jest.mocked(quoteExecutorBurn).mockResolvedValue({ signedQuote: '0x01', feeTotalAmount: 31_908n });
+    renderScreen();
+    await reachBaseSepoliaRoute();
+    expect(screen.getByTestId('usdcx-route-fee')).toHaveTextContent('0.031908');
+
+    fireEvent.click(screen.getByTestId('circle-fast'));
+    await settle();
+
+    expect(screen.getByTestId('usdcx-route-fee')).toHaveTextContent('0.031908');
+    expect(screen.getByTestId('usdcx-route-payout')).toHaveTextContent(/^1\.5$/);
+    expect(quoteExecutorBurn).toHaveBeenCalledTimes(1);
+  });
+
   // A burst of keystrokes asks Circle once, for the amount the user settled on; a fee quoted for another amount
   // never reaches the card.
   it('asks Circle for the debounced amount and shows no fee for an amount it was not quoted for', async () => {
@@ -1850,6 +1950,45 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     await backToAmount();
     await pickToken('pick-usdc');
     expect(screen.getByTestId('form-token')).toHaveTextContent(/^USDC$/);
+  });
+
+  it('preselects Fast for a current Receive quote and preserves a manual Circle choice', async () => {
+    mockBridgeSnapshot = withSepoliaEpochUsdc('0x1c7d4b196cb0c7b01d743fbc6116a902379c7238');
+    const previousQuote = { status: epochState.status, flow: epochState.flow, quote: epochState.quote };
+    const view = renderScreen();
+    try {
+      await settle();
+      await pickNetwork('sepolia');
+      await reachRouteStep();
+      expect(screen.getByTestId('circle-direct')).toHaveAttribute('aria-pressed', 'true');
+
+      expect(epochState.quoteEVMToMiden).toHaveBeenCalledWith(
+        expect.objectContaining({ evmTokenAddress: CIRCLE_SEPOLIA_USDC, isNative: false }),
+        QUOTE_ACCOUNT
+      );
+      const [params] = epochState.quoteEVMToMiden.mock.lastCall!;
+      const publishQuote = async (scope: object, tokenIn = '1000000') => {
+        Object.assign(epochState, {
+          status: 'quoted',
+          flow: 'evm-to-miden',
+          quote: { params: scope, quoteResult: { tokenIn, tokenOut: '1000000' } }
+        });
+        view.rerender(depositScreen());
+        await settle();
+      };
+
+      await publishQuote({ ...params, minTokenOut: '2000000' });
+      expect(screen.getByTestId('circle-direct')).toHaveAttribute('aria-pressed', 'true');
+
+      await publishQuote(params);
+      expect(screen.getByTestId('circle-fast')).toHaveAttribute('aria-pressed', 'true');
+
+      fireEvent.click(screen.getByTestId('circle-direct'));
+      await publishQuote(params, '1050000');
+      expect(screen.getByTestId('circle-direct')).toHaveAttribute('aria-pressed', 'true');
+    } finally {
+      Object.assign(epochState, previousQuote);
+    }
   });
 
   // An Epoch token keyed ETH at another contract is its own row. Native ETH then has no Fast route.

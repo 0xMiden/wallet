@@ -8661,6 +8661,10 @@
     "message": "Frais de pont",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "Meilleur prix",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "Meilleur rapport qualité-prix",
     "englishSource": "Best value"

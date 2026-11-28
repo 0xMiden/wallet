@@ -367,19 +367,23 @@ describe('RecoverLockedFundsLock', () => {
 
   it('stops the countdown interval once due and withdrawn, and skips rescan reads after withdrawal', async () => {
     jest.useFakeTimers();
+    const startInterval = jest.spyOn(globalThis, 'setInterval');
+    const stopInterval = jest.spyOn(globalThis, 'clearInterval');
     try {
       const dateSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
       mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Pending', withdrawableAt: 1002 } });
       await renderLock();
 
-      expect(jest.getTimerCount()).toBe(1);
+      expect(startInterval).toHaveBeenCalledTimes(1);
+      expect(startInterval).toHaveBeenCalledWith(expect.any(Function), 1_000);
+      const countdown = startInterval.mock.results[0]?.value;
       expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeDisabled();
 
       dateSpy.mockReturnValue(1_003_000);
       await act(async () => {
         jest.advanceTimersByTime(3_000);
       });
-      expect(jest.getTimerCount()).toBe(0);
+      expect(stopInterval).toHaveBeenCalledWith(countdown);
       expect(screen.getByTestId('recover-funds-lock-withdraw')).toBeEnabled();
 
       await act(async () => fireEvent.click(screen.getByTestId('recover-funds-lock-withdraw')));
@@ -387,26 +391,30 @@ describe('RecoverLockedFundsLock', () => {
       expect(mockReadState).toHaveBeenCalledTimes(1);
       expect(mockDepositsOnLock).toHaveBeenCalledTimes(1);
       expect(mockReadRecord).toHaveBeenCalledTimes(1);
-      expect(jest.getTimerCount()).toBe(0);
+      expect(startInterval).toHaveBeenCalledTimes(1);
     } finally {
+      startInterval.mockRestore();
+      stopInterval.mockRestore();
       jest.useRealTimers();
     }
   });
 
   it('does not start a countdown interval for Disabled or un-enabled locks with stale local withdrawableAt', async () => {
     jest.useFakeTimers();
+    const startInterval = jest.spyOn(globalThis, 'setInterval');
     try {
       mockReadState.mockResolvedValue({ balance: 1n, withdrawal: { status: 'Disabled' } });
       mockReadRecord.mockResolvedValue({ enabledAt: 900, withdrawableAt: 2000 });
       const firstView = await renderLock();
-      expect(jest.getTimerCount()).toBe(0);
+      expect(startInterval).not.toHaveBeenCalled();
       firstView.unmount();
 
       mockReadState.mockResolvedValue({});
       mockReadRecord.mockResolvedValue({ withdrawableAt: 2000 });
       await renderLock();
-      expect(jest.getTimerCount()).toBe(0);
+      expect(startInterval).not.toHaveBeenCalled();
     } finally {
+      startInterval.mockRestore();
       jest.useRealTimers();
     }
   });

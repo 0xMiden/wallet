@@ -26,6 +26,8 @@ import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
 import { settleSendFlow } from './send-telemetry';
 import { RECIPIENT_VALIDATION_DEBOUNCE_MS, SendFlow } from './SendManager';
 import { SendFlowStep, UIToken } from './types';
+import type { EpochQuoteState } from './useEpochQuote';
+import { useNearIntentsSendQuote } from './useNearIntentsSendQuote';
 import { WalletType } from '../onboarding/types';
 
 // This verified-list fixture assigns explicit price assets to the test faucets.
@@ -449,14 +451,20 @@ jest.mock('lib/usdcx/withdrawal', () => ({
 let mockEpochAmount: string | undefined;
 // The Epoch output token's contract: the test document's Sepolia Epoch USDC unless a case sets another.
 const TEST_EPOCH_USDC_ADDRESS = '0x2bb4ffd7e2c6d432b697554efd77fa13bdbefd69';
-let mockEpochAddress = TEST_EPOCH_USDC_ADDRESS;
+let mockEpochAddress: `0x${string}` = TEST_EPOCH_USDC_ADDRESS;
 let mockEpochDecimals = 6;
-const useEpochQuoteMock = jest.fn((_args: { faucetId?: string; enabled: boolean }) => ({
-  amount: mockEpochAmount,
-  loading: false,
-  address: mockEpochAddress,
-  decimals: mockEpochDecimals
-}));
+let mockEpochQuote: EpochQuoteState | undefined;
+const useEpochQuoteMock = jest.fn(
+  (_args: { faucetId?: string; enabled: boolean }): EpochQuoteState =>
+    mockEpochQuote ?? {
+      amount: mockEpochAmount,
+      symbol: 'USDC',
+      loading: false,
+      validity: { kind: 'provider' },
+      address: mockEpochAddress,
+      decimals: mockEpochDecimals
+    }
+);
 // Output quotes a case gives by contract. Any other contract goes to the real EVM price source.
 let mockEvmOutputQuotes: Record<string, TokenPriceInfo> = {};
 jest.mock('lib/prices/evm', () => {
@@ -472,6 +480,10 @@ jest.mock('lib/prices/evm', () => {
 jest.mock('./useEpochQuote', () => ({
   useEpochQuote: (args: any) => useEpochQuoteMock(args)
 }));
+jest.mock('./useNearIntentsSendQuote', () => {
+  const actual = jest.requireActual<typeof import('./useNearIntentsSendQuote')>('./useNearIntentsSendQuote');
+  return { ...actual, useNearIntentsSendQuote: jest.fn(actual.useNearIntentsSendQuote) };
+});
 
 jest.mock('./SendRoute', () => ({
   SendRoute: (props: any) =>
@@ -640,6 +652,7 @@ beforeEach(() => {
   mockRealNavigator = false;
   mockLastAmountChange = undefined;
   mockEpochAmount = undefined;
+  mockEpochQuote = undefined;
   mockEpochAddress = TEST_EPOCH_USDC_ADDRESS;
   mockEpochDecimals = 6;
   mockEvmOutputQuotes = {};
@@ -815,6 +828,12 @@ describe('stale transaction modal dismissal', () => {
 // Mobile back handler branches.
 // ---------------------------------------------------------------------------
 describe('Command Send uses the real SendManager form', () => {
+  const validQuote: EpochQuoteState = {
+    amount: '1.98',
+    symbol: 'USDC',
+    loading: false,
+    validity: { kind: 'provider' }
+  };
   const bridgeCommand = () => (
     <CommandShell
       scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
@@ -823,7 +842,8 @@ describe('Command Send uses the real SendManager form', () => {
       <SendFlow isLoading={false} />
     </CommandShell>
   );
-  const openBridge = () => {
+  const openBridge = (quote = validQuote) => {
+    mockEpochQuote = quote;
     useAllBalancesMock.mockReturnValue({
       data: [
         { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
@@ -833,10 +853,145 @@ describe('Command Send uses the real SendManager form', () => {
     mockSelectedToken = { id: 'T1', name: 'TKN', decimals: 6, scaleIsKnown: true, balance: 500, fiatPrice: 1 };
     const view = render(bridgeCommand());
     fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
     fireEvent.click(screen.getByTestId('td-select'));
     fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
     return view;
   };
+
+  it('keeps the Command send draft destination consistent as typing and contacts change the recipient', async () => {
+    const evmAddress = `0x${'1'.repeat(40)}`;
+    const midenAddress = 'mtst1recipient';
+    isValidMidenAddressMock.mockImplementation(address => address === midenAddress || address.length === 42);
+    mockNameSupported = true;
+    resolveMidenNameMock.mockResolvedValue(midenAddress);
+    jest.useFakeTimers();
+
+    function SavedDestination() {
+      const draft = useCommandDrafts().readDraft('send');
+      return <output data-testid="draft-destination">{draft ? (draft.bridgeNetwork ?? '') : 'no draft'}</output>;
+    }
+    const command = (key: string) => (
+      <CommandShell
+        scope={{ accountId: 'me-pk', network: 'devnet', rpcUrl: 'https://testnet.example' }}
+        route={{ kind: 'flow', action: 'send' }}
+      >
+        <SendFlow key={key} isLoading={false} />
+        <SavedDestination />
+      </CommandShell>
+    );
+    const destinations = () => ({
+      live: screen.getByTestId('sr-network').textContent,
+      saved: screen.getByTestId('draft-destination').textContent
+    });
+    const typeRecipient = async (value: string) => {
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value } });
+      await act(async () => {
+        jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
+      });
+    };
+
+    try {
+      const view = render(command('initial'));
+      fireEvent.click(screen.getByTestId('sr-network-sepolia'));
+      await typeRecipient('0x');
+      const incomplete = destinations();
+      await typeRecipient(evmAddress);
+      const matching = destinations();
+
+      mockSelectedContact = { ...mockSelectedContact, id: `0x${'2'.repeat(40)}` };
+      fireEvent.click(screen.getByTestId('ad-select'));
+      const networklessContact = destinations();
+      mockSelectedContact = { ...mockSelectedContact, id: `0x${'3'.repeat(40)}`, network: 'base-sepolia' };
+      fireEvent.click(screen.getByTestId('ad-select'));
+      const explicitContact = destinations();
+
+      await typeRecipient('recipient.miden');
+      const resolvedMiden = destinations();
+      view.rerender(command('remounted'));
+      await act(async () => {
+        jest.advanceTimersByTime(RECIPIENT_VALIDATION_DEBOUNCE_MS);
+      });
+
+      expect({
+        incomplete,
+        matching,
+        networklessContact,
+        explicitContact,
+        resolvedMiden,
+        remounted: destinations()
+      }).toEqual({
+        incomplete: { live: 'sepolia', saved: 'sepolia' },
+        matching: { live: 'sepolia', saved: 'sepolia' },
+        networklessContact: { live: 'sepolia', saved: 'sepolia' },
+        explicitContact: { live: 'base-sepolia', saved: 'base-sepolia' },
+        resolvedMiden: { live: 'miden', saved: '' },
+        remounted: { live: 'miden', saved: '' }
+      });
+    } finally {
+      resolveMidenNameMock.mockReset();
+      jest.useRealTimers();
+    }
+  });
+
+  it('enables the Command NEAR Intents preview only for a valid recipient on the selected network', () => {
+    const evmAddress = `0x${'1'.repeat(40)}`;
+    isValidMidenAddressMock.mockImplementation(address => address === evmAddress);
+    mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111, nearIntentsChainId: 'eth' }];
+    try {
+      render(bridgeCommand());
+      fireEvent.click(screen.getByTestId('sr-network-sepolia'));
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0x' } });
+      const previewCalls = jest.mocked(useNearIntentsSendQuote).mock.calls;
+      const incomplete = previewCalls.at(-1)?.[0].enabled;
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: evmAddress } });
+
+      expect([incomplete, previewCalls.at(-1)?.[0].enabled]).toEqual([false, true]);
+    } finally {
+      mockOfferedNetworks = undefined;
+    }
+  });
+
+  it.each<EpochQuoteState>([
+    { loading: true, symbol: 'USDC' },
+    { loading: false, symbol: 'USDC', error: 'Simulated quote failure' },
+    { ...validQuote, validity: { kind: 'time', expiresAt: 1 } },
+    { ...validQuote, amount: '0' }
+  ])('requires a current dynamic quote for Review when Epoch reports %j', async quote => {
+    openBridge(quote);
+
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+    screen.getByTestId('sa-input').focus();
+    await userEvent.keyboard('{Enter}');
+    fireEvent.click(screen.getByTestId('route-confirm'));
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it('can Review AggLayer while the dynamic Epoch quote failed', () => {
+    mockTokenRoutes = { epoch: true, agglayer: true };
+    openBridge({ loading: false, symbol: 'USDC', error: 'Simulated quote failure' });
+    expect(screen.getByTestId('command-send-review')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('route-select-slow'));
+    expect(screen.getByTestId('command-send-review')).toBeEnabled();
+    fireEvent.click(screen.getByTestId('command-send-review'));
+    expect(navigateMock).toHaveBeenCalledWith(expect.stringContaining('route=agglayer'));
+  });
+
+  it('rechecks the dynamic quote expiration at the moment of handoff', () => {
+    const now = jest.spyOn(Date, 'now');
+    const expiresAt = Date.now() + 60_000;
+    try {
+      openBridge({ ...validQuote, validity: { kind: 'time', expiresAt } });
+      expect(screen.getByTestId('command-send-review')).toBeEnabled();
+
+      now.mockReturnValue(expiresAt);
+      fireEvent.click(screen.getByTestId('route-confirm'));
+      expect(navigateMock).not.toHaveBeenCalled();
+    } finally {
+      now.mockRestore();
+    }
+  });
 
   it.each(['loading', 'unsupported', 'error'] as const)(
     'refuses Command Review and direct Enter while Slow registry is %s',
@@ -1014,6 +1169,7 @@ describe('Command Send uses the real SendManager form', () => {
   });
 
   it('edits recipient and exact six-decimal amount together, then restores both after review Back', () => {
+    mockEpochQuote = validQuote;
     useAllBalancesMock.mockReturnValue({
       data: [
         { tokenId: 'T1', metadata: { symbol: 'TKN', decimals: 6 }, balance: 500 },
@@ -1031,6 +1187,7 @@ describe('Command Send uses the real SendManager form', () => {
     );
     const view = render(command(false));
     fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
     fireEvent.click(screen.getByTestId('td-select'));
     fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '7.123456' } });
     expect(screen.getByTestId('sa-amount')).toHaveTextContent('7.123456');
@@ -1543,7 +1700,7 @@ describe('recipient address entry', () => {
     expect(screen.getByTestId('ad-recipient')).toHaveTextContent('0xpicked');
   });
 
-  it('selects the only bridge network for a valid 0x recipient, so Confirm is ready', () => {
+  it('requires an explicit network even for the only offered destination', () => {
     mockBridgeNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
     try {
       mockSelectedContact = { id: '0xpicked', name: 'Bob', isOwned: false, contactType: 'external' };
@@ -1552,13 +1709,15 @@ describe('recipient address entry', () => {
         fireEvent.click(screen.getByTestId('ad-select'));
       });
 
+      expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+      fireEvent.click(screen.getByTestId('sr-network-sepolia'));
       expect(screen.getByTestId('sr-network')).toHaveTextContent('sepolia');
     } finally {
       mockBridgeNetworks = [];
     }
   });
 
-  it('selects the first offered network once when Sepolia is not offered', () => {
+  it('requires an explicit network when more than one destination is offered', () => {
     mockOfferedNetworks = [
       { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 },
       { id: 'arc-testnet', name: 'Arc Testnet', chainId: 5042002 }
@@ -1570,6 +1729,28 @@ describe('recipient address entry', () => {
       act(() => {
         fireEvent.click(screen.getByTestId('ad-select'));
       });
+
+      expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+      fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
+      expect(screen.getByTestId('sr-network')).toHaveTextContent('arc-testnet');
+    } finally {
+      mockOfferedNetworks = undefined;
+      mockBridgeNetworks = [];
+    }
+  });
+
+  it('keeps the destination picked before the recipient types an EVM address', () => {
+    mockOfferedNetworks = [
+      { id: 'sepolia', name: 'Sepolia', chainId: 11155111 },
+      { id: 'base-sepolia', name: 'Base Sepolia', chainId: 84532 }
+    ];
+    mockBridgeNetworks = mockOfferedNetworks;
+    try {
+      renderFlow();
+
+      fireEvent.click(screen.getByTestId('sr-network-base-sepolia'));
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0' } });
+      fireEvent.change(screen.getByTestId('sr-input'), { target: { value: '0xrecipient' } });
 
       expect(screen.getByTestId('sr-network')).toHaveTextContent('base-sepolia');
     } finally {
@@ -3088,7 +3269,7 @@ describe('fast-route fee', () => {
   });
 
   const renderRouteStep = (metadata: Record<string, unknown>, tokenId = 'T1', { amount = '5', quote = '4' } = {}) => {
-    setSendDraft({ amount, recipientAddress: '0xrecip', tokenId });
+    setSendDraft({ amount, recipientAddress: '0xrecip', tokenId, bridgeNetwork: 'sepolia' });
     mockCardStack = [{ name: SendFlowStep.Route }];
     mockEpochAmount = quote;
     useAllBalancesMock.mockReturnValue({ data: [{ tokenId, metadata, balance: 42, fiatPrice: 0 }] });
@@ -3205,8 +3386,8 @@ const pickToken = (token: Pick<UIToken, 'id' | 'name' | 'decimals' | 'balance' |
   });
 };
 
-const pickEvmRecipient = () => {
-  mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external' };
+const pickEvmRecipient = (network?: string) => {
+  mockSelectedContact = { id: '0xrecip', name: 'R', isOwned: false, contactType: 'external', network };
   act(() => {
     fireEvent.click(screen.getByTestId('ad-select'));
   });
@@ -3240,7 +3421,7 @@ describe('USDCx withdrawal wiring', () => {
   it('keeps Arc selected and clears another token picked after USDCx', () => {
     const { rerender } = renderFlow();
     pickToken(usdcxToken);
-    pickEvmRecipient();
+    pickEvmRecipient('arc-testnet');
     expect(screen.getByTestId('sr-network')).toHaveTextContent(/^arc-testnet$/);
 
     pickToken(otherToken);
@@ -3261,7 +3442,7 @@ describe('USDCx withdrawal wiring', () => {
     expect(offeredNetworks()).toEqual(['arc-testnet', 'sepolia', 'arbitrum-sepolia', 'base-sepolia']);
   });
 
-  it('offers Sepolia alone where USDCx withdrawals do not exist and moves a saved USDCx-only destination there', () => {
+  it('offers Sepolia and clears a saved destination that is no longer eligible', () => {
     mockUsdcxWithdrawalNetwork = false;
     const { rerender } = renderFlow();
     pickToken(otherToken);
@@ -3271,6 +3452,8 @@ describe('USDCx withdrawal wiring', () => {
     });
 
     expect(offeredNetworks()).toEqual(['sepolia']);
+    expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+    fireEvent.click(screen.getByTestId('sr-network-sepolia'));
     expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
     expect(screen.getByTestId('td-usdcx-only')).toHaveTextContent('false');
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
@@ -3278,7 +3461,7 @@ describe('USDCx withdrawal wiring', () => {
     expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
   });
 
-  it('moves a USDCx-only destination to Sepolia when the effective network stops offering it', () => {
+  it('clears a selected destination when the effective network stops offering it', () => {
     const { rerender } = renderFlow();
     pickEvmRecipient();
     fireEvent.click(screen.getByTestId('sr-network-arc-testnet'));
@@ -3286,7 +3469,8 @@ describe('USDCx withdrawal wiring', () => {
 
     mockUsdcxWithdrawalNetwork = false;
     rerender(<SendFlow isLoading={false} />);
-    expect(screen.getByTestId('sr-network')).toHaveTextContent(/^sepolia$/);
+    expect(screen.getByTestId('sr-network')).toBeEmptyDOMElement();
+    expect(useEpochQuoteMock).toHaveBeenLastCalledWith(expect.objectContaining({ enabled: false }));
   });
 
   it.each(['arc-testnet', 'base-sepolia', 'arbitrum-sepolia'])(
@@ -3722,7 +3906,7 @@ it('keeps the asset and its amount when only the bridge config changes', () => {
 it('returns to Epoch once a failed Epoch read recovers', () => {
   mockCardStack = [{ name: SendFlowStep.Route }];
   const { rerender } = renderFlow();
-  pickEvmRecipient();
+  pickEvmRecipient('sepolia');
   pickToken({ id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 });
   expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
   try {
@@ -3743,7 +3927,7 @@ it('returns to Epoch once a failed Epoch read recovers', () => {
 
 it('keeps a confirmed AggLayer route after the Epoch read recovers', () => {
   const { rerender } = renderFlow();
-  pickEvmRecipient();
+  pickEvmRecipient('sepolia');
   pickToken({ id: 'T1', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 });
   mockCardStack = [{ name: SendFlowStep.SelectAmount }];
   rerender(<SendFlow isLoading={false} />);
@@ -3769,7 +3953,7 @@ it('keeps the asset and its amount when the destination drops out of the offered
   mockOfferedNetworks = [{ id: 'sepolia', name: 'Sepolia', chainId: 11155111 }];
   try {
     const { rerender } = renderFlow();
-    pickEvmRecipient();
+    pickEvmRecipient('sepolia');
     const token = { id: 'flaky-read', name: 'TKN', decimals: 2, balance: 100, fiatPrice: 1 };
     pickToken(token);
     mockCardStack = [{ name: SendFlowStep.SelectAmount }];
@@ -3797,7 +3981,7 @@ it('clears an unsupported asset and its amount after the destination changes', (
   rerender(<SendFlow isLoading={false} />);
   fireEvent.change(screen.getByTestId('sa-input'), { target: { value: '2' } });
   mockUnsupportedSendTokens.add(unsupported.id);
-  pickEvmRecipient();
+  pickEvmRecipient('sepolia');
   expect(screen.getByTestId('sa-token')).toHaveTextContent('no-token');
   expect(screen.getByTestId('sa-amount')).toBeEmptyDOMElement();
 });
@@ -3812,8 +3996,8 @@ describe('NEAR Intents send wiring', () => {
     });
   };
 
-  const pickContact = (id: string) => {
-    mockSelectedContact = { id, name: 'R', isOwned: false, contactType: 'external' };
+  const pickContact = (id: string, network?: 'sepolia') => {
+    mockSelectedContact = { id, name: 'R', isOwned: false, contactType: 'external', network };
     act(() => {
       fireEvent.click(screen.getByTestId('ad-select'));
     });
@@ -3892,7 +4076,7 @@ describe('NEAR Intents send wiring', () => {
     pickContact(MOCK_SOLANA_ADDRESS);
     expect(screen.getByTestId('route-selected')).toHaveTextContent(/^near-intents$/);
 
-    pickContact('0xrecip');
+    pickContact('0xrecip', 'sepolia');
     expect(screen.getByTestId('route-selected')).toHaveTextContent(/^epoch$/);
     expect(screen.getByTestId('route-bridges')).toHaveTextContent(/^true$/);
     expect(screen.getByTestId('route-near-intents')).toHaveTextContent(/^$/);
@@ -3904,7 +4088,7 @@ describe('NEAR Intents send wiring', () => {
     try {
       mockCardStack = [{ name: SendFlowStep.Route }];
       renderFlow();
-      pickContact('0xrecip');
+      pickContact('0xrecip', 'sepolia');
       mockSelectedToken = { id: 'USDCX', name: 'USDCx', decimals: 6, balance: 100, fiatPrice: 1 };
       act(() => {
         fireEvent.click(screen.getByTestId('td-select'));
@@ -3932,7 +4116,7 @@ describe('NEAR Intents send wiring', () => {
     try {
       mockCardStack = [{ name: SendFlowStep.SelectAmount }];
       const { rerender } = renderFlow();
-      pickContact('0xrecip');
+      pickContact('0xrecip', 'sepolia');
       expect(screen.getByTestId('sa-token')).toHaveTextContent('TKN');
       expect(screen.getByTestId('td-chain')).toHaveTextContent('11155111');
 
