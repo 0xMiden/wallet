@@ -25,11 +25,12 @@ jobs:
       - name: Verify product source
         env:
           EXPECTED_SHA: ${{ inputs.sha }}
+          PRODUCT_SHA: f4450f310c53adb21e2651a8ecc536ac1a62734c
         run: |
           git rev-parse HEAD > source.txt
           test "$(cat source.txt)" = "$EXPECTED_SHA"
-          git rev-parse HEAD^ > product-source.txt
-          git diff --exit-code HEAD^ HEAD -- src public packages package.json yarn.lock
+          git rev-parse "$PRODUCT_SHA" > product-source.txt
+          git diff --exit-code "$PRODUCT_SHA" HEAD -- src public packages package.json yarn.lock
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: 22
