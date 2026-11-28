@@ -817,6 +817,34 @@ describe('NEAR Intents route card', () => {
       });
 
       it.each([
+        ['missing', undefined],
+        ['different-asset', { assetId: '1:0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', amount: '100', symbol: 'USDC' }]
+      ])(
+        'keeps an enabled Slow route in its slot with a %s payout while ranking matching routes',
+        (_label, agglayer) => {
+          const onRouteChange = jest.fn();
+          render(
+            <RouteOptions
+              {...base}
+              {...UP}
+              onRouteChange={onRouteChange}
+              payouts={{ epoch: { assetId: `1:${contractAddress}`, amount: '1', symbol: 'USDC' }, agglayer }}
+              nearIntentsCard={intents(10)}
+            />
+          );
+
+          const cardIds = () =>
+            screen.getAllByTestId(/^bridge-route-(fast|slow|near-intents)$/).map(card => card.dataset.testid);
+          expect(screen.getByTestId('bridge-route-slow')).toBeEnabled();
+          expect(cardIds()).toEqual(['bridge-route-near-intents', 'bridge-route-slow', 'bridge-route-fast']);
+          chooseSort('Fastest');
+          expect(cardIds()).toEqual(['bridge-route-near-intents', 'bridge-route-fast', 'bridge-route-slow']);
+          expect(screen.getByTestId('bridge-route-fast')).toHaveAttribute('aria-pressed', 'true');
+          expect(onRouteChange).not.toHaveBeenCalled();
+        }
+      );
+
+      it.each([
         ['unknown', Number.NaN, 'bridge-route-usdcx'],
         ['finite', 10, 'bridge-route-near-intents']
       ])('sorts USDCx alongside Intents with a %s ETA', (_label, eta, fastest) => {
