@@ -16,13 +16,19 @@ import { SelectionCheck } from 'components/ui/SelectionCheck';
 import { Skeleton } from 'components/ui/Skeleton';
 import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { nearIntentsEvmChainId } from 'lib/one-click/chains';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useWalletStore } from 'lib/store';
 import type { FeatureUnavailableFeature } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
-import { formatNearIntentsAmount, nearIntentsArrivalText, nearIntentsFeeUsd } from './near-intents-format';
-import { BridgeRouteRanking, rankBridgeRoutes } from './route-ranking';
+import {
+  formatNearIntentsAmount,
+  nearIntentsAmount,
+  nearIntentsArrivalText,
+  nearIntentsFeeUsd
+} from './near-intents-format';
+import { BridgeRouteMetrics, BridgeRouteRanking, rankBridgeRoutes } from './route-ranking';
 import { BridgeRoute } from './types';
 import { UsdcxPayoutRows, UsdcxPayoutTarget } from './UsdcxPayoutRows';
 import { AgglayerEligibility } from './useAgglayerEligibility';
@@ -166,8 +172,8 @@ export type RouteOptionsProps = Pick<
   showSlowRoute?: boolean;
   /** A USDCx burn's destination and amount, once the send has both: the card shows Circle's fee and the payout. */
   usdcxPayout?: UsdcxPayoutTarget;
-  /** The NEAR Intents card, when NEAR Intents offers the network. It shows after the other cards. */
-  nearIntentsCard?: React.ReactNode;
+  /** The NEAR Intents card and its quote when the provider offers the network. */
+  nearIntentsCard?: React.ReactElement<NearIntentsRouteCardProps>;
   /** False when no bridge route (Epoch, Agglayer, USDCx) serves the network: only `nearIntentsCard` shows. */
   bridgeRoutesAvailable?: boolean;
 };
@@ -309,16 +315,19 @@ export const NearIntentsRouteCard: React.FC<NearIntentsRouteCardProps> = ({
 };
 
 /** The USDCx burn's one route card. Its fees are paid in the native asset, so the subtitle names that asset. */
-const UsdcxRouteOption: React.FC<
-  Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'usdcxPayout' | 'accent' | 'nearIntentsCard'>
-> = ({ route, onRouteChange, usdcxPayout, accent = 'brand', nearIntentsCard }) => {
+const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'usdcxPayout' | 'accent'>> = ({
+  route,
+  onRouteChange,
+  usdcxPayout,
+  accent = 'brand'
+}) => {
   const { t } = useTranslation();
   const nativeFaucetId = useNativeFeeFaucetId();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
 
   return (
-    <div className="mt-6 flex flex-col gap-4">
+    <>
       <RouteCard
         emoji=""
         label={t('usdcxRouteLabel')}
@@ -345,8 +354,7 @@ const UsdcxRouteOption: React.FC<
           <UsdcxPayoutRows chainId={usdcxPayout.chainId} />
         </DetailCard>
       )}
-      {nearIntentsCard}
-    </div>
+    </>
   );
 };
 
@@ -447,18 +455,6 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
     return <div className="mt-4 flex flex-col gap-4">{nearIntentsCard}</div>;
   }
 
-  if (usdcxAvailable) {
-    return (
-      <UsdcxRouteOption
-        route={route}
-        onRouteChange={onRouteChange}
-        usdcxPayout={usdcxPayout}
-        accent={accent}
-        nearIntentsCard={nearIntentsCard}
-      />
-    );
-  }
-
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the
   // no-literal-string i18n lint; "$1.84" is excluded as a $-prefixed value.
   const feeText = fastFeeUsd != null ? formatUsdDisplay(fastFeeUsd) : '—';
@@ -553,33 +549,80 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
       }
     />
   );
+  const intentsStatus = nearIntentsCard?.props.quote;
+  const readyIntents = intentsStatus?.status === 'ready' ? intentsStatus : undefined;
+  const intentsChain =
+    readyIntents?.pair.chain.addressKind === 'evm' ? nearIntentsEvmChainId(readyIntents.pair.chain.id) : undefined;
+  const intentsContract = readyIntents?.pair.destination.contractAddress;
+  const intentsAssetId =
+    intentsChain !== undefined && intentsContract ? `${intentsChain}:${intentsContract.toLowerCase()}` : undefined;
+  const bridgeRoutes = rankBridgeRoutes(
+    [
+      {
+        id: 'epoch',
+        visible: showFastRoute,
+        disabled: !fastSelectable,
+        etaSeconds: 30,
+        payout: payouts?.epoch,
+        card: fastCard
+      },
+      {
+        id: 'agglayer',
+        visible: showSlowRoute,
+        disabled: !slowSelectable,
+        etaSeconds: 30 * 60,
+        payout: payouts?.agglayer,
+        card: slowCard
+      }
+    ].filter(option => option.visible),
+    'best-value'
+  );
   const sameAsset = payouts?.epoch && payouts.epoch.assetId === payouts.agglayer?.assetId;
-  const routes = [
-    {
-      id: 'epoch',
-      visible: showFastRoute,
-      disabled: !fastSelectable,
-      etaSeconds: 30,
-      receivedValue: sameAsset ? payouts?.epoch?.amount : undefined,
-      card: fastCard
-    },
-    {
-      id: 'agglayer',
-      visible: showSlowRoute,
-      disabled: !slowSelectable,
-      etaSeconds: 30 * 60,
-      receivedValue: sameAsset ? payouts?.agglayer?.amount : undefined,
-      card: slowCard
-    }
-  ].filter(option => option.visible);
+  const comparableWithIntents =
+    !usdcxAvailable &&
+    intentsAssetId !== undefined &&
+    bridgeRoutes.filter(option => !option.disabled).at(-1)?.payout?.assetId === intentsAssetId;
+  const routes: (BridgeRouteMetrics & { id: string; card: React.ReactElement })[] = usdcxAvailable
+    ? [
+        {
+          id: 'usdcx',
+          card: (
+            <UsdcxRouteOption route={route} onRouteChange={onRouteChange} usdcxPayout={usdcxPayout} accent={accent} />
+          )
+        }
+      ]
+    : bridgeRoutes.map(option => ({
+        ...option,
+        receivedValue:
+          sameAsset || (comparableWithIntents && option.payout?.assetId === intentsAssetId)
+            ? option.payout?.amount
+            : undefined
+      }));
+  const keepAssetOrder = ranking === 'best-value' && comparableWithIntents && !sameAsset;
+  const firstMatch = routes.findIndex(option => option.receivedValue !== undefined && !option.disabled);
+  // Keep the relative position of routes whose destination assets cannot be compared.
+  const rankFrom = keepAssetOrder ? Math.max(0, firstMatch) : 0;
+  const rankable = routes.slice(rankFrom);
+  if (nearIntentsCard) {
+    rankable.push({
+      id: 'near-intents',
+      disabled: intentsStatus?.status === 'error' || intentsStatus?.status === 'unsupported',
+      etaSeconds: readyIntents?.quote.quote.timeEstimate,
+      receivedValue:
+        comparableWithIntents && readyIntents
+          ? nearIntentsAmount(readyIntents.quote.quote.amountOut, readyIntents.pair.destination.decimals)?.toFixed()
+          : undefined,
+      card: nearIntentsCard
+    });
+  }
+  const ranked = [...routes.slice(0, rankFrom), ...rankBridgeRoutes(rankable, ranking)];
 
   return (
-    <div className="mt-4 flex flex-col gap-4">
-      {routes.length > 1 && <RouteSort value={ranking} onChange={setRanking} accent={accent} />}
-      {rankBridgeRoutes(routes, ranking).map(({ id, card }) => (
+    <div className={usdcxAvailable ? 'mt-6 flex flex-col gap-4' : 'mt-4 flex flex-col gap-4'}>
+      {ranked.length > 1 && <RouteSort value={ranking} onChange={setRanking} accent={accent} />}
+      {ranked.map(({ id, card }) => (
         <React.Fragment key={id}>{card}</React.Fragment>
       ))}
-      {nearIntentsCard}
     </div>
   );
 };

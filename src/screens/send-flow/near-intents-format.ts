@@ -15,9 +15,8 @@ const MIN_AMOUNT_PLACES = 2;
  * amount.
  */
 export function formatNearIntentsAmount(value: string | undefined, decimals: number): string | undefined {
-  if (!value || !/^[0-9]{1,78}$/.test(value) || !Number.isSafeInteger(decimals) || decimals < 0 || decimals > 38)
-    return undefined;
-  const amount = new BigNumber(value).shiftedBy(-decimals);
+  const amount = nearIntentsAmount(value, decimals);
+  if (!amount) return undefined;
   const text = amount.lt(1)
     ? amount.toFixed(getAdaptiveDecimalPlaces(amount, MAX_AMOUNT_PLACES), BigNumber.ROUND_DOWN)
     : amount.toFixed(
@@ -25,6 +24,12 @@ export function formatNearIntentsAmount(value: string | undefined, decimals: num
         BigNumber.ROUND_DOWN
       );
   return text.includes('.') ? text.replace(/0+$/, '').replace(/\.$/, '') : text;
+}
+
+export function nearIntentsAmount(value: string | undefined, decimals: number): BigNumber | undefined {
+  if (!value || !/^[0-9]{1,78}$/.test(value) || !Number.isSafeInteger(decimals) || decimals < 0 || decimals > 38)
+    return undefined;
+  return new BigNumber(value).shiftedBy(-decimals);
 }
 
 /**
