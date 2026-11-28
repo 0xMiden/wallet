@@ -27,7 +27,8 @@ import { isFaucetConfigured } from 'lib/miden-chain/effective-endpoints';
 import {
   FaucetAmountOverCapError,
   FaucetOutcomeUnknownError,
-  FaucetRateLimitedError
+  FaucetRateLimitedError,
+  getFaucetFailurePhase
 } from 'lib/miden-chain/faucet-api';
 import { isExtension } from 'lib/platform';
 import type { TokenPrices } from 'lib/prices';
@@ -35,6 +36,7 @@ import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availabil
 import { isDelegateProofEnabled } from 'lib/settings/helpers';
 import { WalletAccount } from 'lib/shared/types';
 import { useWalletStore } from 'lib/store';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import type { UserErrorId } from 'lib/telemetry/user-visible-error';
 import { useConfirm } from 'lib/ui/dialog';
 import { useClipboardCopy } from 'lib/ui/useClipboardCopy';
@@ -68,6 +70,7 @@ import { navigate } from 'lib/woozie';
 
 type PromptCardOverrides = {
   errorId?: UserErrorId | null;
+  errorDiagnostics?: UiEvidenceInput;
   body?: string;
   bodyValue?: string;
   // Overrides `definition.dismissible`. `onDismiss: undefined` cannot express this,
@@ -1068,6 +1071,10 @@ export const HomePrompts: FC<HomePromptsProps> = ({
                     ? t('insufficientFeeAsset')
                     : undefined,
             errorId: faucetStatusIndicator === 'failure' && faucetError ? faucetError.id : null,
+            errorDiagnostics:
+              faucetStatusIndicator === 'failure' && faucetError?.id === 'raw_home_faucet_failed'
+                ? { kind: 'faucet_failure', faucetFailurePhase: getFaucetFailurePhase(faucetError.cause) }
+                : undefined,
             // While the account cannot pay a fee this prompt re-arms on every render
             // (see `faucetIsTerminal`), so a dismiss X would write storage, fire haptics
             // and change nothing. Withhold the control rather than ship one that lies.
@@ -1179,6 +1186,7 @@ export const HomePrompts: FC<HomePromptsProps> = ({
             actionDisabled={overrides.actionDisabled ?? false}
             status={overrides.status}
             errorId={overrides.errorId ?? null}
+            errorDiagnostics={overrides.errorDiagnostics}
             // Whether the card is dismissible decides alone; only then is the handler
             // chosen. The faucet case always supplies its own: its status is per account.
             onDismiss={
