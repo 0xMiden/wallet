@@ -755,6 +755,92 @@ describe('NEAR Intents route card', () => {
       slowStatus: 'allowed'
     };
 
+    describe('ranking offered routes', () => {
+      const contractAddress = '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
+      const sameContract = '0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa';
+      const intents = (timeEstimate: number, contract = sameContract, chainId = 'eth') => (
+        <NearIntentsRouteCard
+          quote={{
+            status: 'ready',
+            pair: {
+              ...PAIR,
+              chain: { id: chainId, name: chainId, addressKind: 'evm', tokens: [] },
+              destination: { ...PAIR.destination, blockchain: chainId, contractAddress: contract }
+            },
+            quote: quoteWith('2500000', timeEstimate)
+          }}
+          selected={false}
+          onSelect={jest.fn()}
+          accent="send"
+        />
+      );
+      const first = () => screen.getAllByTestId(/^bridge-route-(fast|usdcx|near-intents)$/)[0];
+      const chooseSort = (mode: 'BestPrice' | 'Fastest') =>
+        fireEvent.click(screen.getByRole('radio', { name: `bridgeRank${mode}` }));
+
+      it('ranks one bridge and a faster Intents quote without changing the selection', () => {
+        const onRouteChange = jest.fn();
+        render(
+          <RouteOptions
+            {...base}
+            {...UP}
+            showSlowRoute={false}
+            onRouteChange={onRouteChange}
+            nearIntentsCard={intents(10)}
+          />
+        );
+
+        chooseSort('Fastest');
+
+        expect(first()).toHaveAttribute('data-testid', 'bridge-route-near-intents');
+        expect(screen.getByTestId('bridge-route-fast')).toHaveAttribute('aria-pressed', 'true');
+        expect(onRouteChange).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        ['same contract', 'eth', sameContract, 'bridge-route-near-intents'],
+        ['different contract', 'eth', '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', 'bridge-route-fast'],
+        ['different chain', 'base', sameContract, 'bridge-route-fast'],
+        ['unmapped chain', 'unknown', sameContract, 'bridge-route-fast']
+      ])('compares exact Best Price payouts by chain and contract (%s)', (_label, chainId, contract, firstRoute) => {
+        render(
+          <RouteOptions
+            {...base}
+            {...UP}
+            showSlowRoute={false}
+            payouts={{ epoch: { assetId: `1:${contractAddress}`, amount: '1', symbol: 'USDC' } }}
+            nearIntentsCard={intents(10, contract, chainId)}
+          />
+        );
+
+        expect(first()).toHaveAttribute('data-testid', firstRoute);
+      });
+
+      it.each([
+        ['unknown', Number.NaN, 'bridge-route-usdcx'],
+        ['finite', 10, 'bridge-route-near-intents']
+      ])('sorts USDCx alongside Intents with a %s ETA', (_label, eta, fastest) => {
+        const onRouteChange = jest.fn();
+        render(
+          <RouteOptions
+            {...base}
+            {...UP}
+            route="usdcx"
+            usdcxAvailable
+            onRouteChange={onRouteChange}
+            nearIntentsCard={intents(eta)}
+          />
+        );
+
+        chooseSort('Fastest');
+        expect(first()).toHaveAttribute('data-testid', fastest);
+        chooseSort('BestPrice');
+        expect(first()).toHaveAttribute('data-testid', 'bridge-route-usdcx');
+        expect(screen.getByTestId('bridge-route-usdcx')).toHaveAttribute('aria-pressed', 'true');
+        expect(onRouteChange).not.toHaveBeenCalled();
+      });
+    });
+
     it('shows the bridge cards and the NEAR Intents card when both serve the network', () => {
       render(<RouteOptions {...base} {...UP} nearIntentsCard={card} />);
 
@@ -778,6 +864,7 @@ describe('NEAR Intents route card', () => {
       expect(screen.queryByTestId('bridge-route-fast')).not.toBeInTheDocument();
       expect(screen.queryByTestId('bridge-route-slow')).not.toBeInTheDocument();
       expect(screen.queryByTestId('bridge-route-usdcx')).not.toBeInTheDocument();
+      expect(screen.queryByRole('radiogroup', { name: 'bridgeRouteSort' })).not.toBeInTheDocument();
     });
   });
 });
