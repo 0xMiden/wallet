@@ -3,6 +3,9 @@
 ## 1.18.3 (TBD)
 
 - [FIX][all] Keep the token you picked when your reply to a Bread assistant question repeats its symbol and you hold two tokens with that symbol, never replace a picked token that is no longer available with another token of the same symbol, and stop a swap from receiving the only available pair when the token you named to receive is not listed.
+- [FIX][all] Show the bridge routes the Bread assistant offers with token and network logos and names, from and to, and the provider's name, instead of internal network and provider ids; bridge steps in a plan use the same names.
+- [FIX][all] Distinguish Swap review checks from initiation failures in opt-in reports.
+- [FIX][extension] Keep the fullscreen button in the Home balance card.
 - [CHANGE][ios] On iOS, require device authentication when opening a biometric wallet, move an existing wallet to a new device key at its next unlock, and show one prompt per action, with text naming that action (revealing the everyday key and exporting the wallet file each asked twice).
 - [FIX][all] Distinguish Earn deposit checks from position-opening failures in opt-in reports.
 - [FIX][all] Keep the whole typed dotted name when a contact name is only part of it, and cancel a pending assistant request when the command view closes.

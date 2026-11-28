@@ -9,7 +9,7 @@ import { ErrorLine } from 'components/ui/ErrorLine';
 import { isExtension } from 'lib/platform';
 import { useShowFullscreenButton } from 'lib/settings/fullscreen-button';
 
-export default function CommandLauncher({ inBalanceCard = false }: { inBalanceCard?: boolean }): ReactElement | null {
+export default function CommandLauncher(): ReactElement | null {
   const { t } = useTranslation();
   const { popup, sidePanel, confirmWindow } = useAppEnv();
   const showFullscreenButton = useShowFullscreenButton();
@@ -36,10 +36,10 @@ export default function CommandLauncher({ inBalanceCard = false }: { inBalanceCa
   };
 
   return (
-    <div className={inBalanceCard ? 'min-w-0' : 'shrink-0 px-4 py-2'}>
+    <div className="min-w-0">
       <Button
         variant={ButtonVariant.Launcher}
-        className={inBalanceCard ? 'w-12 px-0' : undefined}
+        className="w-12 px-0"
         isLoading={opening}
         aria-label={t('commandOpenFullscreen')}
         aria-describedby={descriptionId}

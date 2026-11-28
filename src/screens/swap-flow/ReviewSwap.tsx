@@ -25,6 +25,7 @@ import { SWAP_VERDICT_LABEL_KEYS, swapEtaBlocksSubmit, SwapQuote, swapVerdict } 
 import { SwapToken } from 'lib/miden/swap/tokens';
 import { midenTokenLabel } from 'lib/remote-config/token-labels';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error-contract';
 
@@ -49,6 +50,7 @@ export interface ReviewSwapProps {
   onAutoConsumeChange: (enabled: boolean) => void;
   submitError?: string | null;
   submitErrorId?: UserErrorId | null;
+  submitErrorDiagnostics?: Extract<UiEvidenceInput, { kind: 'swap_submit_failure' }>;
   onGoBack: () => void;
   onSubmit: () => void;
   /** A submission is in flight: the expiry holds still until it settles. */
@@ -181,6 +183,7 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   onAutoConsumeChange,
   submitError,
   submitErrorId,
+  submitErrorDiagnostics,
   onGoBack,
   onSubmit,
   submitting = false
@@ -203,9 +206,15 @@ export const ReviewSwap: React.FC<ReviewSwapProps> = ({
   const expected =
     quote !== undefined && verdict === 'full' ? expectedOverAsk(quote, requestToken.decimals) : undefined;
 
+  useUserVisibleError(
+    submitError ? (submitErrorId ?? null) : null,
+    'review',
+    submitErrorDiagnostics,
+    submitErrorDiagnostics
+  );
+
   // The slippage draft: the typed percent is this screen's own until it reads
   // as a whole number of basis points inside the range, which is when it is pushed up.
-  useUserVisibleError(submitError ? (submitErrorId ?? null) : null, 'review');
   const [slippageDraft, setSlippageDraft] = useState(() => slippageBpsToPercent(slippageBps));
   const slippageOutOfRange = slippagePercentToBps(slippageDraft) === undefined;
   const onSlippageChange = useCallback(
