@@ -4,6 +4,7 @@ import type { Address, Hex } from 'viem';
 import type { RelayChainConfig, RelayConfig } from 'lib/remote-config/schema';
 
 import type { RelayResponse } from './client';
+import type { RelayFeeTokenValue } from './guards';
 import type { RelayFeeQuoteProof } from './types';
 
 export const RELAY_ADDRESS: Address = '0x00000000000000000000000000000000000000aa';
@@ -27,9 +28,15 @@ export const CHAIN: RelayChainConfig = {
     domainName: 'Calibur',
     domainVersion: '1.0.0'
   },
-  maxFee: { [USDC]: '50000' },
+  // 0.05 USD: 50,000 base units of USDC at `USDC_VALUE`.
+  maxFeeMicroUsd: 50_000,
   feeRecipient: FEE_RECIPIENT
 };
+
+/** USDC as the wallet values it: 6 decimals at 1 USD. */
+export const USDC_VALUE: RelayFeeTokenValue = { decimals: 6, priceMicroUsd: 1_000_000n };
+/** The native coin as the wallet values it: 18 decimals at 2,000 USD. */
+export const NATIVE_VALUE: RelayFeeTokenValue = { decimals: 18, priceMicroUsd: 2_000_000_000n };
 
 /** The relay section that gives `CHAIN` for chain 8453, with the base URL `baseUrl`. */
 export function relayConfig(baseUrl: string): RelayConfig {
@@ -37,7 +44,7 @@ export function relayConfig(baseUrl: string): RelayConfig {
     baseUrl,
     executor: CHAIN.executor,
     calibur: CHAIN.calibur,
-    maxFee: CHAIN.maxFee,
+    maxFee: { l1: 500_000, l2: CHAIN.maxFeeMicroUsd },
     feeRecipient: FEE_RECIPIENT
   };
 }

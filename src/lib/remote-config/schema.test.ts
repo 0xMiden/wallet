@@ -1,6 +1,6 @@
 import { keccak256, toBytes } from 'viem';
 
-import { EARN_VAULT_PROTOCOLS, parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
+import { DEFAULT_RELAY_MAX_FEE, EARN_VAULT_PROTOCOLS, parseBridgeConfig, SUPPORTED_EVM_CHAIN_IDS } from './schema';
 import testnet from './testing/testnet.json';
 
 describe('EARN_VAULT_PROTOCOLS', () => {
@@ -271,7 +271,7 @@ describe('features.relayDeposit and the relay section', () => {
     baseUrl,
     executor: '0x1111111111111111111111111111111111111111',
     calibur: CALIBUR,
-    maxFee: { [NATIVE]: '1000000000000000', [USDC]: '2500000' },
+    maxFee: { l1: '0.75', l2: '0.02' },
     ...fields
   });
   const calibur = (fields: Record<string, ConfigValue>) => relay({ calibur: { ...CALIBUR, ...fields } });
@@ -299,23 +299,37 @@ describe('features.relayDeposit and the relay section', () => {
         domainName: 'Calibur',
         domainVersion: '1.0.0'
       },
-      maxFee: { [NATIVE]: '1000000000000000', [USDC.toLowerCase()]: '2500000' }
+      maxFee: { l1: 750_000, l2: 20_000 }
     });
   });
 
-  it('reads no fee map as an empty one, and accepts an empty fee map', () => {
-    expect(parseBridgeConfig(on(relay({ maxFee: undefined })), 'testnet')?.relay?.maxFee).toEqual({});
-    expect(parseBridgeConfig(on(relay({ maxFee: {} })), 'testnet')?.relay?.maxFee).toEqual({});
+  it('uses the default fee limits (0.50 USD on L1, 0.05 USD on L2) for each limit that the section does not give', () => {
+    const maxFeeOf = (maxFee: ConfigValue) => parseBridgeConfig(on(relay({ maxFee })), 'testnet')?.relay?.maxFee;
+    expect(DEFAULT_RELAY_MAX_FEE).toEqual({ l1: 500_000, l2: 50_000 });
+    expect(maxFeeOf(undefined)).toEqual(DEFAULT_RELAY_MAX_FEE);
+    expect(maxFeeOf({})).toEqual(DEFAULT_RELAY_MAX_FEE);
+    expect(maxFeeOf({ l1: '1' })).toEqual({ l1: 1_000_000, l2: 50_000 });
+    expect(maxFeeOf({ l2: '0.1' })).toEqual({ l1: 500_000, l2: 100_000 });
+    // The token addresses of the older document shape are unknown keys.
+    expect(maxFeeOf({ [NATIVE]: '1000000000000000', [USDC]: '2500000' })).toEqual(DEFAULT_RELAY_MAX_FEE);
   });
 
-  it('accepts a fee of 2^256 - 1, a base path and unknown keys', () => {
-    const max = (2n ** 256n - 1n).toString();
-    const parsed = parseBridgeConfig(
-      on(relay({ baseUrl: `${baseUrl}/v1`, extra: 1, maxFee: { [NATIVE]: max } })),
-      'testnet'
-    );
+  it.each<[string, number]>([
+    ['0.000001', 1],
+    ['0.05', 50_000],
+    ['0.50', 500_000],
+    ['12', 12_000_000],
+    ['999999.999999', 999_999_999_999]
+  ])('reads the fee limit %s USD as %s micro-dollars', (usd, micro) => {
+    expect(parseBridgeConfig(on(relay({ maxFee: { l1: usd, l2: usd } })), 'testnet')?.relay?.maxFee).toEqual({
+      l1: micro,
+      l2: micro
+    });
+  });
+
+  it('accepts a base path and unknown keys', () => {
+    const parsed = parseBridgeConfig(on(relay({ baseUrl: `${baseUrl}/v1`, extra: 1 })), 'testnet');
     expect(parsed?.relay?.baseUrl).toBe(`${baseUrl}/v1`);
-    expect(parsed?.relay?.maxFee).toEqual({ [NATIVE]: max });
     expect(parsed?.relay).not.toHaveProperty('extra');
   });
 
@@ -368,14 +382,17 @@ describe('features.relayDeposit and the relay section', () => {
     ['a domain version over 16 characters', calibur({ domainVersion: '1'.repeat(17) })],
     ['a null fee map', relay({ maxFee: null })],
     ['a fee list', relay({ maxFee: [] })],
-    ['a fee key that is not an address', relay({ maxFee: { USDC: '1' } })],
-    ['two fee keys that differ only in case', relay({ maxFee: { [USDC]: '1', [USDC.toLowerCase()]: '2' } })],
-    ['a zero fee', relay({ maxFee: { [NATIVE]: '0' } })],
-    ['a fee with a leading zero', relay({ maxFee: { [NATIVE]: '01' } })],
-    ['a negative fee', relay({ maxFee: { [NATIVE]: '-1' } })],
-    ['a decimal fee', relay({ maxFee: { [NATIVE]: '1.5' } })],
-    ['a fee as a number', relay({ maxFee: { [NATIVE]: 1000 } })],
-    ['a fee of 2^256', relay({ maxFee: { [NATIVE]: (2n ** 256n).toString() } })],
+    ['a zero fee limit', relay({ maxFee: { l1: '0' } })],
+    ['a zero fee limit with a fraction', relay({ maxFee: { l2: '0.000000' } })],
+    ['a fee limit with a leading zero', relay({ maxFee: { l1: '00.5' } })],
+    ['a negative fee limit', relay({ maxFee: { l2: '-0.05' } })],
+    ['a fee limit with more than 6 fraction digits', relay({ maxFee: { l2: '0.0500001' } })],
+    ['a fee limit with no digit after the point', relay({ maxFee: { l1: '1.' } })],
+    ['a fee limit with no digit before the point', relay({ maxFee: { l2: '.05' } })],
+    ['a fee limit in exponent form', relay({ maxFee: { l2: '5e-2' } })],
+    ['a fee limit of 1,000,000 USD', relay({ maxFee: { l1: '1000000' } })],
+    ['a fee limit as a number', relay({ maxFee: { l2: 0.05 } })],
+    ['a null fee limit', relay({ maxFee: { l1: null } })],
     ['a zero fee recipient', relay({ feeRecipient: NATIVE })],
     ['a fee recipient that is not an address', relay({ feeRecipient: '0x1234' })],
     ['a null fee recipient', relay({ feeRecipient: null })]

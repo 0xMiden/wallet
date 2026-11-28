@@ -120,8 +120,10 @@ export type RelayRefusalReason =
   | 'unexpected-fee'
   /** The relayer does not take a fee in the fee token (the token is not in the account's `feeTokens`). */
   | 'no-fee'
-  /** The fee is 0, the config has no `maxFee` entry for the token, or the fee is above that entry. */
+  /** The fee is 0, or its USD value is above the fee limit of the chain (the config `maxFee`). */
   | 'fee-not-accepted'
+  /** The wallet has no fresh USD price of the fee token, so it cannot check the fee against the fee limit. */
+  | 'fee-price-unavailable'
   /** The quote expired or the relay sequence changed. Ask for a new quote. */
   | 'quote-expired'
   /** A call goes to a target that the relayer does not allow. */
@@ -307,8 +309,17 @@ export function relayErrorAction(error: unknown): RelayErrorAction {
   ) {
     return 'review-again';
   }
-  // A quote that was no longer valid: nothing was signed, and a new quote can start a new review.
-  if (error instanceof RelayRefusedError) return error.reason === 'quote-expired' ? 'review-again' : 'stop';
+  if (error instanceof RelayRefusedError) {
+    switch (error.reason) {
+      // A quote that was no longer valid, or a fee token with no fresh price: nothing was signed, and a new quote can
+      // start a new review.
+      case 'quote-expired':
+      case 'fee-price-unavailable':
+        return 'review-again';
+      default:
+        return 'stop';
+    }
+  }
   if (!(error instanceof RelayApiError)) return 'stop';
   switch (error.code) {
     // `fee_not_needed`: the relay sponsors the gas now, and a new review shows no fee.

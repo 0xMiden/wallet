@@ -184,7 +184,7 @@ export function createRelaySubmitter(options: RelaySubmitterOptions): RelaySubmi
         if (fee === undefined) throw new RelayRefusedError('no-reviewed-fee');
         const recipient = deductFeeRecipient(account, chain);
         assertRelayTakesFeeToken(account, fee.token);
-        assertFeeWithinCap(chain, fee.token, fee.amount);
+        assertFeeWithinCap(chain, fee.amount, fee.tokenValue);
         return [...calls, buildFeeCall({ token: fee.token, recipient, amount: fee.amount })];
       }
     }

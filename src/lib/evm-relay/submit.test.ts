@@ -35,7 +35,18 @@ import {
   type RelaySubmitter,
   type RelaySubmitterOptions
 } from './submit';
-import { CHAIN, EXECUTOR, FEE_RECIPIENT, NATIVE, QUOTE_PROOF, SALT, USDC, upperHex } from './testing';
+import {
+  CHAIN,
+  EXECUTOR,
+  FEE_RECIPIENT,
+  NATIVE,
+  NATIVE_VALUE,
+  QUOTE_PROOF,
+  SALT,
+  USDC,
+  USDC_VALUE,
+  upperHex
+} from './testing';
 import type { RelayAccount, RelayJob, RelayJobState, RelaySubmission } from './types';
 
 // Any key works: the relay key is the key of the relay address, so the signatures recover to RELAY.
@@ -47,7 +58,7 @@ const START_MS = 1_800_000_000_000;
 const START_SECONDS = START_MS / 1000;
 const DEADLINE = START_SECONDS + RELAY_DEADLINE_SECONDS;
 const hashOf = (byte: string): Hash => `0x${byte.repeat(32)}`;
-const USDC_FEE: RelayReviewedFee = { token: USDC, amount: 1000n, quote: QUOTE_PROOF };
+const USDC_FEE: RelayReviewedFee = { token: USDC, amount: 1000n, tokenValue: USDC_VALUE, quote: QUOTE_PROOF };
 
 function relayAccount(overrides: Partial<RelayAccount> = {}): RelayAccount {
   return {
@@ -336,14 +347,18 @@ describe('deduct mode', () => {
   it('pays exactly the reviewed fee last, to the configured fee recipient', async () => {
     const h = harness();
     h.accounts = [deductAccount()];
-    await h.submitter.submit([CALL], { fee: { token: upperHex(USDC), amount: 1200n, quote: QUOTE_PROOF } });
+    await h.submitter.submit([CALL], {
+      fee: { token: upperHex(USDC), amount: 1200n, tokenValue: USDC_VALUE, quote: QUOTE_PROOF }
+    });
     expect(submitted(h).calls).toEqual([CALL, buildFeeCall({ token: USDC, recipient: FEE_RECIPIENT, amount: 1200n })]);
   });
 
   it('pays a native fee with a plain transfer', async () => {
-    const h = harness({ chain: { ...CHAIN, maxFee: { [NATIVE]: '100' } } });
+    const h = harness();
     h.accounts = [deductAccount({ feeTokens: [NATIVE] })];
-    await h.submitter.submit([CALL], { fee: { token: NATIVE, amount: 100n, quote: QUOTE_PROOF } });
+    await h.submitter.submit([CALL], {
+      fee: { token: NATIVE, amount: 100n, tokenValue: NATIVE_VALUE, quote: QUOTE_PROOF }
+    });
     expect(submitted(h).calls[1]).toEqual({ to: FEE_RECIPIENT, value: 100n, data: '0x' });
   });
 
@@ -361,20 +376,26 @@ describe('deduct mode', () => {
     [
       'a fee token that the relay does not take',
       deductAccount({ feeTokens: [USDC] }),
-      { token: NATIVE, amount: 1000n, quote: QUOTE_PROOF },
+      { token: NATIVE, amount: 1000n, tokenValue: NATIVE_VALUE, quote: QUOTE_PROOF },
       'no-fee'
     ],
     [
-      'a reviewed fee above the config cap',
+      'a reviewed fee above the fee limit',
       deductAccount(),
-      { token: USDC, amount: 50_001n, quote: QUOTE_PROOF },
+      { token: USDC, amount: 50_001n, tokenValue: USDC_VALUE, quote: QUOTE_PROOF },
       'fee-not-accepted'
     ],
-    ['a reviewed fee of 0', deductAccount(), { token: USDC, amount: 0n, quote: QUOTE_PROOF }, 'fee-not-accepted'],
     [
-      'a fee token without a config cap',
+      'a reviewed fee of 0',
       deductAccount(),
-      { token: NATIVE, amount: 1n, quote: QUOTE_PROOF },
+      { token: USDC, amount: 0n, tokenValue: USDC_VALUE, quote: QUOTE_PROOF },
+      'fee-not-accepted'
+    ],
+    [
+      // 0.05 USD at 2,000 USD for each coin is 25,000 gwei.
+      'a reviewed native fee above the fee limit',
+      deductAccount(),
+      { token: NATIVE, amount: 25_000_000_000_001n, tokenValue: NATIVE_VALUE, quote: QUOTE_PROOF },
       'fee-not-accepted'
     ]
   ])('refuses %s and signs nothing', async (_name, account, fee, reason) => {
@@ -396,7 +417,9 @@ describe('deduct mode', () => {
   it('refuses a reviewed fee token that is not an address before any read', async () => {
     const h = harness();
     expect(
-      await failure(h.submitter.submit([CALL], { fee: { token: '0x12', amount: 1n, quote: QUOTE_PROOF } }))
+      await failure(
+        h.submitter.submit([CALL], { fee: { token: '0x12', amount: 1n, tokenValue: USDC_VALUE, quote: QUOTE_PROOF } })
+      )
     ).toBeInstanceOf(TypeError);
     expect(h.accountQueries).toHaveLength(0);
   });
@@ -411,7 +434,9 @@ describe('deduct mode', () => {
   it('pays the fee to the executor on a chain without a configured fee recipient', async () => {
     const h = harness({ chain: { ...CHAIN, feeRecipient: undefined } });
     h.accounts = [deductAccount({ feeRecipient: EXECUTOR })];
-    await h.submitter.submit([CALL], { fee: { token: USDC, amount: 1200n, quote: QUOTE_PROOF } });
+    await h.submitter.submit([CALL], {
+      fee: { token: USDC, amount: 1200n, tokenValue: USDC_VALUE, quote: QUOTE_PROOF }
+    });
     expect(submitted(h).calls).toEqual([CALL, buildFeeCall({ token: USDC, recipient: EXECUTOR, amount: 1200n })]);
   });
 
