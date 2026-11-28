@@ -77,11 +77,20 @@ export const EARN_POSITIONS_LOAD_STAGES = [
 ] as const;
 export const EARN_POSITIONS_LOAD_OUTCOMES = ['complete_failure', 'partial_failure'] as const;
 export const EARN_DEPOSIT_SUBMIT_ORIGINS = ['preflight', 'open_position'] as const;
+export const SWAP_SUBMIT_FAILURE_ORIGINS = ['review_submit_catch', 'run_swap_catch'] as const;
+export const FAUCET_FAILURE_PHASES = [
+  'local_request_guard',
+  'request_preparation',
+  'definitive_refusal',
+  'unrecorded'
+] as const;
+export type FaucetFailurePhase = (typeof FAUCET_FAILURE_PHASES)[number];
 export const CONFIRM_APPROVAL_FAILURE_ORIGINS = ['approve', 'decline', 'automatic_reconnect'] as const;
 export type ConfirmApprovalFailureOrigin = (typeof CONFIRM_APPROVAL_FAILURE_ORIGINS)[number];
 export type EarnPositionsLoadStage = (typeof EARN_POSITIONS_LOAD_STAGES)[number];
 export type EarnPositionsLoadOutcome = (typeof EARN_POSITIONS_LOAD_OUTCOMES)[number];
 type EarnDepositSubmitOrigin = (typeof EARN_DEPOSIT_SUBMIT_ORIGINS)[number];
+type SwapSubmitFailureOrigin = (typeof SWAP_SUBMIT_FAILURE_ORIGINS)[number];
 export type BridgeBalanceBranch = 'fast_usdc' | 'circle_usdc' | 'native' | 'registered_erc20' | 'unrecorded';
 export type BridgeBalanceStage =
   | 'configuration'
@@ -186,6 +195,8 @@ export type GuardianOutageReason = (typeof GUARDIAN_OUTAGE_REASONS)[number];
 export type UiEvidenceInput =
   | { kind: 'guardian_outage'; guardianOutageReason: GuardianOutageReason }
   | { kind: 'earn_deposit_submit'; earnDepositSubmitOrigin: EarnDepositSubmitOrigin }
+  | { kind: 'swap_submit_failure'; swapSubmitFailureOrigin: SwapSubmitFailureOrigin }
+  | { kind: 'faucet_failure'; faucetFailurePhase: FaucetFailurePhase }
   | { kind: 'confirm_approval_failure'; confirmApprovalFailureOrigin: ConfirmApprovalFailureOrigin }
   | {
       kind: 'bridge_balance_read';
@@ -234,6 +245,8 @@ export type UiProducerDiagnostics = {
   earnPositionsLoadStage?: EarnPositionsLoadStage;
   earnPositionsLoadOutcome?: EarnPositionsLoadOutcome;
   earnDepositSubmitOrigin?: EarnDepositSubmitOrigin;
+  swapSubmitFailureOrigin?: SwapSubmitFailureOrigin;
+  faucetFailurePhase?: FaucetFailurePhase;
   bridgeBalanceBranch?: BridgeBalanceBranch;
   bridgeBalanceStage?: BridgeBalanceStage;
   featureUnavailableFeature?: FeatureUnavailableFeature;
@@ -260,6 +273,8 @@ export const UI_PRODUCER_KEYS = [
   'earnPositionsLoadStage',
   'earnPositionsLoadOutcome',
   'earnDepositSubmitOrigin',
+  'swapSubmitFailureOrigin',
+  'faucetFailurePhase',
   'bridgeBalanceBranch',
   'bridgeBalanceStage',
   'featureUnavailableFeature',
@@ -295,6 +310,16 @@ const groups = {
     id: 'raw_earn_deposit_submit_failed',
     surface: 'notice',
     fields: { earnDepositSubmitOrigin: EARN_DEPOSIT_SUBMIT_ORIGINS }
+  },
+  swap_submit_failure: {
+    id: 'raw_swap_submit_failed',
+    surface: 'review',
+    fields: { swapSubmitFailureOrigin: SWAP_SUBMIT_FAILURE_ORIGINS }
+  },
+  faucet_failure: {
+    id: 'raw_home_faucet_failed',
+    surface: 'prompt',
+    fields: { faucetFailurePhase: FAUCET_FAILURE_PHASES }
   },
   earn_positions_load: {
     id: 'earnPositionsLoadError',

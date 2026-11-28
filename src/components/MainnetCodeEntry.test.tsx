@@ -4,12 +4,13 @@ import { Clipboard } from '@capacitor/clipboard';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 
 import { checkMainnetAccessCode, type MainnetAccessOutcome } from 'lib/mainnet-access';
+import { hapticError } from 'lib/mobile/haptics';
 import { reportUserVisibleError } from 'lib/telemetry/user-visible-error';
 
 import { MainnetCodeEntryFields, useMainnetCodeEntry } from './MainnetCodeEntry';
 
 jest.mock('@capacitor/clipboard', () => ({ Clipboard: { read: jest.fn() } }));
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticError: jest.fn() }));
 let mockMobile = true;
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),
@@ -97,10 +98,10 @@ it('keeps mobile native paste and normalizes the returned text', async () => {
 });
 
 it.each([
-  ['rejected', 'mainnetAccessCodeRejected'],
-  ['unchecked', 'mainnetAccessCheckFailed'],
-  ['clipboard', 'mainnetAccessPasteFailed']
-] as const)('reports the real %s producer as %s after 1000 ms', async (failure, id) => {
+  ['rejected', 'mainnetAccessCodeRejected', 'true', 1],
+  ['unchecked', 'mainnetAccessCheckFailed', null, 0],
+  ['clipboard', 'mainnetAccessPasteFailed', null, 0]
+] as const)('reports the real %s producer as %s after 1000 ms', async (failure, id, ariaInvalid, errorHaptics) => {
   render(<Entry />);
   if (failure === 'clipboard') {
     jest.mocked(Clipboard.read).mockRejectedValueOnce(new Error('private clipboard content'));
@@ -114,6 +115,10 @@ it.each([
     await submit();
   }
   expect(screen.getByTestId('mainnet-error')).toHaveTextContent(`Visible ${id}`);
+  expect({
+    ariaInvalid: screen.getByTestId('mainnet-code').getAttribute('aria-invalid'),
+    errorHaptics: jest.mocked(hapticError).mock.calls.length
+  }).toEqual({ ariaInvalid, errorHaptics });
   act(() => jest.advanceTimersByTime(999));
   expect(mockReport.mock.calls).toEqual([]);
   act(() => jest.advanceTimersByTime(1));

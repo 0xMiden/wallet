@@ -55,7 +55,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
 jest.mock('lib/animation', () => ({
   installSheetKeyframes: () => {},
   sheetMotionVars: {},
-  useSprings: () => ({ overlay: {}, modal: {}, reduceMotion: false })
+  useSprings: () => ({ overlay: {}, modal: {}, reduceMotion: false }),
+  usePreset: () => ({})
 }));
 
 jest.mock('lib/mobile/haptics', () => ({

@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { hapticLight } from 'lib/mobile/haptics';
+import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
 
@@ -32,6 +33,7 @@ export interface PromptCardHero {
 export interface PromptCardProps {
   /** Identifies the displayed error for reporting; null marks a display that is not an error. */
   errorId?: UserErrorId | null;
+  errorDiagnostics?: UiEvidenceInput;
   title: string;
   body?: string;
   /**
@@ -207,12 +209,13 @@ export const PromptCard: FC<PromptCardProps> = ({
   actionDisabled = false,
   status = 'idle',
   errorId,
+  errorDiagnostics,
   onDismiss,
   className,
   'data-testid': testId,
   actionTestId
 }) => {
-  useUserVisibleError(status === 'failure' ? errorId : null, 'prompt');
+  useUserVisibleError(status === 'failure' ? errorId : null, 'prompt', undefined, errorDiagnostics);
   const { t } = useTranslation();
   const look = PROMPT_CARD_VARIANT_STYLE[variant];
 

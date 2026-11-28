@@ -22,7 +22,7 @@
  *   synth     drive synthetic flicks and report the trajectory
  *             SPIKE_SYNTH_MODE=flick|interrupt, SPIKE_SYNTH_REPS=n
  *   flick     open a capture window and record real finger swipes
- *   slide     programmatic tab-tap slide
+ *   slide     taps the Home tabs three times round and reports frames and the first changed frame
  *   probe     one-shot look at the track element and its transform
  *   dom       dump testids and body text, for when the app is on an unexpected screen
  *   setup     create a wallet via the onboarding bypass
@@ -423,40 +423,125 @@ async function cmdRefresh() {
   });
 }
 
+// The Home tabs in order, and the walk a pass taps: the last tap is the four-page jump back.
+const HOME_IDS = ['overview', 'send', 'receive', 'earn', 'swap'];
+const TAP_WALK = [1, 2, 3, 4, 0];
+
+/**
+ * Samples the leaving and entering Home panes per frame, as drawn: rect left and width, and the
+ * opacity of the pane and each ancestor up to its tab pane (0 when hidden by visibility). Works on
+ * the slide and on the stack, so a base build and a head build report the same thing.
+ */
+const PANE_SAMPLER = `
+var S = (window.__PANES__ = { frames: [], leave: [], enter: [], on: true });
+function state(id) {
+  var el = document.querySelector('[data-home-page="' + id + '"]');
+  if (!el) return null;
+  var rect = el.getBoundingClientRect();
+  var opacity = 1;
+  if (el.checkVisibility && !el.checkVisibility({ visibilityProperty: true })) opacity = 0;
+  else {
+    var stop = el.closest('[data-tab-pane]');
+    for (var node = el; node; node = node.parentElement) {
+      opacity *= Number(getComputedStyle(node).opacity);
+      if (node === stop) break;
+    }
+  }
+  return { left: rect.left, width: rect.width, opacity: opacity };
+}
+function step(t) {
+  if (!S.on) return;
+  S.frames.push(t);
+  S.leave.push(state(S.from));
+  S.enter.push(state(S.to));
+  requestAnimationFrame(step);
+}
+S.start = function (from, to) {
+  S.from = from;
+  S.to = to;
+  S.frames = [];
+  S.leave = [];
+  S.enter = [];
+  S.on = true;
+  requestAnimationFrame(step);
+};
+S.firstChangeMs = function (t0) {
+  var base = -1;
+  for (var i = 0; i < S.frames.length; i++) if (S.frames[i] <= t0) base = i;
+  if (base === -1) base = 0;
+  function moved(a, b) {
+    return a && b && (Math.abs(a.opacity - b.opacity) >= 0.01 || Math.abs(a.left - b.left) >= 1 || Math.abs(a.width - b.width) >= 1);
+  }
+  for (var j = base + 1; j < S.frames.length; j++) {
+    if (moved(S.leave[j], S.leave[base]) || moved(S.enter[j], S.enter[base])) return Math.round((S.frames[j] - t0) * 10) / 10;
+  }
+  return null;
+};
+return 'ok';
+`;
+
 async function cmdSlide() {
   return withSession(async rd => {
     await evaluate(rd, RECORDER);
+    await evaluate(rd, PANE_SAMPLER);
 
     const route = await evaluate(rd, 'return location.hash || location.pathname;');
     console.log(`starting route: ${route}`);
 
-    // Drive the real user path: click the Send segment in SegmentedActionBar so
-    // the measured work includes navigate(), the pane re-render and the
-    // layoutId pill animation exactly as a tap would.
-    const clicked = await evaluate(
-      rd,
-      `
-      var P = window.__PERF__;
-      var btns = Array.prototype.slice.call(document.querySelectorAll('button,[role="tab"],[role="button"]'));
-      var target = btns.filter(function (b) {
-        var s = (b.textContent || '') + ' ' + (b.getAttribute('data-testid') || '') + ' ' + (b.getAttribute('aria-label') || '');
-        return /send/i.test(s);
-      })[0];
-      if (!target) return JSON.stringify({ error: 'no send segment found', candidates: btns.length });
-      P.start();
-      var t0 = performance.now();
-      target.click();
-      P.syncBlockMs = Math.round((performance.now() - t0) * 100) / 100;
-      return JSON.stringify({ ok: true, label: (target.textContent || '').trim(), syncBlockMs: P.syncBlockMs });
-      `
-    );
-    console.log(`click: ${clicked}`);
-
+    // Drive the real user path: click each Home tab in SegmentedActionBar so the measured work
+    // includes navigate(), the pane switch and the pill animation exactly as a tap would. Three
+    // passes of Overview, Send, Receive, Earn, Swap and back to Overview.
+    const results = [];
+    let from = 0;
+    await evaluate(rd, `location.hash = '#/'; return 1;`);
     await sleep(1500);
-    await evaluate(rd, 'window.__PERF__.stop(); return 1;');
-    const report = await evaluate(rd, 'return JSON.stringify(window.__PERF__.report());');
-    console.log('\n=== PROGRAMMATIC SLIDE (tab tap) ===');
-    console.log(report);
+    for (let pass = 0; pass < 3; pass++) {
+      for (const to of TAP_WALK) {
+        const clicked = await evaluate(
+          rd,
+          `
+          var tabs = document.querySelectorAll('[data-home-actions] [role="tab"]');
+          var target = tabs[${to}];
+          if (!target) return JSON.stringify({ error: 'no tab ${to}', tabs: tabs.length });
+          window.__PANES__.start('${HOME_IDS[from]}', '${HOME_IDS[to]}');
+          var P = window.__PERF__;
+          P.start();
+          var t0 = performance.now();
+          target.click();
+          P.syncBlockMs = Math.round((performance.now() - t0) * 100) / 100;
+          window.__PANES__.t0 = t0;
+          return JSON.stringify({ ok: true, syncBlockMs: P.syncBlockMs });
+          `
+        );
+        await sleep(1000);
+        await evaluate(rd, 'window.__PERF__.stop(); window.__PANES__.on = false; return 1;');
+        const report = JSON.parse(await evaluate(rd, 'return JSON.stringify(window.__PERF__.report());'));
+        const firstChangeMs = await evaluate(rd, 'return window.__PANES__.firstChangeMs(window.__PANES__.t0);');
+        const tap = {
+          tap: `${HOME_IDS[from]} -> ${HOME_IDS[to]}`,
+          click: JSON.parse(clicked),
+          droppedFrames: report.droppedFrames,
+          worstFrameMs: report.worstFrameMs,
+          medianFrameMs: report.medianFrameMs,
+          firstChangeMs
+        };
+        results.push(tap);
+        console.log(JSON.stringify(tap));
+        from = to;
+      }
+    }
+    const median = values => {
+      const sorted = values.filter(value => value != null).sort((a, b) => a - b);
+      return sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
+    };
+    console.log('\n=== TAB TAPS (median of', results.length, 'taps) ===');
+    console.log(
+      JSON.stringify({
+        droppedFramesPerTap: median(results.map(r => r.droppedFrames)),
+        firstChangeMs: median(results.map(r => r.firstChangeMs)),
+        worstFrameMs: median(results.map(r => r.worstFrameMs))
+      })
+    );
     const after = await evaluate(rd, 'return location.hash || location.pathname;');
     console.log(`ending route: ${after}`);
   });

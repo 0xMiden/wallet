@@ -81,7 +81,12 @@ export const AssetListItem: FC<AssetListItemProps> = ({
   const classes = classNames(
     'w-full min-h-18 flex items-center justify-between text-left',
     onClick && [
-      'cursor-pointer active:opacity-90 transition-opacity disabled:cursor-default disabled:opacity-50',
+      'cursor-pointer disabled:cursor-default disabled:opacity-50',
+      // The pressed fill `ListRow` shows, drawn behind the row and 8px past each side so the
+      // row's own content keeps its place.
+      'relative isolate before:absolute before:-inset-x-2 before:inset-y-0 before:-z-10 before:rounded-xl',
+      'before:bg-fill-pressed before:opacity-0 before:transition-opacity before:duration-150 before:ease-hover',
+      'active:before:opacity-100 disabled:active:before:opacity-0',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-primary focus-visible:ring-inset'
     ],
     className

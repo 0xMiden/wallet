@@ -1,5 +1,6 @@
 import { getEffectiveFaucetApiUrl, getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
 import { requestTimeoutError } from 'lib/remote-json';
+import type { FaucetFailurePhase } from 'lib/telemetry/ui-producer-diagnostics';
 
 import { MIDEN_FAUCET_API_ENDPOINTS } from './constants';
 import { faucetCapFromRefusal, faucetGrantAmount, faucetRateLimitSeconds } from './faucet-protocol';
@@ -13,6 +14,18 @@ export interface PowChallenge {
 // Faucet 0.17.0 answers a grant with its note id alone.
 export interface MintedNote {
   noteId: string;
+}
+
+type RecordedFaucetFailurePhase = Exclude<FaucetFailurePhase, 'unrecorded'>;
+const faucetFailurePhases = new WeakMap<Error, RecordedFaucetFailurePhase>();
+
+export function annotateFaucetFailurePhase<T>(error: T, phase: RecordedFaucetFailurePhase): T {
+  if (error instanceof Error) faucetFailurePhases.set(error, phase);
+  return error;
+}
+
+export function getFaucetFailurePhase(error: Error): FaucetFailurePhase {
+  return faucetFailurePhases.get(error) ?? 'unrecorded';
 }
 
 // A faucet HTTP call that accepts the socket but never answers must not hang the
@@ -305,7 +318,7 @@ export async function requestTokens(
   if (faucetStatusMayHaveMinted(outcome.status)) {
     throw new FaucetOutcomeUnknownError(failure.message, { cause: failure });
   }
-  throw failure;
+  throw annotateFaucetFailurePhase(failure, 'definitive_refusal');
 }
 
 // 0xMiden/faucet answers 503 when it cannot queue the mint, and 500 once a queued mint's
@@ -326,17 +339,22 @@ export async function mintFromMidenFaucet(
 ): Promise<MintedNote> {
   const baseUrl = getFaucetApiUrl();
   // Mainnet has no faucet, and another network's would be handed this network's address.
-  if (!baseUrl) throw new Error('No faucet is configured for this network');
+  if (!baseUrl) {
+    throw annotateFaucetFailurePhase(new Error('No faucet is configured for this network'), 'request_preparation');
+  }
+  const preparationFailed = (error: unknown): never => {
+    if (signal?.aborted && error === signal.reason) throw error;
+    throw annotateFaucetFailurePhase(error, 'request_preparation');
+  };
   const mint = async (value: bigint): Promise<MintedNote> => {
-    const { challenge, target } = await getPowChallenge(baseUrl, address, value, signal);
-    const nonce = await solvePowChallenge(challenge, target, { signal });
+    const { challenge, target } = await getPowChallenge(baseUrl, address, value, signal).catch(preparationFailed);
+    const nonce = await solvePowChallenge(challenge, target, { signal }).catch(preparationFailed);
     await onBeforeSubmit?.();
     return requestTokens(baseUrl, address, value, challenge, nonce, signal, onMayMint);
   };
   if (amount !== undefined) return mint(amount);
 
-  const metadata = await fetchFaucetMetadata(baseUrl, signal);
-  const chosen = faucetGrantAmount(metadata);
+  const chosen = await fetchFaucetMetadata(baseUrl, signal).then(faucetGrantAmount).catch(preparationFailed);
   try {
     return await mint(chosen);
   } catch (error) {

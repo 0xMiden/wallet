@@ -1,5 +1,9 @@
-import React, { forwardRef, useState } from 'react';
+import React, { forwardRef, useEffect, useRef, useState } from 'react';
 
+import { motion } from 'framer-motion';
+
+import { usePreset } from 'lib/animation';
+import { hapticError } from 'lib/mobile/haptics';
 import { cn } from 'lib/ui/util';
 
 export interface CodeInputProps {
@@ -62,9 +66,25 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
   const [focused, setFocused] = useState(false);
   const groups = groupCells(length, groupSize);
   const inputFormat = FORMATS[format];
+  // A code that turns invalid shakes the cells once (the `shake` preset `PasscodeDots` uses) with
+  // the error haptic. The element is not remounted, so the input keeps its focus; under reduced
+  // motion nothing shakes, but the haptic still fires.
+  const shake = usePreset('shake');
+  const shaking = Boolean(invalid) && shake.animate !== undefined;
+
+  // A code that is already invalid on mount is a standing state, not a fresh rejection.
+  const mounted = useRef(false);
+  useEffect(() => {
+    if (mounted.current && invalid) hapticError();
+    mounted.current = true;
+  }, [invalid]);
 
   return (
-    <div
+    <motion.div
+      initial={false}
+      animate={shaking ? shake.animate : { x: 0 }}
+      transition={shake.transition}
+      data-shake={shaking ? 'true' : undefined}
       className={cn(
         'relative flex items-center justify-between gap-1.5',
         layout === 'vertical' && 'flex-col gap-3',
@@ -125,6 +145,6 @@ export const CodeInput = forwardRef<HTMLInputElement, CodeInputProps>(function C
         data-testid={dataTestId}
         className="absolute inset-0 h-full w-full cursor-text text-body opacity-0"
       />
-    </div>
+    </motion.div>
   );
 });

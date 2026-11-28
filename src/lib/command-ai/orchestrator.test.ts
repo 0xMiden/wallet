@@ -1,3 +1,4 @@
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import type { TokenPriceInfo } from 'lib/prices/binance';
 import { peekTokenPriceAssets } from 'lib/token-list/runtime';
 
@@ -11,6 +12,12 @@ import {
   type OrchestratorWalletContext
 } from './orchestrator';
 import { mergeRedactionMaps, redactPrompt } from './redactor';
+import type { AiCompilerOutput, PatchIntentSlots } from './schema';
+
+jest.mock('lib/miden/swap/faucet-ids', () => {
+  const actual = jest.requireActual('lib/miden/swap/faucet-ids');
+  return { ...actual, normalizedFaucetId: jest.fn(actual.normalizedFaucetId) };
+});
 
 jest.mock('lib/token-list/runtime', () => ({
   ...jest.requireActual('lib/token-list/runtime'),
@@ -289,7 +296,9 @@ describe('command-ai orchestrator', () => {
     const labels = clarifying.chips.map(chip => chip.label);
     expect(labels).toHaveLength(6);
     expect(new Set(labels).size).toBe(6);
-    expect(labels[1]).toBe('USDC → USDC · agglayer (ethereum → miden-mainnet)');
+    expect(labels[1]).toBe('USDC → USDC');
+    expect(clarifying.chips[1]?.route).toBe(ctx.bridgeRoutes[1]);
+    expect(clarifying.chips[1]?.addressHint).toBeUndefined();
   });
 
   it('answers a one-option clarification with that option instead of asking', () => {
@@ -903,6 +912,258 @@ describe('command-ai orchestrator', () => {
         createContext()
       );
       expect(res).toMatchObject({ handoff: { draft: { bridgeNetwork: 'ethereum' } } });
+    });
+  });
+
+  describe('a clarification reply about the asset', () => {
+    type Question = Extract<ReturnType<typeof compileOutputToResolution>, { kind: 'clarifying' }>;
+    const row = (tokenId: string, symbol: string, balance: number) => ({
+      tokenId,
+      tokenSlug: symbol,
+      balance,
+      balanceBaseUnits: String(balance * 1_000_000),
+      fiatPrice: 1,
+      change24h: 0,
+      metadata: { symbol, name: symbol, decimals: 6 }
+    });
+    const [usdcx, miden, eth] = ['faucet-usdcx', 'faucet-miden', 'faucet-eth'];
+    const context = (extra: ReturnType<typeof row>[] = []): OrchestratorWalletContext => ({
+      ...createContext(),
+      balances: [row(miden!, 'MIDEN', 100), row(usdcx!, 'USDCx', 1000), row('faucet-foo', 'FOO', 50), ...extra],
+      swapTokens: [
+        { symbol: 'MIDEN', faucetId: miden!, decimals: 6 },
+        { symbol: 'USDCx', faucetId: usdcx!, decimals: 6 },
+        { symbol: 'ETH', faucetId: eth!, decimals: 8 }
+      ]
+    });
+    const empty: Omit<PatchIntentSlots, 'action'> = {
+      amount: null,
+      asset: null,
+      to_asset: null,
+      from_chain: null,
+      to_chain: null,
+      recipient_ref: null,
+      provider: null,
+      note_type: null,
+      earn_op: null
+    };
+    const amount = { kind: 'exact_ref' as const, ref: 'AMT_1' };
+    const redact = (text: string, ctx: OrchestratorWalletContext) =>
+      redactPrompt(text, {
+        contacts: ctx.contacts,
+        heldNicheTickers: ctx.balances
+          .filter(b => b.metadata.symbol === 'FOO')
+          .map(b => ({ symbol: b.metadata.symbol, tokenId: b.tokenId }))
+      });
+    function question(res: ReturnType<typeof compileOutputToResolution>): Question {
+      if (res.kind !== 'clarifying') throw new Error(`expected a clarification, got ${JSON.stringify(res)}`);
+      return res;
+    }
+    const ask = (text: string, slots: Partial<typeof empty> & { action: 'send' | 'swap' }, ctx = context()): Question =>
+      question(
+        compileOutputToResolution(
+          { op: 'set_intent', ...empty, ...slots } as AiCompilerOutput,
+          redact(text, ctx).map,
+          ctx
+        )
+      );
+    const reply = (prev: Question, text: string, slots: Partial<typeof empty>, ctx = context()) =>
+      compileOutputToResolution(
+        { op: 'patch_slots', patch: { action: null, ...empty, ...slots } },
+        mergeRedactionMaps(prev.map, redact(text, ctx).map),
+        ctx,
+        prev.draft
+      );
+    const pick = (prev: Question, id: string, ctx = context()) =>
+      applyChipSelection(prev, prev.chips.find(chip => chip.id === id)!, ctx);
+    const review = (draft: object) => ({ kind: 'handoff', handoff: { jumpToConfirm: true, draft } });
+
+    const sendAmountQuestion = () =>
+      ask('send MIDEN to Alice', { action: 'send', asset: 'MIDEN', recipient_ref: 'CONTACT_1' });
+
+    it('sizes the amount chips by the new token', () => {
+      const next = question(reply(sendAmountQuestion(), 'use USDCx', { asset: 'USDCx' }));
+      expect(next.draft).toMatchObject({ assetQuery: 'USDCx', tokenId: usdcx });
+      expect(pick(next, '50pct')).toMatchObject(review({ tokenId: usdcx, amount: '500' }));
+    });
+
+    it('reports a token the wallet does not hold instead of reviewing the old one', () => {
+      expect(reply(sendAmountQuestion(), 'send 5 DAI instead', { amount, asset: 'DAI' })).toMatchObject({
+        kind: 'error',
+        messageKey: 'commandAiAssetNotFound',
+        messageParams: { asset: 'DAI' }
+      });
+    });
+
+    it("converts a dollar amount at the new token's price", () => {
+      jest.mocked(peekTokenPriceAssets).mockReturnValue(
+        new Map([
+          [miden!, 'ETH'],
+          [usdcx!, 'SOL']
+        ])
+      );
+      const quote = (price: number) => ({
+        price,
+        change24h: 0,
+        percentageChange24h: 0,
+        kind: 'market' as const,
+        observedAt: Date.now()
+      });
+      const priced = { ...context(), tokenPrices: { ETH: quote(2), SOL: quote(1) } };
+      const first = ask('send MIDEN to Alice', { action: 'send', asset: 'MIDEN', recipient_ref: 'CONTACT_1' }, priced);
+      const fiat = { kind: 'fiat_ref' as const, ref: 'FIAT_AMT_1', currency: 'USD' as const };
+      expect(reply(first, 'send $10 of USDCx', { amount: fiat, asset: 'USDCx' }, priced)).toMatchObject(
+        review({
+          tokenId: usdcx,
+          amount: '10'
+        })
+      );
+      jest.mocked(peekTokenPriceAssets).mockReset();
+    });
+
+    // Two holdings share a symbol, so only the id says which one the user picked.
+    const twins = () => context([row('faucet-foo-2', 'FOO', 8)]);
+
+    it.each(['FOO', 'foo', 'TOKEN_1'])('keeps the picked holding when the reply repeats its symbol as %s', asset => {
+      const assets = ask('send to Alice', { action: 'send', recipient_ref: 'CONTACT_1' }, twins());
+      const next = question(pick(assets, 'faucet-foo-2', twins()));
+      expect(reply(next, 'send 3 FOO', { amount, asset }, twins())).toMatchObject(review({ tokenId: 'faucet-foo-2' }));
+    });
+
+    it('does not swap into the only partner when the named receive token is not listed', () => {
+      const ctx = context();
+      ctx.swapTokens = ctx.swapTokens.slice(0, 2);
+      const first = ask('swap MIDEN to USDCx', { action: 'swap', asset: 'MIDEN', to_asset: 'USDCx' }, ctx);
+      expect(reply(first, '10, and receive DAI', { amount, to_asset: 'DAI' }, ctx)).toMatchObject({
+        kind: 'error',
+        messageKey: 'commandAiSwapUnavailable'
+      });
+    });
+
+    it('keeps the picked holding when a bridge follow-up repeats its symbol and changes the chain', () => {
+      const ctx = {
+        ...twins(),
+        bridgeRoutes: [
+          {
+            id: 'foo-out',
+            provider: 'agglayer',
+            mode: 'send' as const,
+            sourceSymbol: 'FOO',
+            sourceNetwork: 'miden-testnet',
+            destinationSymbol: 'FOO',
+            destinationNetwork: 'sepolia'
+          }
+        ]
+      };
+      const res = compileOutputToResolution(
+        { op: 'patch_slots', patch: { action: null, ...empty, asset: 'FOO', to_chain: 'sepolia' } },
+        redact('x', ctx).map,
+        ctx,
+        {
+          action: 'bridge',
+          assetQuery: 'FOO',
+          tokenId: 'faucet-foo-2',
+          amountFraction: { numerator: 1, denominator: 2 }
+        }
+      );
+      expect(res).toMatchObject({ handoff: { draft: { route: 'foo-out', amount: '4' } } });
+    });
+
+    const resolve = (draft: Parameters<typeof resolveDraftToAction>[0], ctx = context()) =>
+      resolveDraftToAction(draft, redact('x', ctx).map, ctx);
+    const sendRoute = (id: string, symbol: string) => ({
+      id,
+      provider: 'agglayer',
+      mode: 'send' as const,
+      sourceSymbol: symbol,
+      sourceNetwork: 'miden-testnet',
+      destinationSymbol: symbol,
+      destinationNetwork: 'sepolia'
+    });
+    // 'faucet-foo-2' is the picked holding. Unless a case lists it, only its same-symbol sibling is left.
+    const gone = { assetQuery: 'FOO', tokenId: 'faucet-foo-2' };
+    const swapListing = (fooId: string) => [
+      ...context().swapTokens.slice(0, 2),
+      { symbol: 'FOO', faucetId: fooId, decimals: 6 }
+    ];
+
+    it('does not send another holding when the picked one is gone from the balances', () => {
+      const assets = ask('send to Alice', { action: 'send', recipient_ref: 'CONTACT_1' }, twins());
+      const next = question(pick(assets, 'faucet-foo-2', twins()));
+      expect(reply(next, 'send 3 FOO', { amount, asset: 'FOO' })).toMatchObject({
+        kind: 'error',
+        messageKey: 'commandAiAssetNotFound'
+      });
+    });
+
+    it('asks again when the picked swap token is no longer listed', () => {
+      const ctx = { ...context(), swapTokens: swapListing('faucet-foo') };
+      expect(resolve({ action: 'swap', ...gone, toAssetQuery: 'USDCx', amount: '1' }, ctx)).toMatchObject({
+        kind: 'clarifying',
+        questionKey: 'commandAiChooseAsset'
+      });
+    });
+
+    it('does not size a swap from another holding with the same symbol', () => {
+      const ctx = { ...context(), swapTokens: swapListing('faucet-foo-2') };
+      expect(resolve({ action: 'swap', ...gone, toAssetQuery: 'USDCx', amountIsMax: true }, ctx)).toMatchObject({
+        kind: 'clarifying',
+        slot: 'amount'
+      });
+    });
+
+    it('asks again when the picked receive token of a swap is no longer listed', () => {
+      const ctx = { ...context(), swapTokens: swapListing('faucet-foo') };
+      const draft = { action: 'swap' as const, assetQuery: 'MIDEN', tokenId: miden!, amount: '1' };
+      expect(resolve({ ...draft, toAssetQuery: 'FOO', toTokenId: 'faucet-foo-2' }, ctx)).toMatchObject({
+        kind: 'clarifying',
+        questionKey: 'commandAiChooseSwapTarget'
+      });
+    });
+
+    it.each([
+      ['FOO', 'FOO', 'faucet-foo-2'],
+      ['USDC', 'USDCx', 'faucet-usdc']
+    ])('does not size a %s bridge from another holding when the picked one is gone', (query, symbol, tokenId) => {
+      const ctx = { ...context(), bridgeRoutes: [sendRoute('out', symbol)] };
+      const draft = { action: 'bridge' as const, assetQuery: query, tokenId, toChain: 'sepolia', amountIsMax: true };
+      expect(resolve(draft, ctx)).toMatchObject({ kind: 'clarifying', slot: 'amount' });
+    });
+
+    const earnFrom = (collateralFaucetId: string) => ({
+      ...context(),
+      earnVaults: [{ id: 'vault-1', name: 'FOO vault', symbol: 'FOO', collateralFaucetId }]
+    });
+
+    it('does not size an Earn deposit from a token that only shares the collateral symbol', () => {
+      expect(resolve({ action: 'earn', amountIsMax: true }, earnFrom('faucet-foo-2'))).toMatchObject({
+        kind: 'handoff',
+        handoff: { draft: { amount: '' } }
+      });
+    });
+
+    it('sizes an Earn deposit when the collateral faucet is spelled differently from the balance key', () => {
+      const normalize = jest.mocked(normalizedFaucetId);
+      const actual = normalize.getMockImplementation()!;
+      normalize.mockImplementation(id => id.replace(/^0x-/, 'faucet-'));
+      expect(resolve({ action: 'earn', amountIsMax: true }, earnFrom('0x-foo'))).toMatchObject({
+        handoff: { draft: { amount: '50' } }
+      });
+      normalize.mockImplementation(actual);
+    });
+
+    it('opens Receive with no token when the picked one is gone', () => {
+      expect(resolve({ action: 'receive', ...gone })).toEqual({
+        kind: 'handoff',
+        handoff: { action: 'receive', path: '/receive', jumpToConfirm: false }
+      });
+    });
+
+    it('keeps the picked holding on a same-symbol route offered when no route matches', () => {
+      const ctx = { ...twins(), bridgeRoutes: [sendRoute('foo-out', 'FOO')] };
+      const half = { numerator: 1, denominator: 2 };
+      const offered = question(resolve({ action: 'bridge', ...gone, amountFraction: half, toChain: 'base' }, ctx));
+      expect(pick(offered, 'foo-out', ctx)).toMatchObject({ handoff: { draft: { amount: '4' } } });
     });
   });
 });

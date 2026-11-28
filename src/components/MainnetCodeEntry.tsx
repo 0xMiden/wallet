@@ -197,7 +197,7 @@ export const MainnetCodeEntryFields: React.FC<MainnetCodeEntryFieldsProps> = ({ 
         groupSize={6}
         format="alphanumeric"
         label={t('mainnetAccessCodeLabel')}
-        invalid={failure !== null}
+        invalid={failure === 'rejected'}
         disabled={submitting || pasting}
         data-testid={`${testIdPrefix}-code`}
       />

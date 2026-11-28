@@ -58,8 +58,8 @@ export interface ReceiptRow {
   onClick?: () => void;
   /** Accessible label for the clickable value (e.g. "View on Midenscan"). */
   actionLabel?: string;
-  /** Stack the value under the label, for long values like a full address. */
-  stacked?: boolean;
+  /** Type override for the value, for one that must be set smaller than the row's `text-value`. */
+  valueClassName?: string;
 }
 
 /**
@@ -165,13 +165,18 @@ export const SuccessSummaryPill: FC<{
 
 /** Key/value receipt rows, as the shared compact details card. Renders nothing when there are no rows.
  *  `surface="outline"` draws it on the page with a hairline edge, set in Nunito (the earn flow's). */
+/**
+ * A receipt's rows: an outlined card with every row stacked, its label above its value on the left
+ * edge, so a full address and a short amount line up the same way. Labels are Nunito semibold and
+ * values extrabold.
+ */
 export const ReceiptRows: FC<{
   rows: ReceiptRow[];
   surface?: 'fill' | 'outline';
   /** `heading` sets the labels in Nunito semibold, as the review card before it does. */
   face?: 'sans' | 'heading';
   className?: string;
-}> = ({ rows, surface = 'fill', face, className }) => {
+}> = ({ rows, surface = 'outline', face = 'heading', className }) => {
   if (rows.length === 0) return null;
 
   return (
@@ -181,7 +186,7 @@ export const ReceiptRows: FC<{
       className={classNames('tx-stage-list w-full', surface === 'outline' && 'face-heading', className)}
     >
       {rows.map(row => (
-        <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked={row.stacked}>
+        <DetailRow key={row.label} label={row.label} sub={row.subValue} stacked>
           {row.onClick ? (
             <button
               type="button"
@@ -190,12 +195,12 @@ export const ReceiptRows: FC<{
               // `accent-tint-ink` — same as `DetailRow`'s own inline action — is the
               // accent pair that actually clears 4.5:1 on `fill`; the flow's own
               // accent (e.g. `accent-send`) sat at ~2:1 here.
-              className="min-w-0 bg-transparent p-0 text-right font-heading font-bold text-accent-tint-ink underline-offset-2 hover:underline"
+              className="min-w-0 bg-transparent p-0 text-left font-heading font-extrabold text-accent-tint-ink underline-offset-2 hover:underline"
             >
               {row.value}
             </button>
           ) : (
-            row.value
+            <span className={classNames('font-extrabold', row.valueClassName)}>{row.value}</span>
           )}
         </DetailRow>
       ))}
@@ -294,7 +299,9 @@ export const TransactionSuccessLayout: FC<TransactionSuccessLayoutProps> = ({
         commandFooter={command || commandFooter}
         footer={
           <div className="flex w-full flex-col items-center gap-3">
-            {footerDescription && <p className="text-center text-sm text-gray">{footerDescription}</p>}
+            {footerDescription && (
+              <p className="text-center font-heading text-sm font-semibold text-gray">{footerDescription}</p>
+            )}
             {actions}
           </div>
         }
