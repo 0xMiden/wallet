@@ -104,6 +104,8 @@ jest.mock('components/ui/Button', () => ({
 }));
 
 let mockSimulateChildEnterAmount = false;
+let mockDeposit: Promise<string> | undefined;
+let mockDepositResult: Promise<string> | undefined;
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
   EvmBridgeDepositScreen: ({
     onClose,
@@ -112,7 +114,10 @@ jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
   }: {
     onClose: () => void;
     onConnectAnother: () => void;
-    fundFlow?: { enterStep?: (step: string) => void };
+    fundFlow?: {
+      enterStep?: (step: string) => void;
+      reportDeposit: (create: () => Promise<string>) => Promise<string>;
+    };
   }) => {
     React.useEffect(() => {
       if (mockSimulateChildEnterAmount) fundFlow?.enterStep?.('select_amount');
@@ -125,6 +130,17 @@ jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
         <button type="button" onClick={onClose}>
           back
         </button>
+        {mockDeposit && (
+          <button
+            type="button"
+            onClick={() => {
+              const deposit = mockDeposit;
+              if (deposit) mockDepositResult = fundFlow?.reportDeposit(() => deposit);
+            }}
+          >
+            confirm deposit
+          </button>
+        )}
       </div>
     );
   }
@@ -361,6 +377,8 @@ describe('BridgeDeposit fund step progression', () => {
   beforeEach(() => {
     mockBridgeEmittedSteps.length = 0;
     mockBeginFlow.mockClear();
+    mockDeposit = undefined;
+    mockDepositResult = undefined;
   });
 
   it('records select_amount on initial entry when an EVM wallet is already connected before child effect runs', () => {
@@ -389,5 +407,62 @@ describe('BridgeDeposit fund step progression', () => {
       { phase: 'step', flow: 'fund', step: 'connect_wallet', stepAction: 'continue', order: 1 },
       { phase: 'step', flow: 'fund', step: 'select_amount', stepAction: 'leave', order: 2 }
     ]);
+  });
+
+  it.each(['accepted', 'rejected'] as const)(
+    'settles the %s fund attempt once when EVM readiness drops and returns during reportDeposit',
+    async outcome => {
+      let settleDeposit!: () => void;
+      const failure = new Error('row creation failed');
+      mockDeposit = new Promise<string>((resolve, reject) => {
+        settleDeposit = outcome === 'accepted' ? () => resolve('bridge-tx') : () => reject(failure);
+      });
+      mockConnection = { address: '0xabc', connected: true };
+      const view = render(<BridgeDeposit />);
+      fireEvent.click(screen.getByRole('button', { name: 'confirm deposit' }));
+      const result = mockDepositResult;
+      expect(result).toBeDefined();
+      const outcomePromise = result?.then(
+        value => ({ value }),
+        reason => ({ reason })
+      );
+
+      mockConnection = { address: undefined, connected: false };
+      view.rerender(<BridgeDeposit />);
+      const showedConnect = screen.queryByTestId('bridge-connect-wallet') !== null;
+      mockConnection = { address: '0xabc', connected: true };
+      view.rerender(<BridgeDeposit />);
+
+      await act(async () => {
+        settleDeposit();
+        expect(await outcomePromise).toEqual(outcome === 'accepted' ? { value: 'bridge-tx' } : { reason: failure });
+      });
+
+      const flow = mockBeginFlow.mock.results[0]!.value;
+      expect(outcome === 'accepted' ? flow.complete : flow.fail).toHaveBeenCalledTimes(1);
+      expect(outcome === 'accepted' ? flow.fail : flow.complete).not.toHaveBeenCalled();
+      expect(showedConnect).toBe(false);
+      expect(flow.cancel).not.toHaveBeenCalled();
+    }
+  );
+
+  it('deliberate Close during a pending reportDeposit still drops late settlement', async () => {
+    let resolveDeposit!: (id: string) => void;
+    mockDeposit = new Promise<string>(resolve => {
+      resolveDeposit = resolve;
+    });
+    mockConnection = { address: '0xabc', connected: true };
+    const close = jest.fn();
+    render(<BridgeDeposit onClose={close} />);
+    fireEvent.click(screen.getByRole('button', { name: 'confirm deposit' }));
+    const result = mockDepositResult;
+    fireEvent.click(screen.getByRole('button', { name: 'back' }));
+
+    await act(async () => {
+      resolveDeposit('bridge-tx');
+      await expect(result).resolves.toBe('bridge-tx');
+    });
+    expect(close).toHaveBeenCalledTimes(1);
+    expect(mockBeginFlow.mock.results[0]!.value.complete).not.toHaveBeenCalled();
   });
 });

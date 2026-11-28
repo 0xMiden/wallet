@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 import { userEvent } from '@storybook/test';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
+import { PageActiveContext } from 'app/layouts/page-active';
 import { FlowPresentationProvider } from 'components/flow/FlowPresentation';
 import { isAgglayerFaucetAllowed } from 'lib/agglayer/allowed-faucets';
 import { initiateB2AggBridge } from 'lib/agglayer/b2agg';
@@ -23,6 +24,7 @@ import { zustandProvider } from 'lib/miden/front/guardian-sync';
 import { CalendarRecallReviewRequiredError } from 'lib/miden/helpers';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
+import { initMobileBackHandler } from 'lib/mobile/back-handler';
 import { isValidNearIntentsAddress } from 'lib/one-click/address';
 import { OneClickHttpError } from 'lib/one-click/client';
 import { OneClickDeadlineError } from 'lib/one-click/deadline';
@@ -171,6 +173,9 @@ const beginFlowMock = jest.fn((_flow: string) => {
 const classifyErrorMock = jest.fn((_error: unknown) => 'rpc');
 const reportTelemetryEventMock = jest.fn();
 let mockMobileBackHandler: (() => boolean | void) | null = null;
+let mockNativeBackListener: (() => void) | undefined;
+let mockIsMobile = false;
+const mockMinimizeApp = jest.fn();
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -499,17 +504,29 @@ jest.mock('lib/miden-chain/constants', () => ({
 jest.mock('lib/mobile/haptics', () => ({
   hapticLight: jest.fn()
 }));
+jest.mock('@capacitor/app', () => ({
+  App: {
+    addListener: async (event: string, listener: () => void) => {
+      if (event === 'backButton') mockNativeBackListener = listener;
+      return { remove: async () => undefined };
+    },
+    minimizeApp: () => mockMinimizeApp()
+  }
+}));
 jest.mock('lib/mobile/useMobileBackHandler', () => ({
-  useMobileBackHandler: (cb: () => boolean | void) => {
+  useMobileBackHandler: (cb: () => boolean | void, deps: unknown[], options?: { overlay: boolean }) => {
     mockMobileBackHandler = cb;
+    jest
+      .requireActual<typeof import('lib/mobile/useMobileBackHandler')>('lib/mobile/useMobileBackHandler')
+      .useMobileBackHandler(cb, deps, options);
   }
 }));
 jest.mock('lib/platform', () => ({
   isExtension: jest.fn(() => false),
-  isMobile: () => false,
+  isMobile: () => mockIsMobile,
   isDesktop: () => false,
   isIOS: () => false,
-  isAndroid: () => false
+  isAndroid: () => mockIsMobile
 }));
 
 jest.mock('lib/settings/helpers', () => ({
@@ -776,6 +793,7 @@ const ORIGINAL_ENV = { ...process.env };
 beforeEach(() => {
   mockBridgeSnapshot = TEST_BRIDGE_CONFIG_SNAPSHOT;
   mockBridgeAvailability = { state: 'available' };
+  mockIsMobile = false;
   jest.resetAllMocks();
   jest.mocked(useFeatureAvailability).mockImplementation(() => mockBridgeAvailability);
   mockBurnMinimum = 5_000_000n;
@@ -3684,6 +3702,120 @@ describe('ReviewTransaction — send telemetry', () => {
     );
   });
 
+  it.each(['same-chain', 'Epoch', 'AggLayer', 'USDCx'] as const)(
+    'native back during %s admission still owns the returned row id',
+    async route => {
+      mockIsMobile = true;
+      await initMobileBackHandler();
+      expect(mockNativeBackListener).toEqual(expect.any(Function));
+
+      const row = deferred<string>();
+      let producer = initiateMock;
+      setValidRoute();
+      if (route !== 'same-chain') {
+        mockDetectedChain = 'ethereum';
+        if (route === 'Epoch') {
+          mockEpochQuote = {
+            ...reviewedEpochBinding,
+            amount: '4.8',
+            decimals: 6,
+            loading: false,
+            error: null,
+            symbol: 'USDC'
+          };
+          mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=epoch';
+          producer = bridgeEpochSendMock;
+        } else if (route === 'AggLayer') {
+          mockSearch = 'amount=5&to=0xrecipient&tokenId=tok1&network=sepolia&route=agglayer';
+          producer = initiateB2AggBridgeMock;
+        } else {
+          mockNativeMetadata = { symbol: 'USDCX', decimals: 6 };
+          mockBalanceData = [
+            { ...VALID_TOKEN, tokenId: USDCX_FAUCET_ID_BECH32, metadata: { symbol: 'USDCX', decimals: 6 } }
+          ];
+          mockSearch = `amount=5.000001&to=0x1111111111111111111111111111111111111111&tokenId=${USDCX_FAUCET_ID_BECH32}&network=arc-testnet&route=usdcx`;
+          producer = initiateUsdcxBurn as jest.Mock;
+        }
+      }
+      producer.mockReturnValueOnce(route === 'Epoch' ? row.promise.then(txId => ({ txId })) : row.promise);
+
+      enterSendFlow();
+      render(<ReviewTransaction />);
+      await flush();
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await waitFor(() => expect(producer).toHaveBeenCalledTimes(1));
+
+      goBackMock.mockImplementationOnce(() => {
+        mockLocationPathname = '/send';
+      });
+      act(() => mockNativeBackListener?.());
+      expect(mockMinimizeApp).not.toHaveBeenCalled();
+
+      await act(async () => row.resolve('tx-admitted'));
+      await flush();
+
+      expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-admitted', 'replacestate');
+      expect(goBackMock).not.toHaveBeenCalled();
+      expect(producer).toHaveBeenCalledTimes(1);
+      expect(handleAt(0).complete).toHaveBeenCalledTimes(1);
+    }
+  );
+
+  it.each([
+    ['Back', 'back-btn'],
+    ['Close', 'close-btn']
+  ])('header %s during same-chain admission does not abandon the pending row', async (_action, testId) => {
+    const row = deferred<string>();
+    initiateMock.mockReturnValueOnce(row.promise);
+    enterSendFlow();
+    setValidRoute();
+    render(<ReviewTransaction />);
+    await flush();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+
+    const departure = screen.queryByTestId(testId);
+    if (departure) fireEvent.click(departure);
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await act(async () => row.resolve('tx-admitted'));
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-admitted', 'replacestate');
+    expect(goBackMock).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalledWith('/');
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('covering the review during same-chain admission does not arm a second confirm', async () => {
+    const row = deferred<string>();
+    initiateMock.mockReturnValueOnce(row.promise);
+    enterSendFlow();
+    setValidRoute();
+    const review = (active: boolean) => (
+      <PageActiveContext.Provider value={active}>
+        <ReviewTransaction />
+      </PageActiveContext.Provider>
+    );
+    const view = render(review(true));
+    await flush();
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
+
+    view.rerender(review(false));
+    view.rerender(review(true));
+    const wasDisabled = screen.getByTestId('send-review-submit').hasAttribute('disabled');
+    if (!wasDisabled) {
+      fireEvent.click(screen.getByTestId('send-review-submit'));
+      await flush();
+    }
+    await act(async () => row.resolve('tx-admitted'));
+    await flush();
+
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+    expect(wasDisabled).toBe(true);
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-admitted', 'replacestate');
+  });
+
   it('does not misclassify a submit following a pre-submit assessSpendingLimit error as a retry', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     try {
@@ -4952,6 +5084,33 @@ describe('ReviewTransaction — NEAR Intents', () => {
     await flush();
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-fresh', 'replacestate');
     settleSendFlow(flow => flow.cancel());
+  });
+
+  it('owns a NEAR row returned after native back without starting another quote', async () => {
+    mockIsMobile = true;
+    await initMobileBackHandler();
+    expect(mockNativeBackListener).toEqual(expect.any(Function));
+    setNearIntentsRoute();
+    const row = deferred<string>();
+    const start = jest.mocked(startNearIntentsSend);
+    start.mockReturnValueOnce(row.promise);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    expect(start).toHaveBeenCalledTimes(1);
+    goBackMock.mockImplementationOnce(() => {
+      mockLocationPathname = '/send';
+    });
+    act(() => mockNativeBackListener?.());
+    expect(start.mock.calls[0]?.[0].signal?.aborted).toBe(true);
+    expect(mockMinimizeApp).not.toHaveBeenCalled();
+
+    await act(async () => row.resolve('tx-admitted'));
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-admitted', 'replacestate');
+    expect(start).toHaveBeenCalledTimes(1);
   });
 
   it('gives the button its label back when the deposit address request fails', async () => {
