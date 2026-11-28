@@ -13,6 +13,8 @@ const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
 const MAX_TOKENS = 16;
 /** The browser may keep the answer for 5 seconds. The wallet polls the route. */
 const CACHE_CONTROL = 'private, max-age=5';
+/** The zero address: the native coin. */
+const NATIVE_TOKEN: Hex = `0x${'0'.repeat(40)}`;
 
 /** The chain of a `chainId` query value. GET /v1/relay/{id} uses it too. */
 export function chainOf(config: RelayConfig, value: string | null): ChainConfig {
@@ -96,7 +98,8 @@ export async function account(context: RequestContext): Promise<Response> {
     authorizationNonce: state.authorizationNonce,
     salt: state.salt,
     sequence: state.sequence.toString(),
-    fees: sponsored ? [] : [...chain.fees].map(([token, fee]) => ({ token, fee: fee.toString() })),
+    // The native coin is always a fee token in deduct mode, and comes first.
+    feeTokens: sponsored ? [] : [NATIVE_TOKEN, ...chain.feeTokens.keys()],
     allowedTargets: chain.allowedTargets === null ? null : [...chain.allowedTargets],
     balances: tokens.map((token, index) => {
       const balance = state.balances[index];

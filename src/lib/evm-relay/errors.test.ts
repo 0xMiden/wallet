@@ -2,6 +2,7 @@ import {
   RELAY_ERROR_CODES,
   RelayApiError,
   RelayExpiredError,
+  RelayFeeTooLowError,
   RelayMismatchError,
   RelayNotSubmittedError,
   RelayProviderRpcError,
@@ -14,7 +15,7 @@ import {
   relaySubmitFailure,
   type RelayErrorCode
 } from './errors';
-import { JOB_ID, TX_HASH } from './testing';
+import { JOB_ID, TX_HASH, USDC } from './testing';
 import type { RelayJobRef } from './types';
 
 const JOB: RelayJobRef = { chainId: 8453, id: JOB_ID, deadline: 1_800_000_000 };
@@ -23,16 +24,20 @@ describe('relayErrorAction', () => {
   it.each<[RelayErrorCode, number, string]>([
     ['stale_request', 409, 'review-again'],
     ['simulation_failed', 409, 'review-again'],
+    ['fee_too_low', 400, 'review-again'],
+    ['invalid_fee_quote', 400, 'review-again'],
+    ['fee_not_needed', 400, 'review-again'],
     ['rate_limited', 429, 'wait'],
     ['busy', 409, 'wait'],
     ['relayer_unfunded', 503, 'wait'],
+    ['price_unavailable', 503, 'wait'],
     ['rpc_unavailable', 502, 'wait'],
     ['service_unavailable', 503, 'wait'],
     ['internal_error', 500, 'wait'],
     ['invalid_request', 400, 'stop'],
     ['unsupported_chain', 400, 'stop'],
     ['target_not_allowed', 400, 'stop'],
-    ['fee_too_low', 400, 'stop'],
+    ['fee_token_not_accepted', 400, 'stop'],
     ['bad_signature', 400, 'stop'],
     ['origin_not_allowed', 403, 'stop'],
     ['not_found', 404, 'stop'],
@@ -56,6 +61,10 @@ describe('relayErrorAction', () => {
     ['a reverted job', new RelayRevertedError(JOB_ID, TX_HASH), 'review-again'],
     ['a mismatch', new RelayMismatchError('text'), 'stop'],
     ['a refusal', new RelayRefusedError('no-fee'), 'stop'],
+    ['a fee above the fee limit', new RelayRefusedError('fee-not-accepted'), 'stop'],
+    ['a quote that is no longer valid', new RelayRefusedError('quote-expired'), 'review-again'],
+    ['a fee token with no fresh price', new RelayRefusedError('fee-price-unavailable'), 'review-again'],
+    ['a higher required fee', new RelayFeeTooLowError(400, 'text', 1500n, USDC), 'review-again'],
     ['a provider error', new RelayProviderRpcError(4200, 'text'), 'stop'],
     ['a plain error', new Error('text'), 'stop'],
     ['a value that is not an error', 'text', 'stop']
@@ -70,6 +79,8 @@ describe('relaySubmitFailure', () => {
     ['unsupported_chain', 400, 'refused'],
     ['target_not_allowed', 400, 'refused'],
     ['fee_too_low', 400, 'refused'],
+    ['fee_token_not_accepted', 400, 'refused'],
+    ['fee_not_needed', 400, 'refused'],
     ['bad_signature', 400, 'refused'],
     ['stale_request', 409, 'refused'],
     ['simulation_failed', 409, 'refused'],
@@ -81,6 +92,7 @@ describe('relaySubmitFailure', () => {
     ['method_not_allowed', 405, 'refused'],
     ['payload_too_large', 413, 'refused'],
     ['not_implemented', 501, 'refused'],
+    ['price_unavailable', 503, 'unknown'],
     ['rpc_unavailable', 502, 'unknown'],
     ['service_unavailable', 503, 'unknown'],
     ['internal_error', 500, 'unknown'],
@@ -100,6 +112,10 @@ describe('relaySubmitFailure', () => {
   ])('classifies %s as %s', (_name, error, failure) => {
     expect(relaySubmitFailure(error)).toBe(failure);
   });
+
+  it('classifies a RelayFeeTooLowError as refused', () => {
+    expect(relaySubmitFailure(new RelayFeeTooLowError(400, 'text', 1n, USDC))).toBe('refused');
+  });
 });
 
 describe('the error codes', () => {
@@ -115,6 +131,14 @@ describe('the typed errors', () => {
     expect(new RelayRefusedError('target-not-allowed')).toMatchObject({
       name: 'RelayRefusedError',
       reason: 'target-not-allowed'
+    });
+    expect(new RelayFeeTooLowError(400, 'low', 1500n, USDC)).toMatchObject({
+      name: 'RelayFeeTooLowError',
+      code: 'fee_too_low',
+      status: 400,
+      message: 'low',
+      required: 1500n,
+      token: USDC
     });
     expect(new RelayRevertedError(JOB_ID, TX_HASH)).toMatchObject({
       name: 'RelayRevertedError',

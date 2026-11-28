@@ -69,8 +69,9 @@ export function checkGasMode(value) {
 }
 
 /**
- * The keys of the optional `chains` object of RELAY_CONFIG: the chains that have fees or allowed targets. It can be
- * empty. The Worker's parse checks each key and value.
+ * The keys of the optional `chains` object of RELAY_CONFIG: the chains that have a native price, fee tokens or allowed
+ * targets. It can be empty. The Worker's parse checks each key and value, also the deduct rules (a `nativePrice` on
+ * each served chain that the Worker's default table does not have, and no old `fees` table).
  */
 export function configChainIds(relayConfig) {
   const value = parseVariable(relayConfig, 'EVM_RELAY_CONFIG');
@@ -148,15 +149,16 @@ export function validateRelease(env, worker) {
     RELAY_CONFIG: env.EVM_RELAY_CONFIG
   };
   try {
-    // The Worker reads its served chains from the RPC_URL_<chainId> keys, so the parse gets them too.
-    worker.parseConfig({ ...vars, ...rpc.secrets });
+    // The Worker reads its served chains from the RPC_URL_<chainId> keys, so the parse gets them too. It gets the
+    // relayer key also: in deduct mode a config without feeRecipient pays the fee to the relayer.
+    worker.parseConfig({ ...vars, ...rpc.secrets, RELAYER_PRIVATE_KEY: env.EVM_RELAY_RELAYER_PRIVATE_KEY });
   } catch (error) {
     // The Worker's messages name a variable path and a rule, never a secret key or value.
     const reason = error instanceof Error ? error.message : 'unknown error';
     throw new Error(`The Worker refuses the release config: ${reason}`);
   }
   // The Worker ignores the entry of a chain that it does not serve. Here it is an error: the key can be a mistake,
-  // and then the chain that the entry is for has no fee and no target list.
+  // and then the chain that the entry is for has no native price, no fee token and no target list.
   const served = new Set(rpc.chainIds);
   for (const chainId of entryChainIds) {
     if (!served.has(chainId)) {

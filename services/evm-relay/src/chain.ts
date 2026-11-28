@@ -1,10 +1,11 @@
 // Read the chain RPC for the routes and the Sender, and send signed relay transactions. The account read sends at most
-// two JSON-RPC batches; the relay read, the receipt read and the fee read one batch each; the broadcast one call. It is
-// not a general RPC proxy.
+// two JSON-RPC batches; the relay read, the quote read, the receipt read and the fee read one batch each; the
+// broadcast one call. It is not a general RPC proxy.
 import { decodeFunctionResult, encodeFunctionData, erc20Abi, hexToBigInt, isHex, keccak256, numberToHex } from 'viem';
 
 import type { ChainConfig, Hex } from './config';
 import { notConfigured } from './errors';
+import { MAX_TOKEN_DECIMALS, NATIVE_DECIMALS } from './fee';
 import { isRecord } from './http';
 import { rpcUrlOf } from './secrets';
 import type { Env } from './types';
@@ -72,6 +73,42 @@ export interface RelayState {
   sequence: bigint;
 }
 
+/**
+ * The simulations of a quote (quote-gas.ts): the unsigned batch as the address itself, and the calibration batch of
+ * the Worker's own calibration account, which measures what the signed `execute` adds on this chain.
+ */
+export interface QuoteCall {
+  evmAddress: Hex;
+  relayer: Hex;
+  /** The calldata of the self-call `execute(BatchedCall)`, with the fee call at its end. */
+  data: Hex;
+  feeToken: Hex;
+  calibration: {
+    address: Hex;
+    /** `execute(BatchedCall)` of an empty batch, as the calibration account itself. */
+    selfData: Hex;
+    /** `execute(SignedBatchedCall, signature)` of an empty batch, signed by the calibration account. */
+    signedData: Hex;
+    /** The calibration account's authorization to the pinned Calibur, at nonce 0. */
+    authorization: RelayAuthorization;
+  };
+}
+
+/** The chain state that the quote route needs, read in one JSON-RPC batch. */
+export interface QuoteState {
+  /** True when the account code is the EIP-7702 delegation to the pinned Calibur. */
+  delegated: boolean;
+  baseFee: bigint;
+  priorityFee: bigint;
+  /** The gas estimate of the unsigned batch as the address itself, or null when it reverts. */
+  batchEstimate: bigint | null;
+  /** The Calibur sequence for the next relay batch. */
+  sequence: bigint;
+  /** The estimates of the calibration batch: as itself, signed, and signed with an authorization. */
+  calibration: { self: bigint; signed: bigint; signedWithAuthorization: bigint };
+  feeTokenDecimals: number;
+}
+
 /** The fees that the node suggests now. */
 export interface FeeQuote {
   /** The base fee of the next block. */
@@ -94,7 +131,9 @@ export function maxFeeOf({ baseFee, priorityFee }: FeeQuote): bigint {
 export interface ChainReader {
   /** Read the address and the balance of each token. The zero address is the native coin. */
   readAccount(chain: ChainConfig, address: Hex, tokens: readonly Hex[]): Promise<AccountState>;
+  /** With a fee token, the state also has the decimals of that token. */
   readRelay(chain: ChainConfig, call: RelayCall): Promise<RelayState>;
+  readQuote(chain: ChainConfig, call: QuoteCall): Promise<QuoteState>;
 }
 
 /** The RPC failed, timed out or sent an answer that does not decode. */
@@ -110,6 +149,11 @@ export interface ReaderOptions {
   now?: () => number;
   /** The implementation code cache. The default is shared by every request of the isolate. */
   cache?: Map<string, CachedCode>;
+  /**
+   * The token decimals cache, keyed by `<chainId>:<token>`. A token's decimals do not change, so an entry does not
+   * expire. The default is shared by every request of the isolate.
+   */
+  decimals?: Map<string, number>;
 }
 
 export interface CachedCode {
@@ -126,6 +170,7 @@ interface RpcCall {
 export type RpcOutcome = { result: unknown } | { error: { code: number; message: string } };
 
 const IMPLEMENTATION_CACHE = new Map<string, CachedCode>();
+const DECIMALS_CACHE = new Map<string, number>();
 const defaultFetcher: Fetcher = (url, init) => fetch(url, init);
 const FEE_HISTORY: RpcCall = { method: 'eth_feeHistory', params: ['0x1', 'latest', []] };
 const PRIORITY_FEE: RpcCall = { method: 'eth_maxPriorityFeePerGas', params: [] };
@@ -227,6 +272,28 @@ function decodeBalance(token: Hex, result: Hex): bigint {
   return decoded(() => decodeFunctionResult({ abi: erc20Abi, functionName: 'balanceOf', data: result }));
 }
 
+/** The `decimals()` call of an ERC-20. */
+function decimalsCall(token: Hex): RpcCall {
+  return ethCall(token, encodeFunctionData({ abi: erc20Abi, functionName: 'decimals' }), null);
+}
+
+/**
+ * The decimals of a fee token. A token in `feeTokens` that does not answer `decimals()`, or answers more than
+ * MAX_TOKEN_DECIMALS, is a config error, not an RPC failure: the result is ChainIntegrityError.
+ */
+function decodeDecimals(outcome: RpcOutcome | undefined): number {
+  if (outcome === undefined) throw unavailable();
+  if ('error' in outcome) throw new ChainIntegrityError('A fee token does not answer decimals().');
+  let decimals: number;
+  try {
+    decimals = decodeFunctionResult({ abi: erc20Abi, functionName: 'decimals', data: hexOf(outcome) });
+  } catch {
+    throw new ChainIntegrityError('A fee token does not answer decimals().');
+  }
+  if (decimals > MAX_TOKEN_DECIMALS) throw new ChainIntegrityError('A fee token has too many decimals.');
+  return decimals;
+}
+
 function decodeNonce(result: Hex): number {
   const nonce = decoded(() => hexToBigInt(result));
   if (nonce > BigInt(Number.MAX_SAFE_INTEGER)) throw unavailable();
@@ -263,6 +330,24 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
   const fetcher: Fetcher = options.fetcher ?? defaultFetcher;
   const now = options.now ?? Date.now;
   const cache = options.cache ?? IMPLEMENTATION_CACHE;
+  const decimalsCache = options.decimals ?? DECIMALS_CACHE;
+
+  /**
+   * The decimals of the token when they are known without a read: 18 for the native coin, or the cached value. Null
+   * when the read batch must ask the token.
+   */
+  function knownDecimals(chain: ChainConfig, token: Hex): number | null {
+    if (isNativeToken(token)) return NATIVE_DECIMALS;
+    return decimalsCache.get(`${chain.chainId}:${token}`) ?? null;
+  }
+
+  /** The decimals from the known value, else from the batch outcome, which is then cached. */
+  function decimalsFrom(chain: ChainConfig, token: Hex, known: number | null, outcome: RpcOutcome | undefined) {
+    if (known !== null) return known;
+    const decimals = decodeDecimals(outcome);
+    decimalsCache.set(`${chain.chainId}:${token}`, decimals);
+    return decimals;
+  }
 
   async function readAccount(chain: ChainConfig, address: Hex, tokens: readonly Hex[]): Promise<AccountState> {
     const url = rpcUrlOf(env, chain.chainId);
@@ -352,7 +437,83 @@ export function createRpcReader(env: Env, options: ReaderOptions = {}): ChainRea
     };
   }
 
-  return { readAccount, readRelay };
+  async function readQuote(chain: ChainConfig, call: QuoteCall): Promise<QuoteState> {
+    const url = rpcUrlOf(env, chain.chainId);
+    if (url === null) throw notConfigured();
+    const { evmAddress, relayer, calibration } = call;
+    const delegationCode = caliburDelegationCode(chain.calibur);
+    const known = knownDecimals(chain, call.feeToken);
+    // One batch. Each simulation puts the EIP-7702 delegation to the pinned Calibur on its account with a state
+    // override, as the getSeq read of readRelay does: for an address that delegates already, it changes nothing. The
+    // signed calibration batch with an authorization has no override: its authorization puts the delegation there, as
+    // the real transaction of an address that does not delegate yet does.
+    const outcomes = await sendBatch(
+      fetcher,
+      url,
+      [
+        getCode(evmAddress),
+        FEE_HISTORY,
+        PRIORITY_FEE,
+        selfEstimate(evmAddress, call.data, delegationCode),
+        selfEstimate(calibration.address, calibration.selfData, delegationCode),
+        {
+          method: 'eth_estimateGas',
+          params: [
+            { from: relayer, to: calibration.address, data: calibration.signedData, value: '0x0' },
+            'latest',
+            { [calibration.address]: { code: delegationCode } }
+          ]
+        },
+        {
+          method: 'eth_estimateGas',
+          params: [
+            estimateOf({
+              evmAddress: calibration.address,
+              relayer,
+              data: calibration.signedData,
+              authorization: calibration.authorization
+            })
+          ]
+        },
+        getSeqCall(evmAddress, { [evmAddress]: { code: delegationCode } }),
+        ...(known === null ? [decimalsCall(call.feeToken)] : [])
+      ],
+      AbortSignal.timeout(RPC_TIMEOUT_MS)
+    );
+    return {
+      delegated: isCaliburDelegation(hexOf(outcomes[0]), chain.calibur),
+      baseFee: nextBaseFee(outcomes[1]),
+      priorityFee: decoded(() => hexToBigInt(hexOf(outcomes[2]))),
+      batchEstimate: gasEstimateOf(outcomes[3]),
+      calibration: {
+        self: calibrationEstimateOf(outcomes[4]),
+        signed: calibrationEstimateOf(outcomes[5]),
+        signedWithAuthorization: calibrationEstimateOf(outcomes[6])
+      },
+      sequence: decodeSequence(hexOf(outcomes[7])),
+      feeTokenDecimals: decimalsFrom(chain, call.feeToken, known, outcomes[8])
+    };
+  }
+
+  return { readAccount, readRelay, readQuote };
+}
+
+/** `eth_estimateGas` of `execute(BatchedCall)` from the account to itself, with the delegation put on the account. */
+function selfEstimate(account: Hex, data: Hex, delegationCode: Hex): RpcCall {
+  return {
+    method: 'eth_estimateGas',
+    params: [{ from: account, to: account, data, value: '0x0' }, 'latest', { [account]: { code: delegationCode } }]
+  };
+}
+
+/**
+ * The estimate of a calibration batch. That batch is the Worker's own and must not revert: a revert means that the
+ * chain does not run the pinned Calibur as expected, which is ChainIntegrityError, not a failure of the caller's batch.
+ */
+function calibrationEstimateOf(outcome: RpcOutcome | undefined): bigint {
+  const estimate = gasEstimateOf(outcome);
+  if (estimate === null) throw new ChainIntegrityError('The quote calibration batch fails in simulation.');
+  return estimate;
 }
 
 /** The `eth_estimateGas` transaction of a relay call. */

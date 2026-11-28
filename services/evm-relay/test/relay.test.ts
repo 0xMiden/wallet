@@ -30,11 +30,13 @@ import {
   batchTypedData,
   buildFeeCall,
   encodeExecution,
+  readFeeCall,
   type BatchCall,
   type BatchEnvelope,
   type RelayFee
 } from '../../../src/lib/evm-relay/batch';
 import { RpcUnavailableError, type RelayAuthorization } from '../src/chain';
+import { signFeeQuote } from '../src/fee-quote-proof';
 
 const NOW_MS = 1_800_000_000_000;
 const NOW_S = NOW_MS / 1000;
@@ -68,18 +70,20 @@ const APPROVE: BatchCall = {
   data: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [TARGET, 2_000_000n] })
 };
 const BRIDGE_CALL: BatchCall = { to: TARGET, value: 0n, data: '0xcafe0001deadbeef' };
-/** The configured native fee of the test chains: 10 wei to the fee recipient. */
+/** A native fee call of 10 wei to the fee recipient. */
 const NATIVE_FEE_VALUES: RelayFee = { token: NATIVE, recipient: FEE_RECIPIENT, amount: 10n };
 const NATIVE_FEE = buildFeeCall(NATIVE_FEE_VALUES);
 
-/** An ERC-20 fee call that pays `amount` of USDC to the fee recipient. The configured USDC fee is 100000. */
+/** An ERC-20 fee call that pays `amount` of USDC to the fee recipient. */
 function usdcFee(amount: bigint): BatchCall {
   return buildFeeCall({ token: USDC, recipient: FEE_RECIPIENT, amount });
 }
 
-const USDC_FEE = usdcFee(100_000n);
 const SPONSOR_CALLS = [APPROVE, BRIDGE_CALL];
-const DEDUCT_CALLS = [APPROVE, BRIDGE_CALL, USDC_FEE];
+
+const DEDUCT_USDC_FEE = usdcFee(506_000n);
+const DEDUCT_NATIVE_FEE = buildFeeCall({ ...NATIVE_FEE_VALUES, amount: 253_000_000_000_000n });
+const DEDUCT_CALLS = [APPROVE, BRIDGE_CALL, DEDUCT_USDC_FEE];
 
 interface Draft {
   calls: BatchCall[];
@@ -133,6 +137,23 @@ async function signed(overrides: Partial<Draft> = {}): Promise<Signed> {
     data: encodeExecution(envelope, value.calls, signature),
     calls: value.calls
   };
+}
+
+async function quotedBody(harness: Harness, batch: Signed, batchNonce = batchNonceOf(7n)) {
+  const lastCall = batch.calls.at(-1);
+  const fee = lastCall === undefined ? null : readFeeCall(lastCall);
+  if (fee === null) throw new Error('The batch needs a fee call');
+  const gas = 200_000n;
+  const validUntil = NOW_S + 120;
+  const signature = await signFeeQuote(harness.env, {
+    chainId: 8453,
+    evmAddress: EVM,
+    batchNonce,
+    ...fee,
+    gas,
+    validUntil
+  });
+  return { ...batch.body, quote: { gas: gas.toString(), validUntil, signature } };
 }
 
 async function authorizationOf(
@@ -275,17 +296,15 @@ describe('POST /v1/relay', () => {
   });
 
   it.each([
-    ['an ERC-20 fee call of the configured fee', DEDUCT_CALLS],
-    ['an ERC-20 fee call above the configured fee', [APPROVE, BRIDGE_CALL, usdcFee(150_000n)]],
-    ['a native fee call of the configured fee', [BRIDGE_CALL, NATIVE_FEE]],
-    ['a native fee call above the configured fee', [BRIDGE_CALL, buildFeeCall({ ...NATIVE_FEE_VALUES, amount: 11n })]]
+    ['an ERC-20 fee', DEDUCT_CALLS],
+    ['a native fee', [BRIDGE_CALL, DEDUCT_NATIVE_FEE]]
   ])('relays a deduct batch with %s as the last call', async (_name, calls) => {
     const harness = harnessFor('deduct');
-    const { body, id, data } = await signed({ calls });
-    const response = await post(harness, body);
+    const batch = await signed({ calls });
+    const response = await post(harness, await quotedBody(harness, batch));
     expect(response.status).toBe(200);
-    expect((await bodyOf(response)).id).toBe(id);
-    expect(parseTransaction(broadcastRaw(harness)).data).toBe(data);
+    expect((await bodyOf(response)).id).toBe(batch.id);
+    expect(parseTransaction(broadcastRaw(harness)).data).toBe(batch.data);
   });
 
   it('sends a type 4 transaction with the authorization when the address does not delegate', async () => {
@@ -464,21 +483,22 @@ describe('POST /v1/relay allowed targets', () => {
 
   it.each([
     ['an ERC-20 fee call', DEDUCT_CALLS],
-    ['a native fee call to the fee recipient, which is not a target', [BRIDGE_CALL, NATIVE_FEE]]
+    ['a native fee call to the fee recipient, which is not a target', [BRIDGE_CALL, DEDUCT_NATIVE_FEE]]
   ])('exempts the verified fee call of a deduct batch: %s', async (_name, calls) => {
     const harness = harnessFor('deduct', TARGETED_CONFIG);
-    expect((await post(harness, (await signed({ calls })).body)).status).toBe(200);
+    expect((await post(harness, await quotedBody(harness, await signed({ calls })))).status).toBe(200);
   });
 
   it('exempts the fee call when the fee token is not an allowed target', async () => {
     const config = relayConfigOf({ '8453': chainEntry({ allowedTargets: [TARGET] }), '1': chainEntry() });
     const harness = harnessFor('deduct', config);
-    expect((await post(harness, (await signed({ calls: [BRIDGE_CALL, USDC_FEE] })).body)).status).toBe(200);
+    const batch = await signed({ calls: [BRIDGE_CALL, DEDUCT_USDC_FEE] });
+    expect((await post(harness, await quotedBody(harness, batch))).status).toBe(200);
   });
 
   it.each([
-    ['a call before the fee call', [{ ...BRIDGE_CALL, to: STRANGER }, USDC_FEE]],
-    ['a fee-shaped call that is not the last call', [NATIVE_FEE, BRIDGE_CALL, USDC_FEE]]
+    ['a call before the fee call', [{ ...BRIDGE_CALL, to: STRANGER }, DEDUCT_USDC_FEE]],
+    ['a fee-shaped call that is not the last call', [DEDUCT_NATIVE_FEE, BRIDGE_CALL, DEDUCT_USDC_FEE]]
   ])('refuses in deduct mode %s to another target', async (_name, calls) => {
     const harness = harnessFor('deduct', TARGETED_CONFIG);
     expect(await outcomeOf(harness, (await signed({ calls })).body)).toEqual(refused(400, 'target_not_allowed'));
@@ -492,26 +512,73 @@ describe('POST /v1/relay fee rule in deduct mode', () => {
     data: encodeFunctionData({ abi: erc20Abi, functionName: 'approve', args: [FEE_RECIPIENT, 100_000n] })
   };
   const cases: [string, BatchCall[]][] = [
-    ['a last call that is not a fee call', [USDC_FEE, BRIDGE_CALL]],
-    ['an ERC-20 fee below the configured fee', [BRIDGE_CALL, usdcFee(99_999n)]],
-    ['a native fee below the configured fee', [BRIDGE_CALL, buildFeeCall({ ...NATIVE_FEE_VALUES, amount: 9n })]],
-    ['a fee to another recipient', [BRIDGE_CALL, buildFeeCall({ token: USDC, recipient: STRANGER, amount: 100_000n })]],
-    [
-      'a fee in a token that has no fee',
-      [BRIDGE_CALL, buildFeeCall({ token: OTHER_TOKEN, recipient: FEE_RECIPIENT, amount: 100_000n })]
-    ],
+    ['a last call that is not a fee call', [DEDUCT_USDC_FEE, BRIDGE_CALL]],
+    ['a fee to another recipient', [BRIDGE_CALL, buildFeeCall({ token: USDC, recipient: STRANGER, amount: 506_000n })]],
     ['an ERC-20 approval of the fee recipient', [BRIDGE_CALL, approveToRecipient]],
     ['a native transfer of 0', [BRIDGE_CALL, { to: FEE_RECIPIENT, value: 0n, data: '0x' }]],
-    ['an ERC-20 transfer that also sends a value', [BRIDGE_CALL, { ...USDC_FEE, value: 1n }]],
+    ['an ERC-20 transfer that also sends a value', [BRIDGE_CALL, { ...DEDUCT_USDC_FEE, value: 1n }]],
     ['a last call with data that is not an ERC-20 call', [APPROVE, { to: USDC, value: 0n, data: '0x1234' }]]
   ];
 
-  it.each(cases)('refuses %s with fee_too_low', async (_name, calls) => {
+  it.each(cases)('refuses %s with fee_too_low before the chain read', async (_name, calls) => {
     expect(await outcomeOf(harnessFor('deduct'), (await signed({ calls })).body)).toEqual(refused(400, 'fee_too_low'));
   });
 
+  it('refuses a fee in a token that the chain does not take with fee_token_not_accepted before the chain read', async () => {
+    const calls = [BRIDGE_CALL, buildFeeCall({ token: OTHER_TOKEN, recipient: FEE_RECIPIENT, amount: 10n ** 9n })];
+    const outcome = await outcomeOf(harnessFor('deduct'), (await signed({ calls })).body);
+    expect(outcome).toEqual(refused(400, 'fee_token_not_accepted'));
+  });
+
+  it('requires a quote before it reads the chain', async () => {
+    const harness = harnessFor('deduct');
+    const { body } = await signed({ calls: DEDUCT_CALLS });
+    await expectError(await post(harness, body), 400, 'invalid_fee_quote');
+    expect(harness.reader.relayCalls).toHaveLength(0);
+  });
+
+  it('rejects a fee transfer that pays less than the signed quote', async () => {
+    const harness = harnessFor('deduct');
+    const { quote } = await quotedBody(harness, await signed({ calls: DEDUCT_CALLS }));
+    const { body } = await signed({ calls: [APPROVE, BRIDGE_CALL, usdcFee(505_999n)] });
+    await expectError(await post(harness, { ...body, quote }), 400, 'invalid_fee_quote');
+    expect(harness.reader.relayCalls).toHaveLength(0);
+  });
+
+  it('rejects a quote for a different batch nonce', async () => {
+    const harness = harnessFor('deduct');
+    const batch = await signed({ calls: DEDUCT_CALLS });
+    const body = await quotedBody(harness, batch, batchNonceOf(8n));
+    await expectError(await post(harness, body), 400, 'invalid_fee_quote');
+    expect(harness.reader.relayCalls).toHaveLength(0);
+  });
+
+  it('rejects an expired quote and returns an existing job after expiry', async () => {
+    const harness = harnessFor('deduct');
+    const body = await quotedBody(harness, await signed({ calls: DEDUCT_CALLS }));
+    jest.mocked(Date.now).mockReturnValue(NOW_MS + 120_000);
+    await expectError(await post(harness, body), 400, 'invalid_fee_quote');
+    expect(harness.reader.relayCalls).toHaveLength(0);
+
+    jest.mocked(Date.now).mockReturnValue(NOW_MS);
+    expect((await post(harness, body)).status).toBe(200);
+    jest.mocked(Date.now).mockReturnValue(NOW_MS + 120_000);
+    expect((await post(harness, body)).status).toBe(200);
+    expect(harness.reader.relayCalls).toHaveLength(1);
+  });
+
+  it('uses the signed price when gas rises and the price feed fails', async () => {
+    const harness = harnessFor('deduct');
+    const body = await quotedBody(harness, await signed({ calls: DEDUCT_CALLS }));
+    harness.reader.relay = relayState({ baseFee: 5_000_000_000n, priorityFee: 200_000_000n });
+    harness.prices.prices.clear();
+    expect((await post(harness, body)).status).toBe(200);
+    expect(harness.prices.requests).toEqual([]);
+    expect(parseTransaction(broadcastRaw(harness)).maxFeePerGas).toBe(10_200_000_000n);
+  });
+
   it.each([
-    ['only the fee call', [USDC_FEE]],
+    ['only the fee call', [DEDUCT_USDC_FEE]],
     ['only another call', [BRIDGE_CALL]]
   ])('refuses a deduct batch of %s as invalid_request', async (_name, calls) => {
     const outcome = await outcomeOf(harnessFor('deduct'), (await signed({ calls })).body);

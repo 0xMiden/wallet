@@ -3,7 +3,8 @@
  */
 import { describe, expect, it } from '@jest/globals';
 
-import { ConfigError, parseConfig } from '../src/config';
+import { ConfigError, DEFAULT_FEE_TOKENS, DEFAULT_NATIVE_PRICES, parseConfig } from '../src/config';
+import { relayerAddress } from '../src/secrets';
 import type { Env } from '../src/types';
 
 const ZERO = `0x${'0'.repeat(40)}`;
@@ -19,10 +20,14 @@ const FEE_RECIPIENT = `0x${'Fe'.repeat(20)}`;
 const TARGET = `0x${'2A'.repeat(20)}`;
 const OTHER_TARGET = `0x${'3b'.repeat(20)}`;
 const RPC_URL = 'https://rpc.example/key';
+/** The USDC of Base: the one default fee token of the chain 8453 (DEFAULT_FEE_TOKENS). */
+const BASE_USDC = '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913';
+const RELAYER_KEY = `0x${'11'.repeat(32)}`;
+const RELAYER = relayerAddress({ RELAYER_PRIVATE_KEY: RELAYER_KEY });
 
-/** A chains entry with a fee in one ERC-20 and in the native coin, valid in both gas modes. */
+/** A chains entry with the native price and one ERC-20 fee token, valid in both gas modes. */
 function entry(overrides: Record<string, unknown> = {}): Record<string, unknown> {
-  return { fees: { [USDC]: '100000', [ZERO]: '10' }, ...overrides };
+  return { nativePrice: 'ETHUSDT', feeTokens: { [USDC]: 'usd' }, ...overrides };
 }
 
 /** RELAY_CONFIG with the Calibur pin, the fee recipient and the chains entries. `top` adds or replaces top fields. */
@@ -76,9 +81,11 @@ describe('parseConfig', () => {
       chainId: 8453,
       calibur: PARSED_CALIBUR,
       feeRecipient: `0x${'fe'.repeat(20)}`,
-      fees: new Map([
-        [`0x${'aa'.repeat(20)}`, 100_000n],
-        [ZERO, 10n]
+      nativePrice: 'ETHUSDT',
+      // The default fee token of the chain first, then the token of the entry.
+      feeTokens: new Map([
+        [BASE_USDC, 'usd'],
+        [`0x${'aa'.repeat(20)}`, 'usd']
       ]),
       allowedTargets: [`0x${'2a'.repeat(20)}`, OTHER_TARGET]
     });
@@ -97,43 +104,123 @@ describe('parseConfig', () => {
     }
   });
 
-  it('gives a served chain without an entry no fee and no target list', () => {
-    const parsed = parseConfig(env({ '1': entry({ allowedTargets: [TARGET] }) }, 'sponsor', ['1', '8453']));
+  it('gives a served chain without an entry the default native price and fee tokens, and no target list', () => {
+    const parsed = parseConfig(env({ '1': entry({ allowedTargets: [TARGET] }) }, 'sponsor', ['1', '8453', '999']));
     expect(parsed.chains.get(1)?.allowedTargets).toEqual([`0x${'2a'.repeat(20)}`]);
-    expect(parsed.chains.get(8453)?.fees).toEqual(new Map());
+    expect(parsed.chains.get(8453)?.nativePrice).toBe('ETHUSDT');
+    expect(parsed.chains.get(8453)?.feeTokens).toEqual(new Map([[BASE_USDC, 'usd']]));
     expect(parsed.chains.get(8453)?.allowedTargets).toBeNull();
+    // 999 is not in DEFAULT_NATIVE_PRICES and not in DEFAULT_FEE_TOKENS.
+    expect(parsed.chains.get(999)?.nativePrice).toBeNull();
+    expect(parsed.chains.get(999)?.feeTokens).toEqual(new Map());
+  });
+
+  it('has a valid token address and price symbol for each line of the default fee token table', () => {
+    expect(DEFAULT_FEE_TOKENS.size).toBeGreaterThan(0);
+    for (const [chainId, tokens] of DEFAULT_FEE_TOKENS) {
+      // A chain with a fee token also has a native price, so that `deduct` mode needs no entry for it.
+      expect(DEFAULT_NATIVE_PRICES.has(chainId)).toBe(true);
+      expect(tokens.size).toBeGreaterThan(0);
+      for (const [token, symbol] of tokens) {
+        expect(token).toMatch(/^0x[0-9a-f]{40}$/);
+        expect(token).not.toBe(`0x${'0'.repeat(40)}`);
+        expect(symbol).toMatch(/^(usd|[A-Z0-9]{5,20})$/);
+      }
+    }
+    expect(DEFAULT_FEE_TOKENS.get(8453)?.get(BASE_USDC)).toBe('usd');
+  });
+
+  it('lets a feeTokens entry replace the symbol of a default token and keeps its place', () => {
+    const value = env({ '8453': { feeTokens: { [USDC]: 'usd', [BASE_USDC]: 'USDCUSDT' } } });
+    expect([...(parseConfig(value).chains.get(8453)?.feeTokens ?? [])]).toEqual([
+      [BASE_USDC, 'USDCUSDT'],
+      [`0x${'aa'.repeat(20)}`, 'usd']
+    ]);
+  });
+
+  it('pays the fee to the relayer in deduct mode when the config has no feeRecipient', () => {
+    const value = env({}, 'deduct', ['8453'], { feeRecipient: undefined });
+    const parsed = parseConfig({ ...value, RELAYER_PRIVATE_KEY: RELAYER_KEY });
+    expect(parsed.feeRecipient).toBe(RELAYER);
+    expect(parsed.chains.get(8453)?.feeRecipient).toBe(RELAYER);
+  });
+
+  it('keeps a configured feeRecipient in deduct mode, and names none in sponsor mode without one', () => {
+    const configured = parseConfig({ ...env({}, 'deduct', ['8453']), RELAYER_PRIVATE_KEY: RELAYER_KEY });
+    expect(configured.feeRecipient).toBe(`0x${'fe'.repeat(20)}`);
+    const sponsor = env({}, 'sponsor', ['8453'], { feeRecipient: undefined });
+    expect(parseConfig({ ...sponsor, RELAYER_PRIVATE_KEY: RELAYER_KEY }).feeRecipient).toBeNull();
+  });
+
+  it('has a valid price symbol for each chain of the default table', () => {
+    expect(DEFAULT_NATIVE_PRICES.size).toBeGreaterThan(0);
+    for (const [chainId, symbol] of DEFAULT_NATIVE_PRICES) {
+      expect(Number.isSafeInteger(chainId) && chainId > 0).toBe(true);
+      expect(symbol).toMatch(/^(usd|[A-Z0-9]{5,20})$/);
+    }
+    expect(DEFAULT_NATIVE_PRICES.get(8453)).toBe('ETHUSDT');
+    expect(DEFAULT_NATIVE_PRICES.get(137)).toBe('POLUSDT');
+    // The native coin of Arc is USDC.
+    expect(DEFAULT_NATIVE_PRICES.get(5042)).toBe('usd');
+  });
+
+  it('lets the nativePrice of an entry replace the default of the chain', () => {
+    const parsed = parseConfig(env({ '8453': { nativePrice: 'usd' } }, 'deduct'));
+    expect(parsed.chains.get(8453)?.nativePrice).toBe('usd');
+  });
+
+  it('accepts a known chain in deduct mode without an entry and with an empty entry', () => {
+    const parsed = parseConfig(env({ '137': {} }, 'deduct', ['137', '8453']));
+    expect(parsed.chains.get(137)?.nativePrice).toBe('POLUSDT');
+    expect(parsed.chains.get(8453)?.nativePrice).toBe('ETHUSDT');
+    expect(parsed.chains.get(8453)?.feeTokens).toEqual(new Map([[BASE_USDC, 'usd']]));
   });
 
   it('checks the entry of a chain without an RPC URL, but does not serve that chain', () => {
     expect(parseConfig(env({ '1': entry(), '10': entry() }, 'deduct', ['1'])).chains.has(10)).toBe(false);
-    expect(parseError(env({ '10': entry({ fees: [] }) }, 'sponsor', []))).toBe(
-      'RELAY_CONFIG.chains.10.fees must be an object.'
+    expect(parseError(env({ '10': entry({ feeTokens: [] }) }, 'sponsor', []))).toBe(
+      'RELAY_CONFIG.chains.10.feeTokens must be an object.'
     );
   });
 
-  it('keeps the fees in config order', () => {
-    const parsed = parseConfig(env({ '1': entry({ fees: { [ZERO]: '1', [USDC]: '2' } }) })).chains.get(1);
-    expect([...(parsed?.fees.keys() ?? [])]).toEqual([ZERO, `0x${'aa'.repeat(20)}`]);
+  it('keeps the fee tokens in config order', () => {
+    const other = `0x${'bb'.repeat(20)}`;
+    // 999 has no default fee token.
+    const value = env({ '999': entry({ feeTokens: { [other]: 'BTCUSDT', [USDC]: 'usd' } }) });
+    const parsed = parseConfig(value).chains.get(999);
+    expect([...(parsed?.feeTokens ?? [])]).toEqual([
+      [other, 'BTCUSDT'],
+      [`0x${'aa'.repeat(20)}`, 'usd']
+    ]);
   });
 
   it('accepts a sponsor config without a fee recipient and without chains', () => {
-    const value = env({}, 'sponsor', ['1'], { feeRecipient: undefined, chains: undefined });
+    // 999 is not in the default tables, so it shows the values of a config without chains.
+    const value = env({}, 'sponsor', ['999'], { feeRecipient: undefined, chains: undefined });
     expect(value.RELAY_CONFIG).toBe(JSON.stringify({ calibur: CALIBUR }));
-    const parsed = parseConfig(value).chains.get(1);
+    const parsed = parseConfig(value).chains.get(999);
     expect(parsed?.feeRecipient).toBeNull();
-    expect(parsed?.fees).toEqual(new Map());
+    expect(parsed?.nativePrice).toBeNull();
+    expect(parsed?.feeTokens).toEqual(new Map());
     expect(parsed?.allowedTargets).toBeNull();
   });
 
-  it('accepts an empty entry and an empty fees object in sponsor mode', () => {
-    expect(parseConfig(env({ '1': {} })).chains.get(1)?.fees.size).toBe(0);
-    expect(parseConfig(env({ '1': entry({ fees: {} }) })).chains.get(1)?.fees.size).toBe(0);
+  it('accepts an empty entry and an empty feeTokens object in sponsor mode', () => {
+    expect(parseConfig(env({ '999': {} })).chains.get(999)?.feeTokens.size).toBe(0);
+    expect(parseConfig(env({ '999': entry({ feeTokens: {} }) })).chains.get(999)?.feeTokens.size).toBe(0);
   });
 
-  it('accepts a fee of 2^256 - 1', () => {
-    const max = (2n ** 256n - 1n).toString();
-    const parsed = parseConfig(env({ '1': entry({ fees: { [USDC]: max } }) })).chains.get(1);
-    expect(parsed?.fees.get(`0x${'aa'.repeat(20)}`)).toBe(2n ** 256n - 1n);
+  it('accepts a deduct entry with only nativePrice: the native coin is then the only fee token', () => {
+    // 999 has no default fee token.
+    const parsed = parseConfig(env({ '999': { nativePrice: 'usd' } }, 'deduct')).chains.get(999);
+    expect(parsed?.nativePrice).toBe('usd');
+    expect(parsed?.feeTokens.size).toBe(0);
+  });
+
+  it.each(['usd', 'ETHUSDT', 'POLUSDT', 'A1B2C', 'ABCDEFGHIJKLMNOPQRST'])('accepts the price symbol %s', symbol => {
+    const parsed = parseConfig(env({ '1': entry({ nativePrice: symbol, feeTokens: { [USDC]: symbol } }) }));
+    expect(parsed.chains.get(1)?.nativePrice).toBe(symbol);
+    expect(parsed.chains.get(1)?.feeTokens.get(`0x${'aa'.repeat(20)}`)).toBe(symbol);
   });
 
   it.each([
@@ -239,36 +326,50 @@ describe('parseConfig', () => {
       entry({ feeRecipient: FEE_RECIPIENT }),
       `${at}.feeRecipient is not a known field.`
     ],
-    ['fees an array', entry({ fees: [] }), `${at}.fees must be an object.`],
-    ['fees null', entry({ fees: null }), `${at}.fees must be an object.`],
+    ['the old fees field', entry({ fees: { [USDC]: '100000' } }), `${at}.fees is not a known field.`],
+    ['feeTokens an array', entry({ feeTokens: [] }), `${at}.feeTokens must be an object.`],
+    ['feeTokens null', entry({ feeTokens: null }), `${at}.feeTokens must be an object.`],
     [
-      'a fee key that is not an address',
-      entry({ fees: { usdc: '1' } }),
-      `${at}.fees.usdc must be a 20-byte hex address.`
+      'a fee token key that is not an address',
+      entry({ feeTokens: { usdc: 'usd' } }),
+      `${at}.feeTokens.usdc must be a 20-byte hex address.`
     ],
     [
-      'a fee key repeated in another case',
-      entry({ fees: { [USDC]: '1', [USDC.toLowerCase()]: '1' } }),
-      `${at}.fees.${USDC.toLowerCase()} repeats a token address.`
+      'the zero address as a fee token: the native coin is always one',
+      entry({ feeTokens: { [ZERO]: 'usd' } }),
+      `${at}.feeTokens.${ZERO} must not be the zero address.`
     ],
-    ['a numeric fee', entry({ fees: { [USDC]: 1 } }), `${at}.fees.${USDC} must be a decimal integer string.`],
     [
-      'a fee with a leading zero',
-      entry({ fees: { [USDC]: '01' } }),
-      `${at}.fees.${USDC} must be a decimal integer string.`
+      'a fee token repeated in another case',
+      entry({ feeTokens: { [USDC]: 'usd', [USDC.toLowerCase()]: 'usd' } }),
+      `${at}.feeTokens.${USDC.toLowerCase()} repeats a token address.`
     ],
-    ['a negative fee', entry({ fees: { [USDC]: '-1' } }), `${at}.fees.${USDC} must be a decimal integer string.`],
-    ['a fee of 2^256', entry({ fees: { [USDC]: (2n ** 256n).toString() } }), `${at}.fees.${USDC} must be below 2^256.`],
+    ...['USD', 'Usd', 'ethusdt', 'ETH', 'ETHUSDTETHUSDTETHUSDT', 'ETH-USDT', 'ETH USDT', ''].map(
+      (symbol): [string, Record<string, unknown>, string] => [
+        `the fee token symbol "${symbol}"`,
+        entry({ feeTokens: { [USDC]: symbol } }),
+        `${at}.feeTokens.${USDC} must be "usd" or a market symbol of 5 to 20 characters A-Z and 0-9.`
+      ]
+    ),
     [
-      'a fee of 79 digits',
-      entry({ fees: { [USDC]: '1'.repeat(79) } }),
-      `${at}.fees.${USDC} must be a decimal integer string.`
+      'a numeric fee token symbol',
+      entry({ feeTokens: { [USDC]: 1 } }),
+      `${at}.feeTokens.${USDC} must be "usd" or a market symbol of 5 to 20 characters A-Z and 0-9.`
     ],
-    ['a fee of 0', entry({ fees: { [USDC]: '0' } }), `${at}.fees.${USDC} must be above 0.`],
     [
-      'a fee that is an object',
-      entry({ fees: { [USDC]: { fee: '1' } } }),
-      `${at}.fees.${USDC} must be a decimal integer string.`
+      'a numeric nativePrice',
+      entry({ nativePrice: 2000 }),
+      `${at}.nativePrice must be "usd" or a market symbol of 5 to 20 characters A-Z and 0-9.`
+    ],
+    [
+      'a null nativePrice',
+      entry({ nativePrice: null }),
+      `${at}.nativePrice must be "usd" or a market symbol of 5 to 20 characters A-Z and 0-9.`
+    ],
+    [
+      'a lower-case nativePrice',
+      entry({ nativePrice: 'ethusdt' }),
+      `${at}.nativePrice must be "usd" or a market symbol of 5 to 20 characters A-Z and 0-9.`
     ],
     ['allowedTargets an object', entry({ allowedTargets: {} }), `${at}.allowedTargets must be a non-empty array.`],
     ['allowedTargets null', entry({ allowedTargets: null }), `${at}.allowedTargets must be a non-empty array.`],
@@ -304,27 +405,30 @@ describe('parseConfig', () => {
         env({}, 'deduct', [], { feeRecipient: undefined }),
         'RELAY_CONFIG.feeRecipient is required when GAS_MODE is deduct.'
       ],
+      // 999 is not in DEFAULT_NATIVE_PRICES, so it needs its own nativePrice.
       [
-        'a served chain without fees',
-        env({ '1': entry({ fees: undefined }) }, 'deduct'),
-        `${at}.fees must name a token when GAS_MODE is deduct.`
+        'a served chain that the default table does not have, without nativePrice',
+        env({ '999': entry({ nativePrice: undefined }) }, 'deduct'),
+        'RELAY_CONFIG.chains.999.nativePrice is required when GAS_MODE is deduct.'
       ],
       [
-        'a served chain with empty fees',
-        env({ '1': entry({ fees: {} }) }, 'deduct'),
-        `${at}.fees must name a token when GAS_MODE is deduct.`
+        'a served chain that the default table does not have, with an empty entry',
+        env({ '999': {} }, 'deduct'),
+        'RELAY_CONFIG.chains.999.nativePrice is required when GAS_MODE is deduct.'
       ],
       [
-        'a served chain without an entry',
-        env({ '8453': entry() }, 'deduct', ['8453', '1']),
-        `${at}.fees must name a token when GAS_MODE is deduct.`
+        'a served chain that the default table does not have, without an entry',
+        env({ '8453': entry() }, 'deduct', ['8453', '999']),
+        'RELAY_CONFIG.chains.999.nativePrice is required when GAS_MODE is deduct.'
       ]
     ])('refuses %s', (_name, value, message) => {
       expect(parseError(value)).toBe(message);
     });
 
     it('accepts the same chains in sponsor mode', () => {
-      const value = env({ '1': entry({ fees: undefined }) }, 'sponsor', ['1', '8453'], { feeRecipient: undefined });
+      const value = env({ '999': entry({ nativePrice: undefined }) }, 'sponsor', ['999', '8453'], {
+        feeRecipient: undefined
+      });
       expect(parseConfig(value).chains.size).toBe(2);
     });
   });

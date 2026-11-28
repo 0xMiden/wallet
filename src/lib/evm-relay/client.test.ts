@@ -6,21 +6,26 @@ import { getRelayConfig } from 'lib/remote-config/values';
 import type { BatchCall } from './batch';
 import {
   MAX_RELAY_BALANCE_TOKENS,
+  MAX_RELAY_QUOTE_CALLS,
   MAX_RELAY_RESPONSE_BYTES,
   RELAY_TIMEOUT_MS,
   fetchRelayAccount,
   fetchRelayJob,
+  fetchRelayQuote,
+  relayQuoteBody,
   relaySubmissionBody,
   submitRelay,
   type RelayFetch,
+  type RelayQuoteQuery,
   type RelayRequestInit
 } from './client';
-import { RelayApiError, RelayUnavailableError } from './errors';
+import { RelayApiError, RelayFeeTooLowError, RelayUnavailableError } from './errors';
 import {
   CHAIN,
   FEE_RECIPIENT,
   JOB_ID,
   NATIVE,
+  QUOTE_PROOF,
   RELAY_ADDRESS,
   SALT,
   TX_HASH,
@@ -28,6 +33,7 @@ import {
   accountBody,
   deductAccountBody,
   jobBody,
+  quoteBody,
   relayConfig,
   stubResponse,
   upperHex
@@ -105,7 +111,7 @@ describe('fetchRelayAccount', () => {
       authorizationNonce: 0,
       salt: SALT,
       sequence: 3n,
-      fees: [],
+      feeTokens: [],
       allowedTargets: null,
       balances: []
     });
@@ -117,13 +123,19 @@ describe('fetchRelayAccount', () => {
     expect(call(0).init.body).toBeUndefined();
   });
 
-  it('reads a deduct account with its fees and allowed targets, and ignores unknown fields', async () => {
+  it('reads a deduct account with its fee tokens and allowed targets, and ignores unknown fields', async () => {
     const body = { ...deductAccountBody(), allowedTargets: [upperHex(TARGET)], extra: 1 };
     const account = await fetchRelayAccount(QUERY, { fetch: fetchReturning(stubResponse(200, body)) });
     expect(account.mode).toBe('deduct');
     expect(account.feeRecipient).toBe(FEE_RECIPIENT);
-    expect(account.fees).toEqual([{ token: USDC, fee: 1000n }]);
+    expect(account.feeTokens).toEqual([NATIVE, USDC]);
     expect(account.allowedTargets).toEqual([TARGET]);
+  });
+
+  it('ignores the fee table of an older service shape', async () => {
+    const body = { ...deductAccountBody(), fees: [{ token: USDC, fee: '1' }] };
+    const account = await fetchRelayAccount(QUERY, { fetch: fetchReturning(stubResponse(200, body)) });
+    expect(account).not.toHaveProperty('fees');
   });
 
   it('asks for the distinct tokens in their order and reads their balances', async () => {
@@ -186,22 +198,11 @@ describe('fetchRelayAccount', () => {
     ['a missing sequence', { sequence: undefined }],
     ['a sequence as a number', { sequence: 3 }],
     ['a sequence of 2^64', { sequence: (1n << 64n).toString() }],
-    ['fees that is not a list', { fees: {} }],
-    ['a fee as a number', { fees: [{ token: USDC, fee: 1 }] }],
-    ['a fee with a leading zero', { fees: [{ token: USDC, fee: '01' }] }],
-    ['a negative fee', { fees: [{ token: USDC, fee: '-1' }] }],
-    ['a fee of 2^256', { fees: [{ token: USDC, fee: (1n << 256n).toString() }] }],
-    ['a fee without a token', { fees: [{ fee: '1' }] }],
-    ['a fee that is not an object', { fees: ['1'] }],
-    [
-      'two fees of one token',
-      {
-        fees: [
-          { token: USDC, fee: '1' },
-          { token: upperHex(USDC), fee: '2' }
-        ]
-      }
-    ],
+    ['missing fee tokens', { feeTokens: undefined }],
+    ['fee tokens that is not a list', { feeTokens: {} }],
+    ['a fee token that is not an address', { feeTokens: ['0x12'] }],
+    ['a fee token as an object', { feeTokens: [{ token: USDC, fee: '1' }] }],
+    ['one fee token two times', { feeTokens: [USDC, upperHex(USDC)] }],
     ['allowed targets that are not a list', { allowedTargets: TARGET }],
     ['an allowed target that is not an address', { allowedTargets: ['0x12'] }],
     ['missing allowed targets', { allowedTargets: undefined }],
@@ -286,6 +287,15 @@ describe('relaySubmissionBody', () => {
     expect(relaySubmissionBody(request)).toEqual(body);
   });
 
+  it('writes the signed quote with decimal gas', () => {
+    const { gas, validUntil, signature } = QUOTE_PROOF;
+    expect(relaySubmissionBody(submission({ quote: QUOTE_PROOF })).quote).toEqual({
+      gas: gas.toString(),
+      validUntil,
+      signature
+    });
+  });
+
   it.each([
     ['above the safe integers', 2n ** 53n],
     ['negative', -1n]
@@ -326,6 +336,98 @@ describe('submitRelay', () => {
   ])('refuses %s', async (_name, body) => {
     const error = await failure(submitRelay(submission(), { fetch: fetchReturning(stubResponse(200, body)) }));
     expect(error).toMatchObject({ name: 'RelayUnavailableError', reason: 'bad_response' });
+  });
+});
+
+describe('fetchRelayQuote', () => {
+  const QUOTE_CALL: BatchCall = { to: upperHex(TARGET), value: 7n, data: '0xABCDEF' };
+  const QUOTE_CALLS: BatchCall[] = [QUOTE_CALL];
+  const QUOTE_QUERY = { chainId: 8453, evmAddress: upperHex(RELAY_ADDRESS), calls: QUOTE_CALLS, feeToken: USDC };
+
+  it('posts the calls and the fee token, and reads the quote', async () => {
+    const fetchFn = fetchReturning(stubResponse(200, { ...quoteBody(), extra: 1 }));
+    const quote = await fetchRelayQuote(QUOTE_QUERY, { fetch: fetchFn });
+    expect(quote).toEqual({
+      chainId: 8453,
+      token: USDC,
+      recipient: FEE_RECIPIENT,
+      fee: 1000n,
+      ...QUOTE_PROOF
+    });
+    expect(call(0).url).toBe(`${BASE}/v1/quote`);
+    expect(call(0).init).toMatchObject({ method: 'POST', cache: 'no-store', credentials: 'omit' });
+    expect(call(0).init.headers).toEqual({ Accept: 'application/json', 'Content-Type': 'application/json' });
+    expect(JSON.parse(call(0).init.body ?? '')).toEqual({
+      chainId: 8453,
+      evmAddress: RELAY_ADDRESS,
+      calls: [{ to: TARGET, value: '7', data: '0xabcdef' }],
+      feeToken: USDC
+    });
+  });
+
+  it.each([true, false])('sends authorization %p when the caller gives it', async authorization => {
+    expect(relayQuoteBody({ ...QUOTE_QUERY, authorization }).authorization).toBe(authorization);
+    expect(relayQuoteBody(QUOTE_QUERY)).not.toHaveProperty('authorization');
+  });
+
+  it('takes 7 calls', () => {
+    const calls = Array.from({ length: MAX_RELAY_QUOTE_CALLS }, () => QUOTE_CALL);
+    expect(relayQuoteBody({ ...QUOTE_QUERY, calls }).calls).toHaveLength(MAX_RELAY_QUOTE_CALLS);
+  });
+
+  it.each<[string, Partial<RelayQuoteQuery>]>([
+    ['a chain id of 0', { chainId: 0 }],
+    ['an address that is not valid', { evmAddress: '0x12' }],
+    ['a fee token that is not valid', { feeToken: '0x12' }],
+    ['no call', { calls: [] }],
+    ['8 calls', { calls: Array.from({ length: MAX_RELAY_QUOTE_CALLS + 1 }, () => QUOTE_CALL) }],
+    ['the zero target', { calls: [{ to: NATIVE, value: 0n, data: '0x' }] }],
+    ['the relay address as the target', { calls: [{ to: RELAY_ADDRESS, value: 0n, data: '0x' }] }],
+    ['a target that is not an address', { calls: [{ to: '0x12', value: 0n, data: '0x' }] }],
+    ['a negative value', { calls: [{ to: TARGET, value: -1n, data: '0x' }] }],
+    ['a value of 2^256', { calls: [{ to: TARGET, value: 1n << 256n, data: '0x' }] }],
+    ['calldata of half a byte', { calls: [{ to: TARGET, value: 0n, data: '0x123' }] }]
+  ])('refuses %s before any request', async (_name, change) => {
+    const fetchFn = fetchReturning(stubResponse(200, quoteBody()));
+    await expect(fetchRelayQuote({ ...QUOTE_QUERY, ...change }, { fetch: fetchFn })).rejects.toBeInstanceOf(TypeError);
+    expect(calls).toHaveLength(0);
+  });
+
+  it.each([
+    ['a body that is not an object', []],
+    ['a missing chain id', { chainId: undefined }],
+    ['a chain id of 0', { chainId: 0 }],
+    ['a token that is not an address', { token: 'usdc' }],
+    ['a missing recipient', { recipient: undefined }],
+    ['a fee as a number', { fee: 1000 }],
+    ['a fee with a leading zero', { fee: '01' }],
+    ['a negative fee', { fee: '-1' }],
+    ['a fee of 2^256', { fee: (1n << 256n).toString() }],
+    ['gas as a number', { gas: 210_000 }],
+    ['gas of 2^64', { gas: (1n << 64n).toString() }],
+    ['validUntil as a string', { validUntil: '1800000120' }],
+    ['a fractional validUntil', { validUntil: 1.5 }],
+    ['a negative validUntil', { validUntil: -1 }],
+    ['a zero gas estimate', { gas: '0' }],
+    ['a missing signature', { signature: undefined }],
+    ['a short signature', { signature: '0xab' }],
+    ['a sequence above uint64', { sequence: (1n << 64n).toString() }]
+  ])('refuses %s', async (_name, change) => {
+    const body = Array.isArray(change) ? change : { ...quoteBody(), ...change };
+    const error = await failure(fetchRelayQuote(QUOTE_QUERY, { fetch: fetchReturning(stubResponse(200, body)) }));
+    expect(error).toMatchObject({ name: 'RelayUnavailableError', reason: 'bad_response' });
+  });
+
+  it.each([
+    ['fee_not_needed', 400],
+    ['fee_token_not_accepted', 400],
+    ['price_unavailable', 503],
+    ['simulation_failed', 409]
+  ])('maps the refusal %s', async (code, status) => {
+    const fetchFn = fetchReturning(stubResponse(status, { error: code, message: 'text' }));
+    const error = await failure(fetchRelayQuote(QUOTE_QUERY, { fetch: fetchFn }));
+    expect(error).toBeInstanceOf(RelayApiError);
+    expect(error).toMatchObject({ code, status });
   });
 });
 
@@ -379,6 +481,9 @@ describe('error bodies', () => {
     ['unsupported_chain', 400],
     ['target_not_allowed', 400],
     ['fee_too_low', 400],
+    ['fee_token_not_accepted', 400],
+    ['fee_not_needed', 400],
+    ['price_unavailable', 503],
     ['bad_signature', 400],
     ['stale_request', 409],
     ['simulation_failed', 409],
@@ -429,6 +534,29 @@ describe('error bodies', () => {
     const body = { error: 'busy', message: 'open relay', id: upperHex(JOB_ID) };
     const error = await failure(submitRelay(submission(), { fetch: fetchReturning(stubResponse(409, body)) }));
     expect(error).toMatchObject({ code: 'busy', id: JOB_ID });
+  });
+
+  it('reads fee_too_low with the required fee and its token as a RelayFeeTooLowError', async () => {
+    const body = { error: 'fee_too_low', message: 'low', required: '1500', token: upperHex(USDC) };
+    const error = await failure(submitRelay(submission(), { fetch: fetchReturning(stubResponse(400, body)) }));
+    expect(error).toBeInstanceOf(RelayFeeTooLowError);
+    expect(error).toBeInstanceOf(RelayApiError);
+    expect(error).toMatchObject({ name: 'RelayFeeTooLowError', code: 'fee_too_low', status: 400, required: 1500n });
+    expect(error).toMatchObject({ token: USDC, message: 'relay (400 fee_too_low): low' });
+  });
+
+  it.each([
+    ['no required fee', { token: USDC }],
+    ['a required fee as a number', { required: 1500, token: USDC }],
+    ['a required fee of 2^256', { required: (1n << 256n).toString(), token: USDC }],
+    ['no token', { required: '1500' }],
+    ['a token that is not an address', { required: '1500', token: 'usdc' }]
+  ])('keeps fee_too_low with %s a plain refusal', async (_name, extra) => {
+    const body = { error: 'fee_too_low', message: 'low', ...extra };
+    const error = await failure(submitRelay(submission(), { fetch: fetchReturning(stubResponse(400, body)) }));
+    expect(error).toBeInstanceOf(RelayApiError);
+    expect(error).not.toBeInstanceOf(RelayFeeTooLowError);
+    expect(error).toMatchObject({ code: 'fee_too_low', status: 400 });
   });
 
   it('leaves out a busy id that is not a hash', async () => {

@@ -4,6 +4,8 @@ import type { Address, Hex } from 'viem';
 import type { RelayChainConfig, RelayConfig } from 'lib/remote-config/schema';
 
 import type { RelayResponse } from './client';
+import type { RelayFeeTokenValue } from './guards';
+import type { RelayFeeQuoteProof } from './types';
 
 export const RELAY_ADDRESS: Address = '0x00000000000000000000000000000000000000aa';
 export const EXECUTOR: Address = '0x00000000000000000000000000000000000000e1';
@@ -26,9 +28,15 @@ export const CHAIN: RelayChainConfig = {
     domainName: 'Calibur',
     domainVersion: '1.0.0'
   },
-  maxFee: { [USDC]: '50000' },
+  // 0.05 USD: 50,000 base units of USDC at `USDC_VALUE`.
+  maxFeeMicroUsd: 50_000,
   feeRecipient: FEE_RECIPIENT
 };
+
+/** USDC as the wallet values it: 6 decimals at 1 USD. */
+export const USDC_VALUE: RelayFeeTokenValue = { decimals: 6, priceMicroUsd: 1_000_000n };
+/** The native coin as the wallet values it: 18 decimals at 2,000 USD. */
+export const NATIVE_VALUE: RelayFeeTokenValue = { decimals: 18, priceMicroUsd: 2_000_000_000n };
 
 /** The relay section that gives `CHAIN` for chain 8453, with the base URL `baseUrl`. */
 export function relayConfig(baseUrl: string): RelayConfig {
@@ -36,7 +44,7 @@ export function relayConfig(baseUrl: string): RelayConfig {
     baseUrl,
     executor: CHAIN.executor,
     calibur: CHAIN.calibur,
-    maxFee: CHAIN.maxFee,
+    maxFee: { l1: 500_000, l2: CHAIN.maxFeeMicroUsd },
     feeRecipient: FEE_RECIPIENT
   };
 }
@@ -58,15 +66,36 @@ export function accountBody(): Record<string, unknown> {
     authorizationNonce: 0,
     salt: upperHex(SALT),
     sequence: '3',
-    fees: [],
+    feeTokens: [],
     allowedTargets: null,
     balances: []
   };
 }
 
-/** A valid `GET /v1/account` body in `deduct` mode, with a fee in USDC. */
-export function deductAccountBody(fee = '1000'): Record<string, unknown> {
-  return { ...accountBody(), mode: 'deduct', feeRecipient: FEE_RECIPIENT, fees: [{ token: upperHex(USDC), fee }] };
+/** A valid `GET /v1/account` body in `deduct` mode, with the native coin and USDC as fee tokens. */
+export function deductAccountBody(): Record<string, unknown> {
+  return { ...accountBody(), mode: 'deduct', feeRecipient: FEE_RECIPIENT, feeTokens: [NATIVE, upperHex(USDC)] };
+}
+
+export const QUOTE_PROOF: RelayFeeQuoteProof = {
+  gas: 210_000n,
+  sequence: 3n,
+  validUntil: 1_800_000_120,
+  signature: `0x${'ab'.repeat(65)}`
+};
+
+/** A valid `POST /v1/quote` body for a fee in USDC on chain 8453, with upper-case hex. */
+export function quoteBody(fee = '1000'): Record<string, unknown> {
+  return {
+    chainId: 8453,
+    token: upperHex(USDC),
+    recipient: upperHex(FEE_RECIPIENT),
+    fee,
+    gas: QUOTE_PROOF.gas.toString(),
+    sequence: QUOTE_PROOF.sequence.toString(),
+    validUntil: QUOTE_PROOF.validUntil,
+    signature: upperHex(QUOTE_PROOF.signature)
+  };
 }
 
 export function jobBody(state = 'pending'): Record<string, unknown> {

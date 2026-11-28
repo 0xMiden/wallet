@@ -36,8 +36,8 @@ import {
   assertFeeWithinCap,
   assertRelayAccountMatches,
   assertRelayJobMatches,
+  assertRelayTakesFeeToken,
   deductFeeRecipient,
-  relayerFeeOf,
   relayFeeToken,
   type RelayReviewedFee
 } from './guards';
@@ -76,7 +76,10 @@ export interface RelaySubmitOptions {
    * durably. A throw ends the submit; nothing is posted.
    */
   onJob?: (job: RelayJobRef) => Promise<void>;
-  /** `deduct` mode only: the fee that the user reviewed (`reviewRelayFee`). */
+  /**
+   * `deduct` mode only: the fee that the user reviewed, from a checked quote (`quoteRelayFee`, `relayQuoteFee`). The
+   * submitter signs exactly this fee, on each attempt and each retry, and never a higher one by itself.
+   */
   fee?: RelayReviewedFee;
 }
 
@@ -169,8 +172,8 @@ export function createRelaySubmitter(options: RelaySubmitterOptions): RelaySubmi
   }
 
   /**
-   * The calls with the fee call last in `deduct` mode. The fee call pays the reviewed fee to the configured fee
-   * recipient. Throws `RelayRefusedError` when the review and the relayer's terms do not agree.
+   * The calls with the fee call last in `deduct` mode. The fee call pays exactly the reviewed fee to the configured
+   * fee recipient. Throws `RelayRefusedError` when the review and the relayer's terms do not agree.
    */
   function batchWithFee(calls: BatchCall[], account: RelayAccount, fee: RelayReviewedFee | undefined): BatchCall[] {
     switch (account.mode) {
@@ -180,8 +183,8 @@ export function createRelaySubmitter(options: RelaySubmitterOptions): RelaySubmi
       case 'deduct': {
         if (fee === undefined) throw new RelayRefusedError('no-reviewed-fee');
         const recipient = deductFeeRecipient(account, chain);
-        if (relayerFeeOf(account, fee.token).fee > fee.amount) throw new RelayRefusedError('fee-changed');
-        assertFeeWithinCap(chain, fee.token, fee.amount);
+        assertRelayTakesFeeToken(account, fee.token);
+        assertFeeWithinCap(chain, fee.amount, fee.tokenValue);
         return [...calls, buildFeeCall({ token: fee.token, recipient, amount: fee.amount })];
       }
     }
@@ -289,10 +292,14 @@ export function createRelaySubmitter(options: RelaySubmitterOptions): RelaySubmi
     submitOptions: RelaySubmitOptions
   ): Promise<RelayResult> {
     assertRelayAccountMatches(account, chain, address);
-    const batch = batchWithFee(calls, account, submitOptions.fee);
+    const { fee } = submitOptions;
+    const batch = batchWithFee(calls, account, fee);
     if (batch.length > MAX_RELAY_BATCH_CALLS) throw new RelayRefusedError('too-many-calls');
     assertTargetsAllowed(calls, account.allowedTargets);
     if (submitOptions.beforeSign !== undefined) await submitOptions.beforeSign();
+    if (fee !== undefined && (fee.quote.sequence !== account.sequence || fee.quote.validUntil <= now() / 1000)) {
+      throw new RelayRefusedError('quote-expired');
+    }
     const authorization = account.needsAuthorization ? await signAuthorization(account.authorizationNonce) : undefined;
     const deadline = Math.floor(now() / 1000) + RELAY_DEADLINE_SECONDS;
     const envelope: BatchEnvelope = {
@@ -327,6 +334,7 @@ export function createRelaySubmitter(options: RelaySubmitterOptions): RelaySubmi
       signature: signed.signature
     };
     if (authorization !== undefined) submission.authorization = authorization;
+    if (fee !== undefined) submission.quote = fee.quote;
     let job: RelayJob;
     try {
       job = await postRelay(submission);
@@ -399,7 +407,7 @@ export function createRelaySubmitter(options: RelaySubmitterOptions): RelaySubmi
       if (calls.length === 0) throw new TypeError('relay submitter: a batch needs a call');
       const checked = calls.map(checkedCall);
       const fee = submitOptions.fee;
-      const reviewed = fee === undefined ? undefined : { token: relayFeeToken(fee.token), amount: fee.amount };
+      const reviewed = fee === undefined ? undefined : { ...fee, token: relayFeeToken(fee.token) };
       return relay(checked, { ...submitOptions, fee: reviewed });
     };
     const result = queue.then(run, run);

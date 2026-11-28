@@ -1,7 +1,6 @@
 // POST /v1/relay: check a signed relay batch, simulate it and hand it to the Sender of its chain. The checks run from
-// the cheapest to the most expensive: the body, the chain, the envelope, the call rules, the signatures, the address
-// rate limit, the stored relay and then the chain read. The route takes the calls as the wallet sends them and never
-// builds a call. It never logs the body, a signature or an RPC URL.
+// Check the request, signatures and rate limit before the chain read. In deduct mode, check the signed fee quote
+// and compare its gas allowance with the estimate. Use the calls in the order that the wallet sends them.
 import { recoverAuthorizationAddress } from 'viem/utils';
 
 import {
@@ -11,13 +10,24 @@ import {
   readFeeCall,
   recoverBatchSigner,
   type BatchCall,
-  type BatchEnvelope
+  type BatchEnvelope,
+  type RelayFee
 } from '../../../../src/lib/evm-relay/batch';
-import { RpcUnavailableError, maxFeeOf, type RelayAuthorization, type RelayCall, type RelayState } from '../chain';
+import {
+  ChainIntegrityError,
+  RpcUnavailableError,
+  maxFeeOf,
+  type RelayAuthorization,
+  type RelayCall,
+  type RelayState
+} from '../chain';
 import { routeConfig, type ChainConfig, type GasMode } from '../config';
 import { ApiError, invalidRequest, notConfigured } from '../errors';
+import { maxGasForQuote } from '../fee';
+import { verifyFeeQuote } from '../fee-quote-proof';
 import { json, readJson } from '../http';
 import { ParseError, address, amount, fail, hexBytes, hexData, safeInteger, shape, type Hex } from '../parse';
+import { isFeeToken } from '../pricing';
 import { limitRelayAddress } from '../rate-limit';
 import { relayerAddress } from '../secrets';
 import type { RelayJob } from '../sender';
@@ -46,14 +56,16 @@ interface RelayRequest {
   deadline: number;
   signature: Hex;
   authorization: RelayAuthorization | null;
+  quote: { gas: bigint; validUntil: number; signature: Hex } | null;
 }
 
 const badSignature = (message: string): ApiError => new ApiError(400, 'bad_signature', message);
 const stale = (message: string): ApiError => new ApiError(409, 'stale_request', message);
 const feeTooLow = (message: string): ApiError => new ApiError(400, 'fee_too_low', message);
+const invalidQuote = (message: string): ApiError => new ApiError(400, 'invalid_fee_quote', message);
 
-/** Run a parse. A ParseError is a malformed request. */
-function parsed<T>(parse: () => T): T {
+/** Run a parse. A ParseError is a malformed request. POST /v1/quote uses it too. */
+export function parsed<T>(parse: () => T): T {
   try {
     return parse();
   } catch (error) {
@@ -77,7 +89,8 @@ function parseAuthorization(value: unknown): RelayAuthorization | null {
   };
 }
 
-function parseCall(value: unknown, path: string): BatchCall {
+/** One call of `calls`. POST /v1/quote uses it too. */
+export function parseCall(value: unknown, path: string): BatchCall {
   const fields = shape(value, path, ['to', 'value', 'data']);
   return {
     to: address(fields.to, `${path}.to`),
@@ -96,7 +109,18 @@ function parseCalls(value: unknown): BatchCall[] {
 
 function parseRequest(body: Record<string, unknown>): RelayRequest {
   const required = ['chainId', 'evmAddress', 'calls', 'batchNonce', 'salt', 'deadline', 'signature'];
-  const fields = shape(body, 'body', required, ['authorization']);
+  const fields = shape(body, 'body', required, ['authorization', 'quote']);
+  let quote: RelayRequest['quote'] = null;
+  if (fields.quote !== undefined) {
+    const proof = shape(fields.quote, 'quote', ['gas', 'validUntil', 'signature']);
+    const gas = amount(proof.gas, 'quote.gas');
+    if (gas <= 0n || gas >= 1n << 64n) fail('quote.gas', 'must be a positive uint64');
+    quote = {
+      gas,
+      validUntil: safeInteger(proof.validUntil, 'quote.validUntil', 1),
+      signature: hexBytes(proof.signature, 'quote.signature', 65)
+    };
+  }
   return {
     chainId: safeInteger(fields.chainId, 'chainId', 1),
     evmAddress: address(fields.evmAddress, 'evmAddress'),
@@ -105,7 +129,8 @@ function parseRequest(body: Record<string, unknown>): RelayRequest {
     salt: hexBytes(fields.salt, 'salt', 32),
     deadline: safeInteger(fields.deadline, 'deadline', 1),
     signature: hexBytes(fields.signature, 'signature', 65),
-    authorization: parseAuthorization(fields.authorization)
+    authorization: parseAuthorization(fields.authorization),
+    quote
   };
 }
 
@@ -118,37 +143,65 @@ function checkEnvelope(request: RelayRequest, relayer: Hex): void {
   }
 }
 
-/** Check that the call pays at least the configured fee of its token to the chain's fee recipient. */
-function checkFee(chain: ChainConfig, call: BatchCall): void {
+/**
+ * Check the form of the fee call: a fee call to the chain's fee recipient in a fee token of the chain. Return the fee
+ * with its token in lower case. The quote must cover this exact amount.
+ */
+function checkFeeCall(chain: ChainConfig, call: BatchCall): RelayFee {
   const fee = readFeeCall(call);
   if (fee === null) throw feeTooLow('The last call of the batch must pay the fee.');
   if (fee.recipient.toLowerCase() !== chain.feeRecipient) throw feeTooLow('The fee must go to the fee recipient.');
-  const configured = chain.fees.get(`0x${fee.token.slice(2).toLowerCase()}`);
-  if (configured === undefined) throw feeTooLow('The chain takes no fee in the token.');
-  if (fee.amount < configured) throw feeTooLow('The fee is below the configured fee.');
+  const token: Hex = `0x${fee.token.slice(2).toLowerCase()}`;
+  if (!isFeeToken(chain, token)) {
+    throw new ApiError(400, 'fee_token_not_accepted', 'The chain takes no fee in the token.');
+  }
+  return { ...fee, token };
 }
 
 /**
- * Apply the fee rule of the gas mode. Return the calls that the target rule checks. In `deduct` mode the last call is
- * the fee call: after its check, the target rule does not apply to it.
+ * Apply the fee rule of the gas mode. Return the calls that the target rule checks, and the fee of a `deduct` batch.
+ * In `deduct` mode the last call is the fee call: after its check, the target rule does not apply to it.
  */
-function feeCheckedCalls(gasMode: GasMode, chain: ChainConfig, calls: BatchCall[]): BatchCall[] {
+function feeCheckedCalls(
+  gasMode: GasMode,
+  chain: ChainConfig,
+  calls: BatchCall[]
+): { checked: BatchCall[]; fee: RelayFee | null } {
   switch (gasMode) {
     case 'sponsor':
-      return calls;
+      return { checked: calls, fee: null };
     case 'deduct': {
       const feeCall = calls[calls.length - 1];
       if (calls.length < 2 || feeCall === undefined) {
         throw invalidRequest('A deduct batch needs a call before the fee call.');
       }
-      checkFee(chain, feeCall);
-      return calls.slice(0, -1);
+      return { checked: calls.slice(0, -1), fee: checkFeeCall(chain, feeCall) };
     }
   }
 }
 
-/** When the chain has `allowedTargets`, every call must go to one of them. */
-function checkTargets(chain: ChainConfig, calls: readonly BatchCall[]): void {
+/** Check that the Worker quoted this fee for this account and batch nonce. */
+async function checkQuote(relayer: Hex, request: RelayRequest, fee: RelayFee | null): Promise<bigint | null> {
+  const { quote, chainId, evmAddress, batchNonce } = request;
+  if (fee === null) {
+    if (quote !== null) throw new ApiError(400, 'fee_not_needed', 'The relayer now sponsors the gas.');
+    return null;
+  }
+  if (quote === null || quote.validUntil <= Math.floor(Date.now() / 1000)) {
+    throw invalidQuote('A valid relay fee quote is required. Review the fee again.');
+  }
+  const { gas, validUntil, signature } = quote;
+  const matches = await verifyFeeQuote(
+    relayer,
+    { chainId, evmAddress, batchNonce, ...fee, gas, validUntil },
+    signature
+  );
+  if (!matches) throw invalidQuote('The quote does not match the signed batch fee. Review the fee again.');
+  return maxGasForQuote(gas);
+}
+
+/** When the chain has `allowedTargets`, every call must go to one of them. POST /v1/quote uses it too. */
+export function checkTargets(chain: ChainConfig, calls: readonly BatchCall[]): void {
   const allowed = chain.allowedTargets;
   if (allowed === null) return;
   if (calls.some(call => !allowed.includes(`0x${call.to.slice(2).toLowerCase()}`))) {
@@ -188,6 +241,11 @@ async function readChain(context: RequestContext, chain: ChainConfig, call: Rela
     if (error instanceof RpcUnavailableError) {
       throw new ApiError(502, 'rpc_unavailable', 'The chain RPC does not answer.');
     }
+    if (error instanceof ChainIntegrityError) {
+      // A fixed text only: no address, no chain value and no secret.
+      console.error(`evm-relay: ${error.message}`);
+      throw new ApiError(503, 'service_unavailable', 'The service is not available.');
+    }
     throw error;
   }
 }
@@ -226,7 +284,8 @@ export async function relay(context: RequestContext): Promise<Response> {
   const chain = config.chains.get(request.chainId);
   if (chain === undefined) throw new ApiError(400, 'unsupported_chain', 'The chain is not supported.');
   checkEnvelope(request, relayer);
-  checkTargets(chain, feeCheckedCalls(config.gasMode, chain, request.calls));
+  const { checked, fee } = feeCheckedCalls(config.gasMode, chain, request.calls);
+  checkTargets(chain, checked);
 
   // The batch has the calls exactly as the request sends them, in the same order.
   const { calls, evmAddress, signature } = request;
@@ -248,11 +307,16 @@ export async function relay(context: RequestContext): Promise<Response> {
   const known = await sender.get(id);
   if (known !== null) return answer(known);
 
+  const quotedGasLimit = await checkQuote(relayer, request, fee);
   const data = encodeExecution(envelope, calls, signature);
-  const state = await readChain(context, chain, { evmAddress, relayer, data, authorization: request.authorization });
+  const relayCall: RelayCall = { evmAddress, relayer, data, authorization: request.authorization };
+  const state = await readChain(context, chain, relayCall);
   const authorization = authorizationToSend(state, request.authorization);
   checkSequence(state, request.batchNonce);
   if (state.gasEstimate === null) throw new ApiError(409, 'simulation_failed', 'The batch fails in simulation.');
+  if (quotedGasLimit !== null && state.gasEstimate > quotedGasLimit) {
+    throw invalidQuote('The batch needs more gas than the quote covers. Review the fee again.');
+  }
   const gas = state.gasEstimate + state.gasEstimate / 5n;
   const maxFeePerGas = maxFeeOf(state);
   if (state.relayerBalance < gas * maxFeePerGas) {

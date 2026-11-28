@@ -1,20 +1,33 @@
 import type { Address } from 'viem';
 
 import { RelayMismatchError, RelayRefusedError } from './errors';
-import { assertRelayAccountMatches, assertRelayJobMatches, deductFeeRecipient, reviewRelayFee } from './guards';
+import {
+  assertFeeWithinCap,
+  assertRelayAccountMatches,
+  assertRelayJobMatches,
+  assertRelayQuoteMatches,
+  assertRelayTakesFeeToken,
+  deductFeeRecipient,
+  relayFeeMicroUsd,
+  relayFeeToken,
+  type RelayFeeTokenValue
+} from './guards';
 import {
   CHAIN,
   EXECUTOR,
   FEE_RECIPIENT,
   JOB_ID,
   NATIVE,
+  NATIVE_VALUE,
+  QUOTE_PROOF,
   RELAY_ADDRESS,
   SALT,
   TX_HASH,
   USDC,
+  USDC_VALUE,
   upperHex
 } from './testing';
-import type { RelayAccount, RelayJob } from './types';
+import type { RelayAccount, RelayJob, RelayQuote } from './types';
 
 function account(overrides: Partial<RelayAccount> = {}): RelayAccount {
   return {
@@ -27,15 +40,15 @@ function account(overrides: Partial<RelayAccount> = {}): RelayAccount {
     authorizationNonce: 4,
     salt: SALT,
     sequence: 0n,
-    fees: [],
+    feeTokens: [],
     allowedTargets: null,
     balances: [],
     ...overrides
   };
 }
 
-function deduct(fee: bigint, token: Address = USDC): RelayAccount {
-  return account({ mode: 'deduct', feeRecipient: FEE_RECIPIENT, fees: [{ token, fee }] });
+function deduct(feeTokens: Address[] = [NATIVE, USDC]): RelayAccount {
+  return account({ mode: 'deduct', feeRecipient: FEE_RECIPIENT, feeTokens });
 }
 
 describe('assertRelayAccountMatches', () => {
@@ -44,8 +57,8 @@ describe('assertRelayAccountMatches', () => {
     expect(() => assertRelayAccountMatches(account(), CHAIN, upperHex(RELAY_ADDRESS))).not.toThrow();
   });
 
-  it('accepts a matching deduct account, with or without fees', () => {
-    expect(() => assertRelayAccountMatches(deduct(10n), CHAIN, RELAY_ADDRESS)).not.toThrow();
+  it('accepts a matching deduct account, with or without fee tokens', () => {
+    expect(() => assertRelayAccountMatches(deduct(), CHAIN, RELAY_ADDRESS)).not.toThrow();
     const noFees = account({ mode: 'deduct', feeRecipient: FEE_RECIPIENT });
     expect(() => assertRelayAccountMatches(noFees, CHAIN, RELAY_ADDRESS)).not.toThrow();
   });
@@ -55,7 +68,7 @@ describe('assertRelayAccountMatches', () => {
     ['another address', account({ address: FEE_RECIPIENT })],
     ['another executor', account({ executor: FEE_RECIPIENT })],
     ['a sponsor account with a fee recipient', account({ feeRecipient: FEE_RECIPIENT })],
-    ['a sponsor account with a fee', account({ fees: [{ token: USDC, fee: 1n }] })],
+    ['a sponsor account with a fee token', account({ feeTokens: [NATIVE] })],
     ['a deduct account without a fee recipient', account({ mode: 'deduct' })],
     ['a deduct account with the zero fee recipient', account({ mode: 'deduct', feeRecipient: NATIVE })],
     ['a deduct account with another fee recipient', account({ mode: 'deduct', feeRecipient: EXECUTOR })]
@@ -63,9 +76,12 @@ describe('assertRelayAccountMatches', () => {
     expect(() => assertRelayAccountMatches(value, CHAIN, RELAY_ADDRESS)).toThrow(RelayMismatchError);
   });
 
-  it('refuses a deduct account on a chain without a configured fee recipient', () => {
+  it('takes the executor as the fee recipient on a chain without a configured fee recipient', () => {
     const chain = { ...CHAIN, feeRecipient: undefined };
-    expect(() => assertRelayAccountMatches(deduct(10n), chain, RELAY_ADDRESS)).toThrow(RelayMismatchError);
+    const toExecutor = account({ mode: 'deduct', feeRecipient: upperHex(EXECUTOR), feeTokens: [NATIVE, USDC] });
+    expect(() => assertRelayAccountMatches(toExecutor, chain, RELAY_ADDRESS)).not.toThrow();
+    // Another recipient is refused, also the one that another config names.
+    expect(() => assertRelayAccountMatches(deduct(), chain, RELAY_ADDRESS)).toThrow(RelayMismatchError);
     expect(() => assertRelayAccountMatches(account(), chain, RELAY_ADDRESS)).not.toThrow();
   });
 
@@ -83,56 +99,155 @@ describe('deductFeeRecipient', () => {
     );
   });
 
-  it('refuses a chain without a configured fee recipient', () => {
-    expect(() => deductFeeRecipient(deduct(1n), { ...CHAIN, feeRecipient: undefined })).toThrow(
-      'the chain does not take deduct mode'
-    );
+  it('gives the executor on a chain without a configured fee recipient, and refuses another recipient', () => {
+    const chain = { ...CHAIN, feeRecipient: undefined };
+    expect(deductFeeRecipient(account({ mode: 'deduct', feeRecipient: EXECUTOR }), chain)).toBe(EXECUTOR);
+    expect(() => deductFeeRecipient(deduct(), chain)).toThrow('the fee recipient is not the configured fee recipient');
   });
 });
 
-describe('reviewRelayFee', () => {
-  it('shows no fee in sponsor mode', () => {
-    expect(reviewRelayFee(account(), CHAIN, USDC)).toEqual({ mode: 'sponsor' });
-  });
+/** The thrown value of `run`, or undefined. */
+function thrown(run: () => void): unknown {
+  try {
+    run();
+  } catch (caught) {
+    return caught;
+  }
+  return undefined;
+}
+
+describe('assertRelayQuoteMatches', () => {
+  const NOW = 1_800_000_000;
+  function quote(overrides: Partial<RelayQuote> = {}): RelayQuote {
+    return {
+      chainId: 8453,
+      token: USDC,
+      recipient: FEE_RECIPIENT,
+      fee: 1000n,
+      ...QUOTE_PROOF,
+      ...overrides
+    };
+  }
 
   it.each([
     ['below the limit', 1n],
     ['at the limit', 50_000n]
-  ])('in deduct mode, shows the relayer fee %s, with the token in lower case', (_name, fee) => {
-    expect(reviewRelayFee(deduct(fee), CHAIN, upperHex(USDC))).toEqual({
-      mode: 'deduct',
-      fee: { token: USDC, amount: fee }
+  ])('accepts a fee %s, for the asked token and the configured recipient in any case', (_name, fee) => {
+    const value = quote({ fee, token: USDC, recipient: upperHex(FEE_RECIPIENT) });
+    expect(() => assertRelayQuoteMatches(value, CHAIN, upperHex(USDC), USDC_VALUE, NOW)).not.toThrow();
+  });
+
+  it('accepts a quote that is valid for one more second', () => {
+    expect(() => assertRelayQuoteMatches(quote({ validUntil: NOW + 1 }), CHAIN, USDC, USDC_VALUE, NOW)).not.toThrow();
+  });
+
+  it('checks a native fee against the same USD limit', () => {
+    // 0.05 USD at 2,000 USD for each coin is 25,000 gwei.
+    const atLimit = quote({ token: NATIVE, fee: 25_000_000_000_000n });
+    const above = quote({ token: NATIVE, fee: 25_000_000_000_001n });
+    expect(() => assertRelayQuoteMatches(atLimit, CHAIN, NATIVE, NATIVE_VALUE, NOW)).not.toThrow();
+    expect(thrown(() => assertRelayQuoteMatches(above, CHAIN, NATIVE, NATIVE_VALUE, NOW))).toMatchObject({
+      name: 'RelayRefusedError',
+      reason: 'fee-not-accepted'
     });
   });
 
-  it.each<[string, RelayAccount, Address, string]>([
-    ['a fee above the limit', deduct(50_001n), USDC, 'fee-not-accepted'],
-    ['a fee of 0', deduct(0n), USDC, 'fee-not-accepted'],
-    ['a token without a maxFee entry', deduct(1n, NATIVE), NATIVE, 'fee-not-accepted'],
-    ['a token for which the relayer names no fee', deduct(1n, NATIVE), USDC, 'no-fee']
-  ])('in deduct mode, refuses %s', (_name, value, token, reason) => {
-    let error: unknown;
-    try {
-      reviewRelayFee(value, CHAIN, token);
-    } catch (caught) {
-      error = caught;
-    }
+  it.each<[string, RelayQuote, Address, string]>([
+    ['another chain', quote({ chainId: 1 }), USDC, 'the quote is for another chain'],
+    [
+      'another recipient',
+      quote({ recipient: EXECUTOR }),
+      USDC,
+      'the fee recipient is not the configured fee recipient'
+    ],
+    ['another token', quote({ token: NATIVE }), USDC, 'the quote is for another fee token']
+  ])('refuses a quote for %s as a mismatch', (_name, value, token, message) => {
+    const error = thrown(() => assertRelayQuoteMatches(value, CHAIN, token, USDC_VALUE, NOW));
+    expect(error).toBeInstanceOf(RelayMismatchError);
+    expect(error).toMatchObject({ message: `relay: ${message}` });
+  });
+
+  it('accepts only a quote that pays the executor on a chain without a configured fee recipient', () => {
+    const chain = { ...CHAIN, feeRecipient: undefined };
+    expect(() => assertRelayQuoteMatches(quote({ recipient: EXECUTOR }), chain, USDC, USDC_VALUE, NOW)).not.toThrow();
+    expect(() => assertRelayQuoteMatches(quote(), chain, USDC, USDC_VALUE, NOW)).toThrow(
+      'the fee recipient is not the configured fee recipient'
+    );
+  });
+
+  it.each<[string, RelayQuote, string]>([
+    ['a fee above the limit', quote({ fee: 50_001n }), 'fee-not-accepted'],
+    ['a fee of 0', quote({ fee: 0n }), 'fee-not-accepted'],
+    ['a quote whose validUntil is now', quote({ validUntil: NOW }), 'quote-expired'],
+    ['a quote whose validUntil is past', quote({ validUntil: NOW - 1 }), 'quote-expired']
+  ])('refuses %s', (_name, value, reason) => {
+    const error = thrown(() => assertRelayQuoteMatches(value, CHAIN, USDC, USDC_VALUE, NOW));
     expect(error).toBeInstanceOf(RelayRefusedError);
     expect(error).toMatchObject({ reason });
   });
 
-  it('in deduct mode, refuses a chain without a configured fee recipient', () => {
-    expect(() => reviewRelayFee(deduct(1n), { ...CHAIN, feeRecipient: undefined }, USDC)).toThrow(RelayMismatchError);
-  });
-
   it('refuses a fee token that is not an address with a TypeError', () => {
-    expect(() => reviewRelayFee(deduct(1n), CHAIN, '0x12')).toThrow(TypeError);
+    expect(() => assertRelayQuoteMatches(quote(), CHAIN, '0x12', USDC_VALUE, NOW)).toThrow(TypeError);
+  });
+});
+
+describe('assertRelayTakesFeeToken', () => {
+  it('accepts a token of the account, in any case', () => {
+    expect(() => assertRelayTakesFeeToken(deduct(), upperHex(USDC))).not.toThrow();
+    expect(() => assertRelayTakesFeeToken(deduct(), NATIVE)).not.toThrow();
   });
 
-  it('refuses a gas mode that it does not know', () => {
-    const value = deduct(1n);
-    Reflect.set(value, 'mode', 'free');
-    expect(() => reviewRelayFee(value, CHAIN, USDC)).toThrow(RelayMismatchError);
+  it('refuses a token that the account does not name', () => {
+    expect(thrown(() => assertRelayTakesFeeToken(deduct([NATIVE]), USDC))).toMatchObject({
+      name: 'RelayRefusedError',
+      reason: 'no-fee'
+    });
+  });
+});
+
+describe('relayFeeMicroUsd', () => {
+  it.each<[string, bigint, RelayFeeTokenValue, bigint]>([
+    ['one USDC', 1_000_000n, USDC_VALUE, 1_000_000n],
+    ['one base unit of USDC', 1n, USDC_VALUE, 1n],
+    ['a fee of 0', 0n, USDC_VALUE, 0n],
+    ['25,000 gwei of a coin at 2,000 USD', 25_000_000_000_000n, NATIVE_VALUE, 50_000n],
+    ['a value below one micro-dollar, rounded up', 1n, NATIVE_VALUE, 1n],
+    ['a token at 0.999 USD, rounded up', 50_001n, { decimals: 6, priceMicroUsd: 999_000n }, 49_951n],
+    ['a token with no decimals', 2n, { decimals: 0, priceMicroUsd: 30_000n }, 60_000n]
+  ])('values %s', (_name, amount, tokenValue, micro) => {
+    expect(relayFeeMicroUsd(amount, tokenValue)).toBe(micro);
+  });
+
+  it.each<[string, bigint, RelayFeeTokenValue]>([
+    ['a negative amount', -1n, USDC_VALUE],
+    ['negative decimals', 1n, { decimals: -1, priceMicroUsd: 1n }],
+    ['decimals that are not an integer', 1n, { decimals: 6.5, priceMicroUsd: 1n }],
+    ['decimals above 36', 1n, { decimals: 37, priceMicroUsd: 1n }],
+    ['a price of 0', 1n, { decimals: 6, priceMicroUsd: 0n }],
+    ['a negative price', 1n, { decimals: 6, priceMicroUsd: -1n }]
+  ])('refuses %s with a TypeError', (_name, amount, tokenValue) => {
+    expect(() => relayFeeMicroUsd(amount, tokenValue)).toThrow(TypeError);
+  });
+});
+
+describe('assertFeeWithinCap and relayFeeToken', () => {
+  it('checks the USD value of the fee against the fee limit of the chain', () => {
+    expect(() => assertFeeWithinCap(CHAIN, 50_000n, USDC_VALUE)).not.toThrow();
+    expect(() => assertFeeWithinCap(CHAIN, 50_001n, USDC_VALUE)).toThrow(RelayRefusedError);
+    // The limit of an L1 chain takes a higher fee, and a higher price takes a lower one.
+    expect(() => assertFeeWithinCap({ ...CHAIN, maxFeeMicroUsd: 500_000 }, 500_000n, USDC_VALUE)).not.toThrow();
+    expect(() => assertFeeWithinCap(CHAIN, 50_000n, { decimals: 6, priceMicroUsd: 1_000_001n })).toThrow(
+      RelayRefusedError
+    );
+  });
+
+  it('refuses a fee of 0', () => {
+    expect(thrown(() => assertFeeWithinCap(CHAIN, 0n, USDC_VALUE))).toMatchObject({ reason: 'fee-not-accepted' });
+  });
+
+  it('gives the token in lower case and refuses a value that is not an address', () => {
+    expect(relayFeeToken(upperHex(USDC))).toBe(USDC);
+    expect(() => relayFeeToken('0x12')).toThrow(TypeError);
   });
 });
 

@@ -2,6 +2,7 @@
 
 ## 1.18.3 (TBD)
 
+- [FEAT][all] In `deduct` mode the deposit relay quotes expected gas costs with a 15% buffer, priced in the deposit token when supported. The wallet signs the reviewed fee, and refuses a fee whose USD value, at the wallet's own price of the token, is above a limit: 0.50 USD on Ethereum and 0.05 USD on every other chain by default (`relay.maxFee.l1` and `relay.maxFee.l2` in the remote config). The relay covers any shortfall if the gas price rises. The Deposit screens use sponsored mode.
 - [FEAT][all] Add the deposit relay service (`services/evm-relay`, a Cloudflare Worker separate from `wallet-api`): it submits a Calibur batch of raw calls that the wallet signs for its EVM deposit address and pays the gas, so a deposit bridges to Miden with no EVM gas from the user. The service knows no bridge, has no login and keeps only its nonce counter and the open relays.
 - [FEAT][all] Add the wallet library of the deposit-address bridge, with no change on screen yet: each account gets a second EVM key, the relay key, derived from its stored EVM key (its address, `relayEvmAddress`, is the deposit address); one shared module builds the Calibur batch that the wallet signs and the relay Worker checks; an EIP-1193 provider relays the transactions of a bridge flow through the relay service; and the remote config gains the `relay` section behind `features.relayDeposit`.
 - [FIX][ci] Update the mainnet nightly test for the larger default runner.
