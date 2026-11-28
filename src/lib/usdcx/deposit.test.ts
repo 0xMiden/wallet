@@ -272,3 +272,50 @@ it("re-exports the protocol's domain error, so a check against either module hol
   expect(UsdcxDomainNotRegisteredError).toBe(protocol.UsdcxDomainNotRegisteredError);
   expect(isUsdcxDomainNotRegisteredError(new protocol.UsdcxDomainNotRegisteredError(10007))).toBe(true);
 });
+
+describe('runUsdcxDeposit with a batch signer', () => {
+  /** `makeDeps` with a batch signer: the approval and the deposit go out as one atomic unit. */
+  const makeBatchDeps = (overrides: Partial<UsdcxDepositDeps> = {}) => {
+    const made = makeDeps(overrides);
+    const approveAndDepositToRemote = jest.fn(async () => {
+      made.calls.push('approveAndDepositToRemote');
+      return DEPOSIT_HASH;
+    });
+    made.deps.signer = { ...made.deps.signer, approveAndDepositToRemote };
+    return { ...made, approveAndDepositToRemote };
+  };
+
+  it('sends the approval and the deposit as one unit, with no approval receipt', async () => {
+    const { deps, calls, approveAndDepositToRemote } = makeBatchDeps();
+
+    await expect(runUsdcxDeposit('row-1', '1.5', MIXED_CASE_RECIPIENT, deps)).resolves.toBe(DEPOSIT_HASH);
+
+    expect(calls).toEqual([
+      'isRemoteDomainRegistered',
+      'readAllowance',
+      'approveAndDepositToRemote',
+      'phase:submitting',
+      'receipt:deposit',
+      'phase:delivering'
+    ]);
+    expect(approveAndDepositToRemote).toHaveBeenCalledWith(
+      { spender: getUsdcxXReserveSource(ARC_TESTNET_ID).xReserve, value: 1_500_000n },
+      buildDepositToRemoteArgs('1.5', MIXED_CASE_RECIPIENT, ARC_TESTNET_ID),
+      { usdcxRemoteRecipient: RECIPIENT }
+    );
+    expect(deps.signer.approve).not.toHaveBeenCalled();
+    expect(deps.signer.depositToRemote).not.toHaveBeenCalled();
+    expect(deps.updatePhase).toHaveBeenCalledWith('row-1', 'submitting', {
+      evmTxHash: DEPOSIT_HASH,
+      usdcxRemoteRecipient: RECIPIENT
+    });
+  });
+
+  it('gives no approval when the allowance covers the deposit', async () => {
+    const { deps, approveAndDepositToRemote } = makeBatchDeps({ readAllowance: jest.fn(async () => 1_500_000n) });
+
+    await runUsdcxDeposit('row-1', '1.5', RECIPIENT, deps);
+
+    expect(approveAndDepositToRemote).toHaveBeenCalledWith(null, expect.anything(), expect.anything());
+  });
+});

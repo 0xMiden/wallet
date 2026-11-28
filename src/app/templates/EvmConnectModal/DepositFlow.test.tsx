@@ -12,6 +12,7 @@ import type { EvmBridgeDepositScreen } from './EvmBridgeDepositScreen';
 import type { RelayTokenChoice } from './relay-token-choices';
 
 jest.mock('react-i18next', () => ({ useTranslation: () => ({ t: (key: string) => key }) }));
+jest.mock('app/hooks/useMidenFaucetId', () => ({ __esModule: true, default: () => 'usdcx' }));
 jest.mock('lib/remote-config/use-feature-availability', () => ({
   useBridgeConfigSnapshot: () => ({ status: 'ready' })
 }));

@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next';
 
 import type { ReportDeposit } from 'app/hooks/useFundTelemetry';
+import useMidenFaucetId from 'app/hooks/useMidenFaucetId';
 import { NetworkModeBanner } from 'components/NetworkModeBanner';
 import { PageHeader } from 'components/PageHeader';
 import { Spinner } from 'components/ui/Spinner';
@@ -33,7 +34,7 @@ export interface DepositFlowProps {
   relayOffCause: DepositUnavailableCause;
 }
 
-/** The Deposit flow with its routes: the relay routes (Agglayer, Epoch) through the relay screen. */
+/** The Deposit flow with its routes: the relay routes (Agglayer, Epoch, Circle xReserve) through the relay screen. */
 export const DepositFlow: React.FC<DepositFlowProps> = ({
   midenAccount,
   relaySource,
@@ -44,6 +45,7 @@ export const DepositFlow: React.FC<DepositFlowProps> = ({
   relayOffCause
 }) => {
   const bridgeConfig = useBridgeConfigSnapshot();
+  const nativeUsdFaucetId = useMidenFaucetId();
 
   // What the relay service serves (`GET /v1/chains`), read once when the page opens. Nothing reads the deposit address
   // before its address step: the served chains and the gas mode come from this answer.
@@ -54,8 +56,12 @@ export const DepositFlow: React.FC<DepositFlowProps> = ({
     () =>
       relaySource === null || relayChains === null
         ? []
-        : relayTokenChoices(bridgeConfig, depositSourceNetworks(bridgeConfig, relayChains)),
-    [bridgeConfig, relayChains, relaySource]
+        : relayTokenChoices(
+            bridgeConfig,
+            depositSourceNetworks(bridgeConfig, relayChains),
+            nativeUsdFaucetId ?? undefined
+          ),
+    [bridgeConfig, nativeUsdFaucetId, relayChains, relaySource]
   );
   // The relay routes are offered only when the service answered in `sponsor` mode and serves a chain with a token.
   const relayOffered = relaySource !== null && relayChoices.length > 0;
