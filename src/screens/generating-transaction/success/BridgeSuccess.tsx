@@ -90,7 +90,7 @@ export const BridgeSuccess: FC<BridgeSuccessProps> = ({
           Send flow's colour, which is the flow the user came through; the arrow is the one mark
           that names the transaction, and the badge's default names a plain send. */}
       <SuccessSummaryPill lhs={amountText} rhs={recipient} fillForArrow={TRANSACTION_COLORS.bridge} />
-      <ReceiptRows rows={rows} className="mt-6" />
+      <ReceiptRows rows={rows} surface="outline" className="mt-6" />
       {isUsdcx && <p className="mt-4 text-caption text-muted">{t('usdcxWithdrawalNotice')}</p>}
     </TransactionSuccessLayout>
   );

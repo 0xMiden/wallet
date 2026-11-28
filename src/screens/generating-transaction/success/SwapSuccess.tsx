@@ -83,7 +83,7 @@ export const SwapSuccess: FC<TransactionSuccessProps> = ({ transaction, onDoneCl
       {feeText && <ReceiptRows rows={[{ label: t('networkFee'), value: feeText }]} className="mt-6" />}
 
       {returnAmountText && (
-        <div className="mt-6 flex w-full items-start gap-1.5 text-xs text-ink">
+        <div className="mt-6 flex w-full items-start gap-1.5 font-heading text-xs font-semibold text-ink">
           <InfoIcon className="mt-0.5 h-4 w-4 shrink-0 fill-current" />
           <span>{t('swapOrderReservedNote', { amount: returnAmountText })}</span>
         </div>
