@@ -179,6 +179,10 @@ jobs:
         timeout-minutes: 1
         run: node --test .github/scripts/run-dapp-presentation-gesture-api36.test.mjs
 
+      - name: Check UI smoothness harness
+        timeout-minutes: 1
+        run: node --test scripts/home-swipe-score.test.mjs scripts/home-swipe-onboarding.test.mjs scripts/ui-smoothness-artifact.test.mjs .github/scripts/render-ui-smoothness-comment.test.mjs
+
       # comment=false (default): translations is the designated
       # comment-poster - see its `Inject` step for rationale. Other
       # jobs just need the package.json mutation, not the comment.

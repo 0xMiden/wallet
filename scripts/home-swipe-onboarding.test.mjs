@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const source = readFileSync(new URL('./home-swipe-bench.mjs', import.meta.url), 'utf8');
 const reachHomeSource = source.slice(
   source.indexOf('async function reachHome('),
-  source.indexOf('async function dispatchPointer(')
+  source.indexOf('/** Maps the runner')
 );
 
 test('mock home imports a public fixture instead of requiring a mainnet creation invitation', async () => {
@@ -39,7 +39,7 @@ test('mock home imports a public fixture instead of requiring a mainnet creation
     sleep: async () => {},
     snapshot: async () => ({
       status: ready ? 2 : 0,
-      track: ready,
+      panes: ready,
       welcome: !bypassAttempted,
       hash: ready ? '#/' : '#mainnet-access'
     })

@@ -11,12 +11,14 @@ import React, {
 } from 'react';
 
 import { cva } from 'class-variance-authority';
+import { motion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 // The svg module directly, never the `app/icons/v2` barrel: TextField is imported by almost
 // every screen, and the barrel's module graph evaluates ahead of a suite's own module
 // mock factories — Developer settings reads `MIDEN_NETWORK_NAME` out of one of them.
 import { ReactComponent as EyeOffIcon } from 'app/icons/v2/eye-off.svg';
+import { usePreset } from 'lib/animation';
 import type { UiEvidenceInput } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 import { UserErrorId } from 'lib/telemetry/user-visible-error';
@@ -196,6 +198,8 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
     forwardedRef
   ) => {
     useUserVisibleError(error ? userErrorId : null, 'field', undefined, errorDiagnostics);
+    const errorReveal = usePreset('reveal');
+    const errorFade = usePreset('fade');
     const autoId = useId();
     const fieldId = id ?? autoId;
     const hintId = `${fieldId}-hint`;
@@ -371,20 +375,43 @@ export const TextField = forwardRef<TextFieldElement, TextFieldProps>(
           {covered && <SecretCover multiline={Boolean(multiline)} onReveal={() => fieldRef.current?.focus()} />}
         </div>
 
-        {error ? (
-          <p
+        {/* An error with no hint to replace opens its own height (`reveal`), so the content below
+            is moved rather than jumped. One that takes a hint's place only fades in: the line was
+            already there. A cleared error is gone at once. */}
+        {!hint && error ? (
+          <motion.div
+            className="overflow-hidden"
+            initial={errorReveal.initial}
+            animate={errorReveal.animate}
+            transition={errorReveal.transition}
+          >
+            <p
+              id={errorId}
+              role="alert"
+              data-testid={errorTestId}
+              className="text-caption wrap-break-word text-negative-ink"
+            >
+              {error}
+            </p>
+          </motion.div>
+        ) : null}
+        {!hint ? null : error ? (
+          <motion.p
             id={errorId}
             role="alert"
             data-testid={errorTestId}
             className="text-caption wrap-break-word text-negative-ink"
+            initial={errorFade.initial}
+            animate={errorFade.animate}
+            transition={errorFade.transition}
           >
             {error}
-          </p>
-        ) : hint ? (
+          </motion.p>
+        ) : (
           <p id={hintId} className="text-caption text-muted">
             {hint}
           </p>
-        ) : null}
+        )}
       </div>
     );
   }

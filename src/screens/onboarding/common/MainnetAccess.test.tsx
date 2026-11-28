@@ -8,7 +8,7 @@ jest.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key })
 }));
 
-jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticSelection: jest.fn(), hapticLight: jest.fn(), hapticError: jest.fn() }));
 let mockMobile = false;
 jest.mock('lib/platform', () => ({
   ...jest.requireActual('lib/platform'),

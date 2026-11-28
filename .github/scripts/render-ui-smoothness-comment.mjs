@@ -19,7 +19,7 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-import { DEFAULT_PROFILE, sampleCount } from './ui-smoothness-profile.mjs';
+import { DEFAULT_PROFILE, sampleCount, tapSampleCount } from './ui-smoothness-profile.mjs';
 
 const SUBJECT = 'UI smoothness';
 const EMOJI_WORSE = '🔺';
@@ -96,6 +96,68 @@ function readSeries(name, raw, count) {
   };
 }
 
+function readReason(label, raw) {
+  if (raw == null) return null;
+  if (typeof raw !== 'string' || !/^verified: [ -~]{1,120}$/.test(raw)) failArtifact(`${label} is not a verified reason`);
+  return raw;
+}
+
+/**
+ * A side whose Home panes have no swipe reports `null` feel and says how that
+ * was verified. A `null` without the reason, or a reason beside samples, is refused.
+ */
+function readFeel(raw, removedRaw) {
+  if (!raw || typeof raw !== 'object') failArtifact('feel is missing');
+  const body = /** @type {{ base?: unknown, head?: unknown }} */ (raw);
+  const removed = /** @type {{ base?: unknown, head?: unknown }} */ (removedRaw ?? {});
+  const side = name => {
+    const reason = readReason(`swipe removed ${name}`, removed[name]);
+    if (body[name] === null) {
+      if (!reason) failArtifact(`feel ${name} is null without a verified reason`);
+      return { samples: null, reason };
+    }
+    if (reason) failArtifact(`feel ${name} has samples and a removed reason`);
+    return { samples: readNumbers(`feel ${name}`, body[name], sampleCount()), reason: null };
+  };
+  const base = side('base');
+  const head = side('head');
+  return { base: base.samples, head: head.samples, removed: { base: base.reason, head: head.reason } };
+}
+
+const TAP_SERIES = ['tapFeel', 'tapFirstFrame', 'tapSettle', 'tapDropped', 'tabInp'];
+
+function readTotals(raw) {
+  const side = name => {
+    const totals = raw && typeof raw === 'object' ? raw[name] : null;
+    if (!totals || typeof totals !== 'object') failArtifact(`tap totals ${name} are missing`);
+    const read = key => {
+      const value = totals[key];
+      if (!Number.isInteger(value) || value < 0) failArtifact(`tap totals ${name} ${key} must be a count`);
+      return value;
+    };
+    return { reversals: read('reversals'), stallFrames: read('stallFrames'), bothVisibleFrames: read('bothVisibleFrames') };
+  };
+  return { base: side('base'), head: side('head') };
+}
+
+/**
+ * The tap series come as a set. A branch whose harness predates them has none,
+ * which the comment says out loud; a partial set is refused.
+ */
+function readTaps(body) {
+  const present = TAP_SERIES.filter(key => body[key] !== undefined);
+  if (present.length === 0 && body.tapTotals === undefined) return null;
+  if (present.length !== TAP_SERIES.length) failArtifact('the tap series are incomplete');
+  return {
+    tapFeel: readSeries('tap feel', body.tapFeel, tapSampleCount()),
+    tapFirstFrame: readSeries('tap first frame', body.tapFirstFrame, tapSampleCount()),
+    tapSettle: readSeries('tap settle', body.tapSettle, tapSampleCount()),
+    tapDropped: readSeries('tap dropped frames', body.tapDropped, tapSampleCount()),
+    tabInp: readSeries('tab inp', body.tabInp, DEFAULT_PROFILE.tabInpTaps),
+    totals: readTotals(body.tapTotals)
+  };
+}
+
 /**
  * @param {unknown} artifact
  */
@@ -103,10 +165,11 @@ export function readArtifact(artifact) {
   if (!artifact || typeof artifact !== 'object') failArtifact('results must be an object');
   const body = /** @type {Record<string, unknown>} */ (artifact);
   return {
-    feel: readSeries('feel', body.feel, sampleCount()),
+    feel: readFeel(body.feel, body.swipeRemoved),
     inp: readSeries('inp', body.inp, DEFAULT_PROFILE.inpTaps),
     listDropped: readSeries('list dropped frames', body.listDropped, DEFAULT_PROFILE.listRuns),
-    listP95: readSeries('list frame time', body.listP95, DEFAULT_PROFILE.listRuns)
+    listP95: readSeries('list frame time', body.listP95, DEFAULT_PROFILE.listRuns),
+    taps: readTaps(body)
   };
 }
 
@@ -164,30 +227,83 @@ function decorate(name, unit, baseValue, headValue, thresholdPct, forceWorse) {
   return { name, unit, baseValue, headValue, ...delta, beyond, worse, emoji, forceWorse };
 }
 
-function rowsFor(series) {
-  const feel = decorate(
-    'feel',
-    '',
-    median(series.feel.base),
-    median(series.feel.head),
-    DEFAULT_PROFILE.feelThresholdPct,
-    false
-  );
-  const inpBase = Math.max(...series.inp.base);
-  const inpHead = Math.max(...series.inp.head);
-  const inpDelta = deltaOf(inpBase, inpHead, DEFAULT_PROFILE.feelThresholdPct);
+function feelRow(feel) {
+  if (feel.base && feel.head) {
+    return decorate('feel', '', median(feel.base), median(feel.head), DEFAULT_PROFILE.feelThresholdPct, false);
+  }
+  if (!feel.base && !feel.head) return null;
+  const value = feel.base ? median(feel.base) : median(/** @type {number[]} */ (feel.head));
+  const removedOn = feel.base ? 'head' : 'base';
+  // Head that keeps a swipe base removed brings back what the change took out.
+  const forceWorse = removedOn === 'base';
+  return {
+    name: 'feel',
+    unit: '',
+    baseValue: feel.base ? value : null,
+    headValue: feel.head ? value : null,
+    deltaValue: 0,
+    deltaPct: null,
+    beyond: forceWorse,
+    worse: forceWorse,
+    floor: DEFAULT_PROFILE.feelThresholdPct,
+    emoji: forceWorse ? EMOJI_WORSE : EMOJI_UNRESOLVED,
+    forceWorse,
+    removedOn
+  };
+}
+
+/** The slowest tap, held to the 200ms and 500ms field bands as well as the floor. */
+function inpRow(name, base, head, thresholdPct) {
+  const inpBase = Math.max(...base);
+  const inpHead = Math.max(...head);
+  const inpDelta = deltaOf(inpBase, inpHead, thresholdPct);
   const poor = inpHead > DEFAULT_PROFILE.inpPoorMs;
   const leftGood = inpBase <= DEFAULT_PROFILE.inpGoodMs && inpHead > DEFAULT_PROFILE.inpGoodMs;
   const bothGood = inpBase <= DEFAULT_PROFILE.inpGoodMs && inpHead <= DEFAULT_PROFILE.inpGoodMs;
   const inpForce = leftGood || (poor && !(inpDelta.beyond && !inpDelta.worse));
-  const inp = decorate('inp', 'ms', inpBase, inpHead, DEFAULT_PROFILE.feelThresholdPct, inpForce);
+  const row = decorate(name, 'ms', inpBase, inpHead, thresholdPct, inpForce);
   // 16ms and 24ms are adjacent Event Timing buckets. Both sit inside the good
   // band, so that step is not a change.
   if (bothGood) {
-    inp.beyond = false;
-    inp.forceWorse = false;
-    inp.emoji = EMOJI_NOISE;
+    row.beyond = false;
+    row.forceWorse = false;
+    row.emoji = EMOJI_NOISE;
   }
+  return row;
+}
+
+function tapRows(taps) {
+  const sum = values => values.reduce((total, value) => total + value, 0);
+  const medianRow = (name, unit, series, thresholdPct) =>
+    decorate(name, unit, median(series.base), median(series.head), thresholdPct, false);
+  const droppedBase = sum(taps.tapDropped.base);
+  const droppedHead = sum(taps.tapDropped.head);
+  // A total, not a median, so a base that drops nothing still has a figure;
+  // from zero, any drop on head is worse.
+  const dropped = decorate(
+    'tap-dropped',
+    '',
+    droppedBase,
+    droppedHead,
+    DEFAULT_PROFILE.tapDroppedThresholdPct,
+    droppedBase === 0 && droppedHead > 0
+  );
+  if (droppedBase === 0 && droppedHead === 0) {
+    dropped.deltaPct = 0;
+    dropped.emoji = EMOJI_NOISE;
+  }
+  return [
+    inpRow('tab-inp', taps.tabInp.base, taps.tabInp.head, DEFAULT_PROFILE.tabInpThresholdPct),
+    medianRow('tap-feel', '', taps.tapFeel, DEFAULT_PROFILE.tapFeelThresholdPct),
+    medianRow('tap-first-frame', 'ms', taps.tapFirstFrame, DEFAULT_PROFILE.tapFirstFrameThresholdPct),
+    medianRow('tap-settle', 'ms', taps.tapSettle, DEFAULT_PROFILE.tapSettleThresholdPct),
+    dropped
+  ];
+}
+
+function rowsFor(series) {
+  const feel = feelRow(series.feel);
+  const inp = inpRow('inp', series.inp.base, series.inp.head, DEFAULT_PROFILE.feelThresholdPct);
   const dropped = decorate(
     'list-dropped',
     '%',
@@ -204,11 +320,13 @@ function rowsFor(series) {
     DEFAULT_PROFILE.listThresholdPct,
     false
   );
-  return [feel, inp, dropped, p95];
+  return [feel, inp, ...(series.taps ? tapRows(series.taps) : []), dropped, p95].filter(Boolean);
 }
 
+/** A swipe head no longer has is reported, never the headline, unless head brought one back. */
 function headline(rows) {
-  return rows.reduce((best, row) => {
+  const ranked = rows.filter(row => !row.removedOn || row.forceWorse);
+  return ranked.reduce((best, row) => {
     const rank = value => {
       const magnitude = Math.abs(value.deltaPct ?? 0);
       if (value.forceWorse) return 1000 + magnitude;
@@ -230,8 +348,18 @@ function verdict(rows) {
     const band = lead.headValue > DEFAULT_PROFILE.inpPoorMs ? 'above 500ms' : 'above 200ms';
     return `### ${EMOJI_WORSE} ${SUBJECT} — tap response ${formatValue(lead.headValue)}ms, ${band}`;
   }
+  if (lead.forceWorse && lead.name === 'tab-inp') {
+    const band = lead.headValue > DEFAULT_PROFILE.inpPoorMs ? 'above 500ms' : 'above 200ms';
+    return `### ${EMOJI_WORSE} ${SUBJECT}: tab tap response ${formatValue(lead.headValue)}ms, ${band}`;
+  }
+  if (lead.forceWorse && lead.removedOn) {
+    return `### ${EMOJI_WORSE} ${SUBJECT}: \`feel\` swipe present on head, removed on base`;
+  }
+  if (lead.forceWorse && lead.deltaPct === null) {
+    return `### ${EMOJI_WORSE} ${SUBJECT}: \`${lead.name}\` ${formatValue(lead.headValue)} on head, from 0 on base`;
+  }
   if (!rows.some(row => row.beyond)) {
-    const largest = rows.reduce((best, row) =>
+    const largest = rows.filter(row => !row.removedOn).reduce((best, row) =>
       Math.abs(row.deltaPct ?? 0) > Math.abs(best.deltaPct ?? 0) ? row : best
     );
     return `### ${EMOJI_NOISE} ${SUBJECT} — No significant change (largest \`${largest.name}\` ${formatSignedPct(largest.deltaPct)}, floor ${floorText(largest)})`;
@@ -251,15 +379,16 @@ function provisionalNote(ctx) {
   ].join('\n');
 }
 
-function contextTable(ctx) {
+function contextTable(ctx, rows) {
   const method = `carousel feel, tap response, and settings-list frames, on \`${ctx.runner}\` — **lower is better**`;
+  const names = rows.map(row => `\`${row.name}\``).join(', ');
   return [
     '| | |',
     '| :-- | :-- |',
     `| **Head** | ${commitLink(ctx, ctx.headSha)} |`,
     `| **Base** | ${commitLink(ctx, ctx.baseSha)} (\`${ctx.baseRef}\`) |`,
     `| **Method** | ${method} |`,
-    '| **Workload** | 4 numbers — `feel`, `inp`, `list-dropped`, `list-p95` |'
+    `| **Workload** | ${rows.length} numbers: ${names} |`
   ].join('\n');
 }
 
@@ -267,6 +396,11 @@ function resultTable(rows) {
   const lines = ['| | Benchmark | Base | Head | Δ | Δ % |', '| :-: | :-- | ---: | ---: | ---: | ---: |'];
   for (const row of rows) {
     const unit = row.unit ? ` ${row.unit}` : '';
+    if (row.removedOn) {
+      const cell = value => (value === null ? `removed on ${row.removedOn} (verified)` : `${formatValue(value)}${unit}`);
+      lines.push(`| ${row.emoji} | \`${row.name}\` | ${cell(row.baseValue)} | ${cell(row.headValue)} | n/a | n/a |`);
+      continue;
+    }
     const delta = row.deltaPct === null ? 'n/a' : formatSignedValue(row.deltaValue);
     lines.push(
       `| ${row.emoji} | \`${row.name}\` | ${formatValue(row.baseValue)}${unit} | ${formatValue(row.headValue)}${unit} | ${delta} | ${formatSignedPct(row.deltaPct)} |`
@@ -283,9 +417,52 @@ function samplesBlock(series) {
     );
   const mid = values => `median ${formatValue(median(values))}`;
   const slowest = values => `slowest ${formatValue(Math.max(...values))}`;
-  return ['```text', block('feel', series.feel, mid), block('inp ms', series.inp, slowest), block('list-dropped %', series.listDropped, mid), block('list-p95 ms', series.listP95, mid), '```'].join(
-    '\n'
-  );
+  const total = values => `total ${formatValue(values.reduce((sum, value) => sum + value, 0))}`;
+  const feelBlock = () => {
+    const side = name =>
+      series.feel[name]
+        ? [line(name, series.feel[name]), `  ${name} ${mid(series.feel[name])}`]
+        : [`  ${name} ${series.feel.removed[name]}`];
+    return ['  feel', ...side('base'), ...side('head')].join('\n');
+  };
+  const blocks = [feelBlock(), block('inp ms', series.inp, slowest)];
+  const taps = series.taps;
+  if (taps) {
+    const totals = name =>
+      `  ${name} reversals ${taps.totals[name].reversals}, stall frames ${taps.totals[name].stallFrames}, both-visible frames ${taps.totals[name].bothVisibleFrames}`;
+    blocks.push(
+      block('tab-inp ms', taps.tabInp, slowest),
+      block('tap-feel', taps.tapFeel, mid),
+      block('tap-first-frame ms', taps.tapFirstFrame, mid),
+      block('tap-settle ms', taps.tapSettle, mid),
+      block('tap-dropped', taps.tapDropped, total),
+      ['  tap totals', totals('base'), totals('head')].join('\n')
+    );
+  }
+  blocks.push(block('list-dropped %', series.listDropped, mid), block('list-p95 ms', series.listP95, mid));
+  return ['```text', ...blocks, '```'].join('\n');
+}
+
+function feelNote(feel) {
+  if (feel.base && feel.head) {
+    return `- \`feel\` is the median of ${sampleCount()} swipes: ${DEFAULT_PROFILE.passes} passes from ${DEFAULT_PROFILE.pageNames[0]} to ${DEFAULT_PROFILE.pageNames.at(-1)}, each pass ${DEFAULT_PROFILE.pageNames.join(' → ')}. Lower is smoother. A swipe that does not land on the next page fails the run.`;
+  }
+  if (!feel.base && !feel.head) {
+    return '- The Home panes have no swipe on either side (#2415), so there is no `feel` row. A sideways drag on every pane is checked to change nothing; one that moves a pane or the route fails the run.';
+  }
+  const side = feel.base ? 'head' : 'base';
+  return `- \`feel\` is the median of ${sampleCount()} swipes where the Home panes still page on a swipe. On ${side} they do not (${feel.removed[side]}): a sideways drag on every pane is checked to change nothing, and one that moves a pane or the route fails the run.`;
+}
+
+function tapNote(taps) {
+  if (!taps) {
+    return '- **No tap rows:** this branch\'s harness has no tap scenario, so the tab taps were not measured. Merge main.';
+  }
+  return [
+    `- The tap rows come from ${tapSampleCount()} trusted taps on the Home tabs: ${DEFAULT_PROFILE.tapPasses} passes of ${DEFAULT_PROFILE.tapPath.join(' → ')}, the last one a four-page jump, at the same throttle as the swipe. Each tap is recorded for 900ms from the finger lifting, and progress is read from what is drawn (pane position and effective opacity), so a slide and a fade are judged alike. A tap that does not land, or a second tap 120ms into a switch that does not land, fails the run.`,
+    '- `tap-first-frame` is the time to the first frame that changes; `tap-settle` is the time until the panes stay within 0.5% of their end state. `tap-dropped` is the total of frame gaps over 25ms in a fixed 700ms window after each tap. `tap-feel` scores a tap like `feel`, without the finger term.',
+    `- \`tab-inp\` is the slowest of ${DEFAULT_PROFILE.tabInpTaps} unthrottled taps between the ${DEFAULT_PROFILE.tapPath[0]} and ${DEFAULT_PROFILE.tapPath[1]} tabs, from Event Timing, with the same bands as \`inp\`.`
+  ].join('\n');
 }
 
 function methodology(ctx, samples) {
@@ -293,11 +470,12 @@ function methodology(ctx, samples) {
     '<details>',
     '<summary><b>Methodology and raw samples</b></summary>',
     '',
-    `- \`feel\` is the median of ${sampleCount()} swipes: ${DEFAULT_PROFILE.passes} passes from ${DEFAULT_PROFILE.pageNames[0]} to ${DEFAULT_PROFILE.pageNames.at(-1)}, each pass ${DEFAULT_PROFILE.pageNames.join(' → ')}. Lower is smoother. A swipe that does not land on the next page fails the run.`,
+    feelNote(samples.feel),
+    tapNote(samples.taps),
     `- \`inp\` is the slowest of ${DEFAULT_PROFILE.inpTaps} taps on the overview copy control, in milliseconds, from Event Timing. At or below ${DEFAULT_PROFILE.inpGoodMs}ms is good and above ${DEFAULT_PROFILE.inpPoorMs}ms is poor. A tap the API does not record, because it finished under 16ms, counts as 16ms.`,
     `- \`list-dropped\` and \`list-p95\` are the medians of ${DEFAULT_PROFILE.listRuns} scrolls of the settings list: the share of frame gaps at or above 25ms, and the 95th percentile frame time. Lower is smoother. The run fails if the list does not move.`,
     '- A failed run posts no figure.',
-    '- Both sides run on the same runner, one after the other, each in its own browser profile. The harness is the pull request\'s copy for both sides; the bundle is each side\'s own. The carousel slows the main thread 4×. The tap and the list do not, so the 200ms and 500ms bands stay on real time. Device pixel ratio is 2, in a 600×844 frame. This is a proxy for a phone, not a phone.',
+    '- Both sides run on the same runner, one after the other, each in its own browser profile. The harness is the pull request\'s copy for both sides; the bundle is each side\'s own. The carousel and the tab taps slow the main thread 4×. The copy-control tap, `tab-inp` and the list do not, so the 200ms and 500ms bands stay on real time. Device pixel ratio is 2, in a 600×844 frame. This is a proxy for a phone, not a phone.',
     '- The noise floor is decided by the trusted profile on the default branch, not by this artifact. The runner, the repetition count and these samples are what the measurement job reported.',
     '',
     samplesBlock(samples),
@@ -341,7 +519,7 @@ export function renderComment(artifact, context) {
         resultTable(rows)
       ].join('\n')
     : resultTable(rows);
-  return [verdict(rows), provisionalNote(ctx), contextTable(ctx), moved, methodology(ctx, series), legend(), footer(ctx)]
+  return [verdict(rows), provisionalNote(ctx), contextTable(ctx, rows), moved, methodology(ctx, series), legend(), footer(ctx)]
     .filter(Boolean)
     .join('\n\n');
 }

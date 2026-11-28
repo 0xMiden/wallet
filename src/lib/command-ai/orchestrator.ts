@@ -2,6 +2,7 @@ import { formatBigInt, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18
 import { maxSendableNativeBaseUnits } from 'lib/miden/fees/spendable';
 import type { TokenBalanceData } from 'lib/miden/front/balance';
 import { hasKnownScale } from 'lib/miden/metadata/scale';
+import { normalizedFaucetId } from 'lib/miden/swap/faucet-ids';
 import { DEFAULT_SWAP_SLIPPAGE_BPS } from 'lib/miden/swap/quote';
 import { getSwapPartners, tokenQuote, type SwapToken } from 'lib/miden/swap/tokens';
 import type { TokenPrices } from 'lib/prices';
@@ -33,6 +34,8 @@ export interface BridgeRouteSummary {
   destinationSymbol: string;
   destinationNetwork: string;
   contractAddress?: string;
+  /** The route's Miden token: the only key to its logo. */
+  midenFaucetId?: string;
   estimateFee?: string;
   etaLabel?: string;
 }
@@ -98,6 +101,10 @@ export interface ClarificationChip {
   id: string;
   label: string;
   subtitle?: string;
+  /** Set on a bridge route chip, which is rendered from the route instead of `label`. */
+  route?: BridgeRouteSummary;
+  /** The contract address, shown when two route chips would otherwise read the same. */
+  addressHint?: string;
   patch: Partial<HydratedIntentDraft>;
 }
 
@@ -218,8 +225,7 @@ function resolveBalanceAsset(
   balances: readonly TokenBalanceData[]
 ): TokenBalanceData | undefined {
   if (tokenId) {
-    const byId = balances.find(b => b.tokenId === tokenId);
-    if (byId) return byId;
+    return balances.find(b => normalizedFaucetId(b.tokenId) === normalizedFaucetId(tokenId));
   }
   if (!query) return undefined;
   const q = query.trim().toLowerCase();
@@ -236,8 +242,7 @@ function resolveSwapAsset(
   tokens: readonly SwapToken[]
 ): SwapToken | undefined {
   if (tokenId) {
-    const byId = tokens.find(t => t.faucetId === tokenId);
-    if (byId) return byId;
+    return tokens.find(t => t.faucetId === tokenId);
   }
   if (!query) return undefined;
   const q = query.trim().toLowerCase();
@@ -366,8 +371,10 @@ function applyAssetSlot(
   const symbol = resolveAssetRef(value, map).trim();
   const [queryKey, idKey] =
     field === 'asset' ? (['assetQuery', 'tokenId'] as const) : (['toAssetQuery', 'toTokenId'] as const);
-  // A different asset must not keep the old token id: resolution prefers the id over the symbol.
-  if (nicheId || !isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
+  // Resolution prefers the id, so another symbol must drop it. A repeated symbol keeps it: a held
+  // ticker's placeholder always names the first holding, not necessarily the one the user picked.
+  if (!isSameSymbol(target[queryKey], symbol)) target[idKey] = nicheId;
+  else target[idKey] ??= nicheId;
   target[queryKey] = symbol;
 }
 
@@ -418,9 +425,8 @@ export function applyPatchToDraft(
   if (patch.earn_op !== null) next.earnOp = patch.earn_op;
   const bridgeTerms = ['assetQuery', 'toAssetQuery', 'fromChain', 'toChain'] as const;
   if (next.action === 'bridge' && bridgeTerms.some(key => next[key]?.toLowerCase() !== base[key]?.toLowerCase())) {
-    // A chosen route (and a held token) answers the old request, not the changed one.
+    // A chosen route answers the old request, not the changed one.
     next.routeId = undefined;
-    if (patch.asset !== null) next.tokenId = resolveNicheTokenId(patch.asset, map);
   }
   if (patch.recipient_ref !== null) {
     const resolved = resolveRecipientRef(patch.recipient_ref, map);
@@ -484,15 +490,16 @@ function shortAddr(addr: string): string {
   return addr.length > 14 ? `${addr.slice(0, 7)}…${addr.slice(-4)}` : addr;
 }
 
-function bridgeClarificationLabels(routes: readonly BridgeRouteSummary[]): string[] {
-  const bases = routes.map(
-    route =>
-      `${route.sourceSymbol} → ${route.destinationSymbol} · ${route.provider} (${route.sourceNetwork} → ${route.destinationNetwork})`
+function bridgeAddressHints(routes: readonly BridgeRouteSummary[]): (string | undefined)[] {
+  const bases = routes.map(route =>
+    [route.sourceSymbol, route.destinationSymbol, route.provider, route.sourceNetwork, route.destinationNetwork].join(
+      '|'
+    )
   );
   return routes.map((route, index) => {
     const base = bases[index]!;
     const address = route.contractAddress;
-    if (!address || bases.filter(candidate => candidate === base).length === 1) return base;
+    if (!address || bases.filter(candidate => candidate === base).length === 1) return undefined;
     const shortened = shortAddr(address);
     const shortenedCount = routes.filter(
       (candidate, candidateIndex) =>
@@ -500,7 +507,7 @@ function bridgeClarificationLabels(routes: readonly BridgeRouteSummary[]): strin
         candidate.contractAddress !== undefined &&
         shortAddr(candidate.contractAddress) === shortened
     ).length;
-    return `${base} ${shortenedCount === 1 ? shortened : address}`;
+    return shortenedCount === 1 ? shortened : address;
   });
 }
 
@@ -786,10 +793,12 @@ function bridgeRouteCarries(route: BridgeRouteSummary, asset: string): boolean {
 }
 
 function bridgeRouteChips(draft: HydratedIntentDraft, routes: readonly BridgeRouteSummary[]): ClarificationChip[] {
-  const labels = bridgeClarificationLabels(routes);
+  const addressHints = bridgeAddressHints(routes);
   return routes.map((route, index) => ({
     id: route.id,
-    label: labels[index]!,
+    label: `${route.sourceSymbol} → ${route.destinationSymbol}`,
+    route,
+    addressHint: addressHints[index],
     subtitle: [route.estimateFee, route.etaLabel].filter(Boolean).join(' · ') || undefined,
     patch: {
       routeId: route.id,
@@ -812,7 +821,6 @@ function otherBridgeRouteChips(draft: HydratedIntentDraft, routes: readonly Brid
       patch: {
         ...chip.patch,
         toAssetQuery: undefined,
-        tokenId: undefined,
         // An amount of one asset means nothing in another.
         ...(keepsAsset
           ? {}
@@ -896,7 +904,7 @@ function resolveBridgeFlow(
   const chosen = candidates[0]!;
   const routeDirection: 'in' | 'out' = chosen.mode === 'receive' ? 'in' : 'out';
   const held = ctx.balances.find(b => b.tokenId === draft.tokenId);
-  const sourceTokenId = isSameSymbol(held?.metadata.symbol, chosen.sourceSymbol) ? draft.tokenId : undefined;
+  const sourceTokenId = !held || isSameSymbol(held.metadata.symbol, chosen.sourceSymbol) ? draft.tokenId : undefined;
   const sourceBalance = resolveBalanceAsset(chosen.sourceSymbol, sourceTokenId, ctx.balances);
   const { amount } = resolveSymbolicAmount(draft, sourceBalance, ctx, chosen.sourceSymbol);
 
@@ -981,7 +989,8 @@ function resolveSwapFlow(
   if (!receive) {
     const partners = getSwapPartners(offer.faucetId);
     const choices = partners.length > 0 ? partners : ctx.swapTokens.filter(t => t.faucetId !== offer.faucetId);
-    if (choices.length === 1) {
+    // A named token that is not listed must not turn into the only partner.
+    if (choices.length === 1 && !draft.toAssetQuery) {
       receive = choices[0];
     } else if (choices.length > 1) {
       const chips: ClarificationChip[] = choices.slice(0, 5).map(tok => ({

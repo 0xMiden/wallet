@@ -12,7 +12,7 @@ import { ITransaction, ITransactionStatus } from 'lib/miden/db/types';
 import { putToStorage } from 'lib/miden/front/storage';
 import { TEST_SWAP_TOKENS, TEST_TOKEN_IETH } from 'lib/miden/swap/testing/registry';
 import { _setSwapTokensForTest } from 'lib/miden/swap/tokens';
-import { FaucetOutcomeUnknownError, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
+import { FaucetOutcomeUnknownError, getFaucetFailurePhase, mintFromMidenFaucet } from 'lib/miden-chain/faucet-api';
 import { getStorageProvider } from 'lib/platform/storage-adapter';
 
 import {
@@ -85,8 +85,7 @@ jest.mock('lib/platform', () => ({
 }));
 
 jest.mock('lib/miden-chain/faucet-api', () => ({
-  // The real error class: wallet-prompts constructs it, and callers classify by it.
-  FaucetOutcomeUnknownError: jest.requireActual('lib/miden-chain/faucet-api').FaucetOutcomeUnknownError,
+  ...jest.requireActual<typeof import('lib/miden-chain/faucet-api')>('lib/miden-chain/faucet-api'),
   mintFromMidenFaucet: jest.fn()
 }));
 
@@ -506,9 +505,10 @@ describe('wallet prompts', () => {
   it('fails before the proof of work, with the storage error, when the marker cannot be read (#936)', async () => {
     const provider = getStorageProvider();
     const readRecord = provider.get.bind(provider);
+    const storageError = new Error('storage unreadable');
     const get = jest.spyOn(provider, 'get').mockImplementation(async keys => {
       if ([keys].flat().some(key => String(key).startsWith('faucet_funding_v2:'))) {
-        throw new Error('storage unreadable');
+        throw storageError;
       }
       return readRecord(keys);
     });
@@ -520,7 +520,8 @@ describe('wallet prompts', () => {
       // A surface that cannot read the marker still offers Fund, as #504 chose. The check
       // before the proof of work is what keeps that safe: an unreadable marker may belong
       // to a request already minting, so this one is refused rather than sent.
-      expect(error).toEqual(new Error('storage unreadable'));
+      expect(error).toBe(storageError);
+      expect(getFaucetFailurePhase(storageError)).toBe('local_request_guard');
       expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
       expect(mintFromMidenFaucetMock).not.toHaveBeenCalled();
     } finally {
@@ -1062,10 +1063,11 @@ describe('wallet prompts', () => {
     const provider = getStorageProvider();
     const writeRecord = provider.set.bind(provider);
     const set = jest.spyOn(provider, 'set');
+    const storageError = new Error('storage unavailable');
     // Every write lands except the one that flags the request submitted.
     set.mockImplementation(async items => {
       if (Object.values(items).some(value => Reflect.get(Object(value), 'submitted') !== undefined)) {
-        throw new Error('storage unavailable');
+        throw storageError;
       }
       await writeRecord(items);
     });
@@ -1089,7 +1091,8 @@ describe('wallet prompts', () => {
       // A later open would read the unflagged marker as abandoned and offer Fund,
       // so the request must not go out without the flag.
       expect(sent).toBe(false);
-      expect(error).toEqual(new Error('storage unavailable'));
+      expect(error).toBe(storageError);
+      expect(getFaucetFailurePhase(storageError)).toBe('local_request_guard');
       expect(error).not.toBeInstanceOf(FaucetOutcomeUnknownError);
     } finally {
       set.mockRestore();

@@ -36,6 +36,19 @@ async function captureCommand(page: Page, info: TestInfo, name: string): Promise
   await info.attach(name, { path: screenshot, contentType: 'image/png' });
 }
 
+async function captureCompactSend(page: Page, info: TestInfo, name: string): Promise<void> {
+  const actions = page.locator('[data-home-actions="true"]');
+  await actions.getByRole('tab', { name: 'Send', exact: true }).click();
+  await expect(page.locator('[data-home-page="send"]:not([inert])')).toBeInViewport({ ratio: 0.95 });
+  await expect(page.locator('[data-home-page="overview"]')).toHaveAttribute('inert', '');
+  const launcherOutsideHome = page
+    .getByRole('button', { name: 'Open fullscreen' })
+    .and(page.locator('button:not([data-home-page="overview"][inert] button)'));
+  await expect(launcherOutsideHome).toHaveCount(0);
+  await captureCommand(page, info, name);
+  await actions.getByRole('tab', { name: 'Home', exact: true }).click();
+}
+
 async function assertWorkbenchFrames(page: Page, act: () => Promise<void>, dialogCounts: number[]): Promise<void> {
   const recorder = await page.evaluateHandle(() => {
     const dashboard = document.querySelector(
@@ -277,7 +290,19 @@ test('Bread says when no bridge route matches and leaves the choice to the user'
         }).toPass({ timeout: 60_000 });
         const chips = card.locator('[data-testid^="command-ai-chip-"]');
         await expect(chips.first()).toBeVisible();
-        for (const chip of await chips.all()) await expect(chip).not.toContainText(/solana/i);
+        for (const chip of await chips.all()) {
+          await expect(chip).not.toContainText(/solana/i);
+          // Names a person reads: no network slug or provider id, and nothing clipped.
+          await expect(chip).not.toContainText(/miden-testnet|sepolia|agglayer|epoch|xreserve/);
+          await expect(chip).toHaveAccessibleName(/^From: .+\. To: .+\. via (Agglayer|Epoch|Circle)/);
+          expect(
+            await chip.evaluate(
+              el =>
+                [el, ...el.querySelectorAll('span')].filter(n => n.scrollWidth > n.clientWidth + 1 && n.clientWidth > 0)
+                  .length
+            )
+          ).toBe(0);
+        }
         await expect(card).toBeInViewport({ ratio: 1 });
         expect(await card.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
         await expect(command.getByTestId('command-workbench')).toHaveCount(0);
@@ -321,6 +346,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await expect(popup.getByRole('button', { name: 'Open fullscreen' })).toHaveCount(1);
   await expect(popup.getByTestId('command-shell')).toHaveCount(0);
   await captureCommand(popup, info, 'command-compact-launcher-360x600');
+  await captureCompactSend(popup, info, 'command-popup-send-360x600');
   await launcher.hover();
   await expect(launcher).toHaveCSS('translate', /-2px/);
   await captureCommand(popup, info, 'command-compact-launcher-hover-360x600');
@@ -552,6 +578,7 @@ test('compact launcher opens the real Command workspace and preserves a minimize
   await sidebar.mouse.move(0, 0);
   await expect(sidebar.locator('html')).toHaveClass(/dark/);
   await captureCommand(sidebar, info, 'command-sidebar-dark-reduced-motion-360x800');
+  await captureCompactSend(sidebar, info, 'command-sidebar-send-dark-360x800');
   await sidebar.emulateMedia({ reducedMotion: 'reduce', colorScheme: 'light' });
   await sidebar.evaluate(() => localStorage.setItem('theme_setting', 'light'));
   await sidebar.reload({ waitUntil: 'domcontentloaded' });

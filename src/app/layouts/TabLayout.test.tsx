@@ -358,19 +358,13 @@ describe('TabLayout — compact fullscreen launcher placement', () => {
     expect(screen.queryByTestId('command-launcher')).not.toBeInTheDocument();
   });
 
-  it.each(['/send', '/receive', '/earn', '/swap'])('places the launcher ahead of Home actions on %s', pathname => {
+  it.each(['/send', '/receive', '/earn', '/swap'])('omits the fullscreen launcher on %s', pathname => {
     mockLocation.pathname = pathname;
     mockPlatform.isExtension = true;
     mockEnv.sidePanel = true;
-    const { container } = renderLayout();
-    const launcher = screen.getByTestId('command-launcher');
-    const actions = screen.getByTestId('action-bar');
-    expect(launcher.closest('[data-home-actions]')).toBeNull();
-    expect(launcher.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    document.body.setAttribute('data-hide-home-actions', '');
-    expect(container.querySelector('[data-home-actions]')).toBeInTheDocument();
-    expect(launcher.closest('[data-home-actions]')).toBeNull();
-    document.body.removeAttribute('data-hide-home-actions');
+    renderLayout();
+    expect(screen.getByTestId('action-bar')).toBeInTheDocument();
+    expect(screen.queryByTestId('command-launcher')).not.toBeInTheDocument();
   });
 
   it.each(['native', 'fullpage', 'confirmation'] as const)('does not show the launcher on %s', surface => {
