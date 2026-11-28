@@ -12,6 +12,8 @@ import { identifyValuedAsset, loadValuationContext } from '../spending-limits/va
 
 const OUTGOING_TYPES: ReadonlySet<string> = new Set(['send', 'swap', 'bridged-send', 'earn-deposit', 'register-name']);
 
+export const POSITION_PRICE_DEADLINE_MS = 2000;
+
 type Flow = { arrived: bigint; departed: bigint };
 
 /** What a completed row moved, per canonical faucet. Value its effects only where the row records them. */
@@ -61,25 +63,40 @@ export async function recordPositionEvents(txId: string): Promise<void> {
     const flows = rowFlows(row);
     if (flows.size === 0) return;
     const held = await readVaultHoldings(row.accountId, 'position-record');
-    let context: Awaited<ReturnType<typeof loadValuationContext>> | undefined;
-    try {
-      context = await loadValuationContext(txId);
-    } catch {
-      context = undefined;
+    const arrivals = [...flows].filter(([, flow]) => flow.arrived > 0n);
+    let pricing = new Map<string, { decimals: number; quote: PositionQuote | null }>();
+    if (arrivals.length > 0) {
+      const priceArrivals = async () => {
+        const context = await loadValuationContext(txId);
+        const values = new Map<string, { decimals: number; quote: PositionQuote | null }>();
+        for (const [faucetId] of arrivals) {
+          try {
+            const asset = await identifyValuedAsset(faucetId, context);
+            let quote: PositionQuote | null = null;
+            if (asset.priceSymbol !== undefined) quote = await quoteAt(asset.priceSymbol);
+            values.set(faucetId, { decimals: asset.decimals, quote });
+          } catch {
+            // This arrival stays unpriced; continue pricing the rest of the row.
+          }
+        }
+        return values;
+      };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<{ kind: 'timeout' }>(resolve => {
+        timer = setTimeout(() => resolve({ kind: 'timeout' }), POSITION_PRICE_DEADLINE_MS);
+      });
+      // Convert rejection into a settled result so a timeout cannot leave a rejection unhandled.
+      const work = priceArrivals().then(
+        values => ({ kind: 'priced' as const, values }),
+        () => ({ kind: 'failed' as const })
+      );
+      const result = await Promise.race([work, timeout]);
+      if (result.kind !== 'timeout' && timer !== undefined) clearTimeout(timer);
+      if (result.kind === 'priced') pricing = result.values;
     }
     const events: PositionEvent[] = [];
     for (const [faucetId, flow] of flows) {
-      let decimals: number | null = null;
-      let quote: PositionQuote | null = null;
-      if (context && flow.arrived > 0n) {
-        try {
-          const asset = await identifyValuedAsset(faucetId, context);
-          decimals = asset.decimals;
-          if (asset.priceSymbol !== undefined) quote = await quoteAt(asset.priceSymbol);
-        } catch {
-          // Unidentified: the arrival stays unpriced.
-        }
-      }
+      const priced = pricing.get(faucetId);
       events.push({
         key: `${txId}:${faucetId}`,
         txId,
@@ -89,8 +106,8 @@ export async function recordPositionEvents(txId: string): Promise<void> {
         eventAt: completedAt * 1000,
         ...flow,
         heldAfter: held === null ? null : (held.get(faucetId) ?? 0n),
-        decimals,
-        quote
+        decimals: priced?.decimals ?? null,
+        quote: priced?.quote ?? null
       });
     }
     await appendPositionEvents(txId, events);

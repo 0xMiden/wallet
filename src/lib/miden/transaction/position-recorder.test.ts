@@ -1,6 +1,6 @@
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 
-import { recordPositionEvents, rowFlows } from './position-recorder';
+import { POSITION_PRICE_DEADLINE_MS, recordPositionEvents, rowFlows } from './position-recorder';
 import { readVaultHoldings } from './vault-read';
 import { ITransaction, ITransactionStatus } from '../db/types';
 import { readPositionEvents } from '../position-events';
@@ -205,5 +205,46 @@ describe('recordPositionEvents', () => {
     await expect(recordPositionEvents('tx-2')).resolves.toBeUndefined();
     expect(warn).toHaveBeenCalledWith('[position] recording failed (non-fatal)', 'Error');
     warn.mockRestore();
+  });
+
+  it('does not load valuation context for a departure-only row', async () => {
+    await transactions.add(row({ type: 'send', faucetId: 'faucet-a', amount: 1n }));
+    context.mockClear();
+    identify.mockClear();
+
+    await recordPositionEvents('tx-1');
+
+    expect(context).not.toHaveBeenCalled();
+    expect(identify).not.toHaveBeenCalled();
+    expect(await readPositionEvents('account-a', 'mainnet', 'faucet-a')).toEqual([
+      expect.objectContaining({ departed: 1n, decimals: null, quote: null })
+    ]);
+  });
+
+  it('records arrivals unpriced when row valuation exceeds the deadline', async () => {
+    await transactions.add(
+      row({
+        assetTotals: [
+          { faucetId: 'faucet-a', amount: 1n },
+          { faucetId: 'faucet-b', amount: 2n }
+        ]
+      })
+    );
+    identify.mockImplementation(() => new Promise(() => {}));
+
+    const result = await Promise.race([
+      recordPositionEvents('tx-1').then(() => 'recorded' as const),
+      new Promise<'still-waiting'>(resolve =>
+        setTimeout(() => resolve('still-waiting'), POSITION_PRICE_DEADLINE_MS + 500)
+      )
+    ]);
+
+    expect(result).toBe('recorded');
+    expect(await readPositionEvents('account-a', 'mainnet', 'faucet-a')).toEqual([
+      expect.objectContaining({ arrived: 1n, decimals: null, quote: null })
+    ]);
+    expect(await readPositionEvents('account-a', 'mainnet', 'faucet-b')).toEqual([
+      expect.objectContaining({ arrived: 2n, decimals: null, quote: null })
+    ]);
   });
 });
