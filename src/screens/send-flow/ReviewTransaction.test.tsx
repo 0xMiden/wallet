@@ -83,6 +83,7 @@ let mockFullPage = false;
 let mockHistoryPosition = 1;
 let mockLocationPathname: string | undefined;
 let mockApplyReviewRedirect = false;
+let mockUseRealReviewRouting = false;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockIsNewRecipient: boolean | undefined;
 const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
@@ -554,25 +555,40 @@ jest.mock('screens/command/CommandDock', () => ({ CommandDock: () => null }));
 jest.mock('screens/command/CommandHeader', () => ({ CommandHeader: () => null }));
 jest.mock('screens/command/CommandPalette', () => ({ CommandPalette: () => null }));
 jest.mock('screens/command/CommandPortfolio', () => ({ CommandPortfolio: () => null }));
-jest.mock('lib/woozie', () => ({
-  createLocationState: () => ({
-    href: `/#/send/review?${mockSearch}`,
-    historyPosition: mockHistoryPosition,
-    search: mockSearch,
-    pathname: mockLocationPathname ?? '/send/review'
-  }),
-  listen: () => () => undefined,
-  goBack: jest.fn(),
-  navigate: jest.fn(),
-  HistoryAction: { Push: 'pushstate', Replace: 'replacestate' },
-  Redirect: ({ to }: { to: string }) => {
+jest.mock('lib/woozie', () => {
+  const actual = jest.requireActual<typeof import('lib/woozie')>('lib/woozie');
+  const readFixtureLocation = () => ({ search: mockSearch });
+  function FixtureRedirect({ to }: { to: string }) {
     jest.requireActual<typeof import('react')>('react').useEffect(() => {
       if (mockApplyReviewRedirect) mockLocationPathname = to;
     }, [to]);
     return <div data-testid="redirect">redirect:{to}</div>;
-  },
-  useLocation: () => ({ search: mockSearch })
-}));
+  }
+  return {
+    createLocationState: () =>
+      mockUseRealReviewRouting
+        ? actual.createLocationState()
+        : {
+            href: `/#/send/review?${mockSearch}`,
+            historyPosition: mockHistoryPosition,
+            search: mockSearch,
+            pathname: mockLocationPathname ?? '/send/review'
+          },
+    listen: (listener: Parameters<typeof actual.listen>[0]) =>
+      mockUseRealReviewRouting ? actual.listen(listener) : () => undefined,
+    goBack: jest.fn(),
+    navigate: jest.fn((...args: Parameters<typeof actual.navigate>) => {
+      if (mockUseRealReviewRouting) actual.navigate(...args);
+    }),
+    HistoryAction: actual.HistoryAction,
+    Redirect: ({ to }: { to: string }) =>
+      mockUseRealReviewRouting ? <actual.Redirect to={to} /> : <FixtureRedirect to={to} />,
+    useLocation: () => {
+      const useReviewLocation = mockUseRealReviewRouting ? actual.useLocation : readFixtureLocation;
+      return useReviewLocation();
+    }
+  };
+});
 
 jest.mock('utils/miden', () => {
   const validate = jest.fn(() => true);
@@ -844,6 +860,7 @@ beforeEach(() => {
   mockHistoryPosition = 1;
   mockLocationPathname = undefined;
   mockApplyReviewRedirect = false;
+  mockUseRealReviewRouting = false;
   mockPublicKey = 'pubkey-1';
   mockIsNewRecipient = undefined;
   mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
@@ -3935,6 +3952,68 @@ describe('ReviewTransaction — send telemetry', () => {
 
     expect(navigateMock).toHaveBeenCalledWith(`/generating-transaction/${transactionId}`, 'replacestate');
     expect(initiateMock).toHaveBeenCalledTimes(1);
+  });
+
+  const realWoozie = jest.requireActual<typeof import('lib/woozie')>('lib/woozie');
+
+  function ReviewRoute() {
+    const { pathname } = realWoozie.useLocation();
+    return pathname === '/send/review' ? <ReviewTransaction /> : null;
+  }
+
+  function RealReviewRouter() {
+    return (
+      <realWoozie.LocationProvider>
+        <ReviewRoute />
+      </realWoozie.LocationProvider>
+    );
+  }
+
+  function enterRealReviewRoute(entry: string) {
+    setCompactReview(entry);
+    mockUseRealReviewRouting = true;
+    realWoozie.navigate(`/send/review?${mockSearch}`, realWoozie.HistoryAction.Replace);
+  }
+
+  it.each(['mounted', 'pending remount', 'admitted remount'] as const)(
+    'stays on progress after compact Send handoff through Woozie (%s)',
+    async mode => {
+      enterRealReviewRoute(`review-with-real-router-${mode.replace(' ', '-')}`);
+      const row = deferred<string>();
+      const transactionId = 'settled-real-router-row';
+      initiateMock.mockReturnValueOnce(row.promise);
+      const view = render(<RealReviewRouter />);
+      await clickSubmit();
+      if (mode !== 'mounted') view.unmount();
+      if (mode === 'admitted remount') await act(async () => row.resolve(transactionId));
+      mockBalanceData = [{ ...VALID_TOKEN, balance: 0, balanceBaseUnits: '0' }];
+
+      const paths: string[] = [];
+      const unlisten = realWoozie.listen(() => paths.push(realWoozie.createLocationState().pathname));
+      try {
+        if (mode === 'mounted') view.rerender(<RealReviewRouter />);
+        else render(<RealReviewRouter />);
+        if (mode !== 'admitted remount') await act(async () => row.resolve(transactionId));
+        await flush();
+
+        const progressPath = `/generating-transaction/${transactionId}`;
+        expect(realWoozie.createLocationState().pathname).toBe(progressPath);
+        expect(paths).toEqual([progressPath]);
+        expect(initiateMock).toHaveBeenCalledTimes(1);
+      } finally {
+        unlisten();
+      }
+    }
+  );
+
+  it('redirects a fresh compact Send with insufficient balance through Woozie', async () => {
+    enterRealReviewRoute('fresh-invalid-balance-real-router');
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 0, balanceBaseUnits: '0' }];
+    render(<RealReviewRouter />);
+    await flush();
+
+    expect(realWoozie.createLocationState().pathname).toBe('/send');
+    expect(initiateMock).not.toHaveBeenCalled();
   });
 
   it('a different review entry can submit while another entry is pending', async () => {
