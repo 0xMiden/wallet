@@ -1,10 +1,12 @@
-import React from 'react';
+import React, { useRef } from 'react';
 
+import { motion, useReducedMotion } from 'framer-motion';
 import { useTranslation } from 'react-i18next';
 
 import { Icon, IconName } from 'app/icons/v2';
 import { Hero } from 'components/ui/Hero';
 import { Pill } from 'components/ui/Pill';
+import { durations, usePreset } from 'lib/animation';
 import { revealMaskApplies } from 'lib/ui/useRevealMask';
 import { cn } from 'lib/ui/util';
 
@@ -35,6 +37,13 @@ export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({
   'data-testid': dataTestId
 }) => {
   const { t } = useTranslation();
+  const fade = usePreset('fade');
+  const reduceMotion = useReducedMotion();
+  // Words that replace the bars fade in one after another; words shown from the start are simply
+  // there. Under reduced motion they all arrive at once.
+  const wasMasked = useRef(masked);
+  if (masked) wasMasked.current = true;
+  const revealing = wasMasked.current;
 
   return (
     <div
@@ -54,9 +63,15 @@ export const SeedPhraseGrid: React.FC<SeedPhraseGridProps> = ({
                 <span className="h-1.5 w-full rounded-full bg-fill-pressed" />
               </span>
             ) : (
-              <span data-testid={`seed-word-${idx}`} className="text-value text-ink">
+              <motion.span
+                data-testid={`seed-word-${idx}`}
+                className="text-value text-ink"
+                initial={revealing ? fade.initial : false}
+                animate={fade.animate}
+                transition={reduceMotion ? fade.transition : { ...fade.transition, delay: idx * durations.stagger }}
+              >
                 {word}
-              </span>
+              </motion.span>
             )}
           </div>
         ))}

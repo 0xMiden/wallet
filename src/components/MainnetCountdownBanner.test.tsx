@@ -14,7 +14,7 @@ jest.mock('react-i18next', () => ({
   })
 }));
 
-jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn() }));
+jest.mock('lib/mobile/haptics', () => ({ hapticLight: jest.fn(), hapticSelection: jest.fn(), hapticError: jest.fn() }));
 
 // Vaul renders through a portal that jsdom cannot drive. A flat stand-in that renders its children
 // only while open is sufficient for the open and close wiring; with mockKeepContentAfterClose it keeps
