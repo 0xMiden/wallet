@@ -82,6 +82,7 @@ let mockReviewRpcUrl = 'https://rpc.review.example';
 let mockFullPage = false;
 let mockHistoryPosition = 1;
 let mockLocationPathname: string | undefined;
+let mockApplyReviewRedirect = false;
 let mockPublicKey: string | null = 'pubkey-1';
 let mockIsNewRecipient: boolean | undefined;
 const mockUseIsNewRecipient = jest.fn((..._args: unknown[]): boolean | undefined => undefined);
@@ -564,7 +565,12 @@ jest.mock('lib/woozie', () => ({
   goBack: jest.fn(),
   navigate: jest.fn(),
   HistoryAction: { Push: 'pushstate', Replace: 'replacestate' },
-  Redirect: ({ to }: { to: string }) => <div data-testid="redirect">redirect:{to}</div>,
+  Redirect: ({ to }: { to: string }) => {
+    jest.requireActual<typeof import('react')>('react').useEffect(() => {
+      if (mockApplyReviewRedirect) mockLocationPathname = to;
+    }, [to]);
+    return <div data-testid="redirect">redirect:{to}</div>;
+  },
   useLocation: () => ({ search: mockSearch })
 }));
 
@@ -837,6 +843,7 @@ beforeEach(() => {
   mockFullPage = false;
   mockHistoryPosition = 1;
   mockLocationPathname = undefined;
+  mockApplyReviewRedirect = false;
   mockPublicKey = 'pubkey-1';
   mockIsNewRecipient = undefined;
   mockUseIsNewRecipient.mockImplementation(() => mockIsNewRecipient);
@@ -3904,6 +3911,30 @@ describe('ReviewTransaction — send telemetry', () => {
     await act(async () => row.resolve('row-draft-entry'));
 
     expect(draft).toEqual(expect.objectContaining({ reviewEntry: 'admission-draft-entry' }));
+  });
+
+  it.each([
+    ['a pending', false],
+    ['an admitted', true]
+  ])('recovers %s row even when the reviewed balance has changed', async (status, admitted) => {
+    setCompactReview(`review-with-changed-balance-${status.replace(' ', '-')}`);
+    const row = deferred<string>();
+    const transactionId = `row-with-changed-balance-${status.replace(' ', '-')}`;
+    initiateMock.mockReturnValueOnce(row.promise);
+    const view = render(<ReviewTransaction />);
+    await clickSubmit();
+    expect(initiateMock).toHaveBeenCalledTimes(1);
+    view.unmount();
+
+    if (admitted) await act(async () => row.resolve(transactionId));
+    mockBalanceData = [{ ...VALID_TOKEN, balance: 0, balanceBaseUnits: '0' }];
+    mockApplyReviewRedirect = true;
+    render(<ReviewTransaction />);
+    if (!admitted) await act(async () => row.resolve(transactionId));
+    await flush();
+
+    expect(navigateMock).toHaveBeenCalledWith(`/generating-transaction/${transactionId}`, 'replacestate');
+    expect(initiateMock).toHaveBeenCalledTimes(1);
   });
 
   it('a different review entry can submit while another entry is pending', async () => {
