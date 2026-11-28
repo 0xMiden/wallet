@@ -501,8 +501,9 @@ interface SpikeOverrides {
   outcome?: unknown;
   /** NetworkField renders the four rows only while its sheet is open. */
   sheetOpen?: boolean;
-  /** What the closed field names: Arc Testnet, the default, until another row is picked. */
   summary?: string;
+  pressed?: string;
+  extraRow?: string;
 }
 
 // Each reader is answered by its own root test id: the route card and the sheet rows both carry aria-pressed.
@@ -511,7 +512,10 @@ function spikeAnswer(js: string, overrides: SpikeOverrides = {}): unknown {
     return {
       summary: overrides.summary ?? 'Arc Testnet',
       rows: overrides.sheetOpen
-        ? CHIPS.map(testId => ({ testId, pressed: testId === CHIPS[0] ? 'true' : 'false' }))
+        ? [...CHIPS, ...(overrides.extraRow ? [overrides.extraRow] : [])].map(testId => ({
+            testId,
+            pressed: testId === overrides.pressed ? 'true' : 'false'
+          }))
         : []
     };
   }
@@ -621,7 +625,7 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
       rowId: 'row-1',
       reviewRoute: HREF.slice(HREF.indexOf('#')),
       generatingRoute: '#/generating-transaction-full/row-1',
-      defaultPressed: ['send-network-arc-testnet']
+      defaultPressed: []
     });
     expect(JSON.stringify(result)).not.toContain('password');
     expect(selectors.filter(selector => !selector.startsWith(SEND) && !selector.startsWith(REVIEW))).toEqual([ARC_ROW]);
@@ -686,37 +690,45 @@ describe('IosWalletPage.burnUsdcxViaSendFlow', () => {
     );
   }, 15_000);
 
-  it('picks the payout chain it is given and holds the route and the review to that chain', async () => {
-    const baseRow = `${SHEET} [data-testid="send-network-${BASE_SEPOLIA_PAYOUT.reviewNetwork}"]`;
-    const href = HREF.replace('network=arc-testnet', `network=${BASE_SEPOLIA_PAYOUT.reviewNetwork}`);
-    const rows = usdcxPayoutRowsText(BASE_SEPOLIA_PAYOUT.chainId, BURN.amount);
-    const { page, selectors } = burnPage((js, sheetOpen) => {
-      if (js.includes('location.href')) return { href, hash: href.slice(href.indexOf('#')), submit: true };
-      if (js.includes('function row(')) {
-        return {
-          network: BASE_SEPOLIA_PAYOUT.networkName,
-          networkFee: '0.000289 USDCXPaid in USDCX, including faucet execution sponsorship',
-          fee: rows.fee,
-          notice: enText('usdcxWithdrawalNotice')
-        };
-      }
-      if (js.includes('bridge-route-usdcx')) {
-        return {
-          pressed: 'true',
-          cardText: ROUTE_CARD_TEXT,
-          fee: rows.fee,
-          notice: enText('usdcxWithdrawalNotice')
-        };
-      }
-      return spikeAnswer(js, { sheetOpen, summary: BASE_SEPOLIA_PAYOUT.networkName });
-    });
+  it.each([
+    { label: 'fresh Base', pressed: undefined, extraRow: undefined },
+    { label: 'another EVM row', pressed: undefined, extraRow: 'send-network-optimism' },
+    { label: 'a reused Arc selection', pressed: CHIPS[0], extraRow: undefined }
+  ])(
+    'picks the Base payout with $label and checks the route and review',
+    async ({ pressed, extraRow }) => {
+      const baseRow = `${SHEET} [data-testid="send-network-${BASE_SEPOLIA_PAYOUT.reviewNetwork}"]`;
+      const href = HREF.replace('network=arc-testnet', `network=${BASE_SEPOLIA_PAYOUT.reviewNetwork}`);
+      const rows = usdcxPayoutRowsText(BASE_SEPOLIA_PAYOUT.chainId, BURN.amount);
+      const { page, selectors } = burnPage((js, sheetOpen) => {
+        if (js.includes('location.href')) return { href, hash: href.slice(href.indexOf('#')), submit: true };
+        if (js.includes('function row(')) {
+          return {
+            network: BASE_SEPOLIA_PAYOUT.networkName,
+            networkFee: '0.000289 USDCXPaid in USDCX, including faucet execution sponsorship',
+            fee: rows.fee,
+            notice: enText('usdcxWithdrawalNotice')
+          };
+        }
+        if (js.includes('bridge-route-usdcx')) {
+          return {
+            pressed: 'true',
+            cardText: ROUTE_CARD_TEXT,
+            fee: rows.fee,
+            notice: enText('usdcxWithdrawalNotice')
+          };
+        }
+        return spikeAnswer(js, { sheetOpen, summary: BASE_SEPOLIA_PAYOUT.networkName, pressed, extraRow });
+      });
 
-    const result = await page.burnUsdcxViaSendFlow({ ...BURN, payout: BASE_SEPOLIA_PAYOUT });
+      const result = await page.burnUsdcxViaSendFlow({ ...BURN, payout: BASE_SEPOLIA_PAYOUT });
 
-    expect(result.reviewRoute).toBe(href.slice(href.indexOf('#')));
-    expect(result.defaultPressed).toEqual(['send-network-arc-testnet']);
-    expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([PICKER, PICKER, baseRow]);
-  }, 15_000);
+      expect(result.reviewRoute).toBe(href.slice(href.indexOf('#')));
+      expect(result.defaultPressed).toEqual(pressed === undefined ? [] : [pressed]);
+      expect(selectors.filter(selector => selector.includes('send-network-'))).toEqual([PICKER, PICKER, baseRow]);
+    },
+    15_000
+  );
 
   // The carousel keeps Send mounted with its step and its network across hash navigations.
   it('backs the persistent Send pane out to the recipient step before it fills the address', async () => {

@@ -8719,6 +8719,10 @@
     "message": "桥接费",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "最佳价格",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "最佳价值",
     "englishSource": "Best value"

@@ -1898,6 +1898,7 @@
   "bridgePayoutTiming": "到着は宛先ネットワークによって異なります",
   "bridgeSourceWallet": "ウォレット",
   "bridgeRouteFee": "ブリッジ手数料",
+  "bridgeRankBestPrice": "ベストプライス",
   "bridgeRankBestValue": "ベストバリュー",
   "bridgeRankCheapest": "最も安い",
   "bridgeRankFastest": "最速",

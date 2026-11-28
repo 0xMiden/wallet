@@ -1898,6 +1898,7 @@
   "bridgePayoutTiming": "도착 여부는 목적지 네트워크에 따라 달라집니다",
   "bridgeSourceWallet": "지갑",
   "bridgeRouteFee": "브리지 수수료",
+  "bridgeRankBestPrice": "최고 가격",
   "bridgeRankBestValue": "최적의 가치",
   "bridgeRankCheapest": "가장 저렴한",
   "bridgeRankFastest": "가장 빠른",

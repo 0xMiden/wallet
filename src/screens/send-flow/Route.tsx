@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 
+import BigNumber from 'bignumber.js';
 import { useTranslation } from 'react-i18next';
 
 import useNativeFeeFaucetId from 'app/hooks/useNativeFeeFaucetId';
@@ -11,22 +12,55 @@ import { Card, CardButton } from 'components/ui/Card';
 import { DetailCard } from 'components/ui/DetailCard';
 import { Notice } from 'components/ui/Notice';
 import { SectionHeader } from 'components/ui/SectionHeader';
+import { SegmentedControl } from 'components/ui/SegmentedControl';
 import { SelectionCheck } from 'components/ui/SelectionCheck';
 import { Skeleton } from 'components/ui/Skeleton';
 import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import { resolveDisplayMetadata } from 'lib/miden/metadata/resolve';
+import { nearIntentsEvmChainId } from 'lib/one-click/chains';
 import type { FeatureAvailability } from 'lib/remote-config/availability';
 import { useWalletStore } from 'lib/store';
 import type { FeatureUnavailableFeature } from 'lib/telemetry/ui-producer-diagnostics';
 import { useUserVisibleError } from 'lib/telemetry/use-user-visible-error';
 
-import { formatNearIntentsAmount, nearIntentsArrivalText, nearIntentsFeeUsd } from './near-intents-format';
+import {
+  formatNearIntentsAmount,
+  nearIntentsAmount,
+  nearIntentsArrivalText,
+  nearIntentsFeeUsd
+} from './near-intents-format';
+import { BridgeRouteMetrics, BridgeRouteRanking, rankBridgeRoutes } from './route-ranking';
 import { BridgeRoute } from './types';
 import { UsdcxPayoutRows, UsdcxPayoutTarget } from './UsdcxPayoutRows';
 import { AgglayerEligibility } from './useAgglayerEligibility';
 import type { NearIntentsSendQuote, NearIntentsSendQuoteErrorCode } from './useNearIntentsSendQuote';
 
+export type RoutePayout = { assetId: string; amount: string; symbol: string };
+export type RouteSortOrder = Extract<BridgeRouteRanking, 'best-value' | 'fastest'>;
+
+export const RouteSort: React.FC<{
+  value: RouteSortOrder;
+  onChange: (value: RouteSortOrder) => void;
+  accent: FlowAccent;
+}> = ({ value, onChange, accent }) => {
+  const { t } = useTranslation();
+  return (
+    <SegmentedControl
+      items={[
+        { id: 'best-value', label: t('bridgeRankBestPrice') },
+        { id: 'fastest', label: t('bridgeRankFastest') }
+      ]}
+      value={value}
+      onChange={onChange}
+      layout="fill"
+      accent={accent}
+      aria-label={t('bridgeRouteSort')}
+    />
+  );
+};
+
 export interface RouteStepProps {
+  payouts?: Partial<Record<'epoch' | 'agglayer', RoutePayout>>;
   accent?: FlowAccent;
   usdcxAvailable?: boolean;
   route: BridgeRoute;
@@ -38,6 +72,7 @@ export interface RouteStepProps {
   notice?: React.ReactNode;
   /** Disable the confirm button — e.g. the quote isn't ready, or an unsupported route+token combo. */
   confirmDisabled?: boolean;
+  confirmLabel?: string;
   onConfirm: () => void;
   /** Each route's feature: an unavailable or still-loading route is greyed out and takes no tap. */
   fastFeature?: FeatureUnavailableFeature;
@@ -55,6 +90,7 @@ export interface RouteCardProps {
   feeLabelKey?: string;
   /** The arrival estimate: a text, or a skeleton while a quote loads. */
   eta: React.ReactNode;
+  payout?: RoutePayout;
   testId?: string;
   accent: FlowAccent;
   disabled?: boolean;
@@ -73,6 +109,7 @@ export const RouteCard: React.FC<RouteCardProps> = ({
   fee,
   feeLabelKey = 'bridgeRouteFee',
   eta,
+  payout,
   testId,
   accent,
   disabled,
@@ -98,6 +135,7 @@ export const RouteCard: React.FC<RouteCardProps> = ({
         {selected && <SelectionCheck accent={accent} />}
       </div>
       <div className="grid grid-cols-2 gap-4 border-t border-hairline px-4 py-3">
+        {payout && <RouteMetric labelKey="youReceive">{`${payout.amount} ${payout.symbol}`}</RouteMetric>}
         <RouteMetric labelKey={feeLabelKey}>{fee}</RouteMetric>
         <RouteMetric labelKey="bridgeArrivalEstimate">{eta}</RouteMetric>
       </div>
@@ -119,6 +157,7 @@ const RouteMetric: React.FC<{ labelKey: string; children: React.ReactNode }> = (
 export type RouteOptionsProps = Pick<
   RouteStepProps,
   | 'route'
+  | 'payouts'
   | 'onRouteChange'
   | 'fastFeeUsd'
   | 'fastQuoteLoading'
@@ -135,8 +174,8 @@ export type RouteOptionsProps = Pick<
   showSlowRoute?: boolean;
   /** A USDCx burn's destination and amount, once the send has both: the card shows Circle's fee and the payout. */
   usdcxPayout?: UsdcxPayoutTarget;
-  /** The NEAR Intents card, when NEAR Intents offers the network. It shows after the other cards. */
-  nearIntentsCard?: React.ReactNode;
+  /** The NEAR Intents card and its quote when the provider offers the network. */
+  nearIntentsCard?: React.ReactElement<NearIntentsRouteCardProps>;
   /** False when no bridge route (Epoch, Agglayer, USDCx) serves the network: only `nearIntentsCard` shows. */
   bridgeRoutesAvailable?: boolean;
 };
@@ -278,16 +317,19 @@ export const NearIntentsRouteCard: React.FC<NearIntentsRouteCardProps> = ({
 };
 
 /** The USDCx burn's one route card. Its fees are paid in the native asset, so the subtitle names that asset. */
-const UsdcxRouteOption: React.FC<
-  Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'usdcxPayout' | 'accent' | 'nearIntentsCard'>
-> = ({ route, onRouteChange, usdcxPayout, accent = 'brand', nearIntentsCard }) => {
+const UsdcxRouteOption: React.FC<Pick<RouteOptionsProps, 'route' | 'onRouteChange' | 'usdcxPayout' | 'accent'>> = ({
+  route,
+  onRouteChange,
+  usdcxPayout,
+  accent = 'brand'
+}) => {
   const { t } = useTranslation();
   const nativeFaucetId = useNativeFeeFaucetId();
   const assetsMetadata = useWalletStore(state => state.assetsMetadata);
   const nativeSymbol = resolveDisplayMetadata(nativeFaucetId ?? undefined, assetsMetadata, nativeFaucetId).symbol;
 
   return (
-    <div className="mt-6 flex flex-col gap-4">
+    <>
       <RouteCard
         emoji=""
         label={t('usdcxRouteLabel')}
@@ -314,8 +356,7 @@ const UsdcxRouteOption: React.FC<
           <UsdcxPayoutRows chainId={usdcxPayout.chainId} />
         </DetailCard>
       )}
-      {nearIntentsCard}
-    </div>
+    </>
   );
 };
 
@@ -368,6 +409,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   route,
   onRouteChange,
   fastFeeUsd,
+  payouts,
   fastQuoteLoading,
   notice,
   usdcxAvailable,
@@ -384,6 +426,7 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   bridgeRoutesAvailable = true
 }) => {
   const { t } = useTranslation();
+  const [ranking, setRanking] = useState<RouteSortOrder>('best-value');
   const slowAllowed = slowStatus === 'allowed';
   const fastSelectable = showFastRoute && !isFeatureBlocked(fastAvailability);
   const slowSelectable = showSlowRoute && slowAllowed && !isFeatureBlocked(slowAvailability);
@@ -414,18 +457,6 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
     return <div className="mt-4 flex flex-col gap-4">{nearIntentsCard}</div>;
   }
 
-  if (usdcxAvailable) {
-    return (
-      <UsdcxRouteOption
-        route={route}
-        onRouteChange={onRouteChange}
-        usdcxPayout={usdcxPayout}
-        accent={accent}
-        nearIntentsCard={nearIntentsCard}
-      />
-    );
-  }
-
   // Built in plain JS (not JSX) so the em-dash fallback doesn't trip the
   // no-literal-string i18n lint; "$1.84" is excluded as a $-prefixed value.
   const feeText = fastFeeUsd != null ? formatUsdDisplay(fastFeeUsd) : '—';
@@ -438,89 +469,171 @@ export const RouteOptions: React.FC<RouteOptionsProps> = ({
   const fastHint = route === 'epoch' ? notice : undefined;
   const slowHint = route === 'agglayer' ? notice : undefined;
 
+  const fastCard = (
+    <RouteCard
+      emoji="⚡"
+      label={t('bridgeRouteEpoch')}
+      selected={route === 'epoch'}
+      onSelect={() => select('epoch')}
+      fee={fastFee}
+      eta={t('fastArrival')}
+      payout={fastSelectable ? payouts?.epoch : undefined}
+      disabled={!fastSelectable}
+      describedBy={
+        fastAvailability.state === 'unavailable' ? FAST_NOTICE_ID : fastHint ? 'bridge-route-fast-hint' : undefined
+      }
+      testId="bridge-route-fast"
+      accent={accent}
+      description={
+        fastAvailability.state === 'unavailable' || fastHint ? (
+          <>
+            <RouteAvailabilityNotice
+              availability={fastAvailability}
+              feature={fastFeature}
+              otherRouteSelectable={slowSelectable}
+              id={FAST_NOTICE_ID}
+              data-testid="feature-unavailable-notice-fast"
+            />
+            {fastHint && (
+              <p id="bridge-route-fast-hint" className="text-caption text-muted">
+                {fastHint}
+              </p>
+            )}
+          </>
+        ) : undefined
+      }
+    />
+  );
+  const slowCard = (
+    <RouteCard
+      emoji="🕐"
+      label={t('bridgeRouteAgglayer')}
+      selected={route === 'agglayer' && slowAllowed}
+      disabled={!slowSelectable}
+      loading={slowStatus === 'loading'}
+      describedBy={
+        slowAvailability.state === 'unavailable'
+          ? SLOW_NOTICE_ID
+          : slowNotice
+            ? 'bridge-route-slow-status'
+            : slowHint
+              ? 'bridge-route-slow-hint'
+              : undefined
+      }
+      onSelect={() => select('agglayer')}
+      fee={slowFee}
+      eta={t('slowArrival')}
+      payout={slowSelectable ? payouts?.agglayer : undefined}
+      testId="bridge-route-slow"
+      accent={accent}
+      description={
+        slowAvailability.state === 'unavailable' || slowNotice || slowHint ? (
+          <>
+            <RouteAvailabilityNotice
+              availability={slowAvailability}
+              feature={slowFeature}
+              otherRouteSelectable={fastSelectable}
+              id={SLOW_NOTICE_ID}
+              data-testid="feature-unavailable-notice-slow"
+            />
+            {slowHint && (
+              <p id="bridge-route-slow-hint" className="text-caption text-muted">
+                {slowHint}
+              </p>
+            )}
+            {slowNotice && (
+              <p id="bridge-route-slow-status" role="status" className="text-caption text-muted">
+                {slowNotice}
+              </p>
+            )}
+          </>
+        ) : undefined
+      }
+    />
+  );
+  const intentsStatus = nearIntentsCard?.props.quote;
+  const intentsPair = intentsStatus?.status === 'ready' ? intentsStatus.pair : undefined;
+  const intentsQuote = intentsStatus?.status === 'ready' ? intentsStatus.quote?.quote : undefined;
+  const intentsChain =
+    intentsPair?.chain.addressKind === 'evm' ? nearIntentsEvmChainId(intentsPair.chain.id) : undefined;
+  const intentsContract = intentsPair?.destination.contractAddress;
+  const intentsAssetId =
+    intentsChain !== undefined && intentsContract ? `${intentsChain}:${intentsContract.toLowerCase()}` : undefined;
+  const bridgeRoutes = [
+    {
+      id: 'epoch',
+      visible: showFastRoute,
+      disabled: !fastSelectable,
+      etaSeconds: 30,
+      payout: payouts?.epoch,
+      card: fastCard
+    },
+    {
+      id: 'agglayer',
+      visible: showSlowRoute,
+      disabled: !slowSelectable,
+      etaSeconds: 30 * 60,
+      payout: payouts?.agglayer,
+      card: slowCard
+    }
+  ].filter(option => option.visible);
+  const routes: (BridgeRouteMetrics & { id: string; assetId?: string; card: React.ReactElement })[] = usdcxAvailable
+    ? [
+        {
+          id: 'usdcx',
+          card: (
+            <UsdcxRouteOption route={route} onRouteChange={onRouteChange} usdcxPayout={usdcxPayout} accent={accent} />
+          )
+        }
+      ]
+    : bridgeRoutes.map(option => ({
+        ...option,
+        assetId: option.payout?.assetId,
+        receivedValue: option.payout?.amount
+      }));
+  if (nearIntentsCard) {
+    routes.push({
+      id: 'near-intents',
+      disabled: intentsStatus?.status === 'error' || intentsStatus?.status === 'unsupported',
+      etaSeconds: intentsQuote?.timeEstimate,
+      assetId: intentsAssetId,
+      receivedValue:
+        intentsQuote && intentsPair
+          ? nearIntentsAmount(intentsQuote.amountOut, intentsPair.destination.decimals)?.toFixed()
+          : undefined,
+      card: nearIntentsCard
+    });
+  }
+  const ranked = (() => {
+    if (ranking === 'fastest') return rankBridgeRoutes(routes, ranking);
+    const ordered = [...routes.filter(option => !option.disabled), ...routes.filter(option => option.disabled)];
+    const matchingByAsset = new Map<string, typeof routes>();
+    const comparableAssets = ordered.map(option => {
+      const { assetId, disabled, receivedValue } = option;
+      if (disabled || !assetId || receivedValue === undefined) return undefined;
+      const amount = new BigNumber(receivedValue);
+      if (!amount.isFinite() || amount.lt(0)) return undefined;
+      const matching = matchingByAsset.get(assetId) ?? [];
+      matching.push(option);
+      matchingByAsset.set(assetId, matching);
+      return assetId;
+    });
+    // Only swap cards that quote the same asset, leaving other cards in their slots.
+    for (const [assetId, matching] of matchingByAsset) {
+      if (matching.length > 1) matchingByAsset.set(assetId, rankBridgeRoutes(matching, ranking));
+    }
+    return ordered.map((option, index) => {
+      const assetId = comparableAssets[index];
+      return assetId ? (matchingByAsset.get(assetId)?.shift() ?? option) : option;
+    });
+  })();
+
   return (
-    <div className="mt-4 flex flex-col gap-4">
-      {showFastRoute && (
-        <RouteCard
-          emoji="⚡"
-          label={t('bridgeRouteEpoch')}
-          selected={route === 'epoch'}
-          onSelect={() => select('epoch')}
-          fee={fastFee}
-          eta={t('fastArrival')}
-          disabled={!fastSelectable}
-          describedBy={
-            fastAvailability.state === 'unavailable' ? FAST_NOTICE_ID : fastHint ? 'bridge-route-fast-hint' : undefined
-          }
-          testId="bridge-route-fast"
-          accent={accent}
-          description={
-            fastAvailability.state === 'unavailable' || fastHint ? (
-              <>
-                <RouteAvailabilityNotice
-                  availability={fastAvailability}
-                  feature={fastFeature}
-                  otherRouteSelectable={slowSelectable}
-                  id={FAST_NOTICE_ID}
-                  data-testid="feature-unavailable-notice-fast"
-                />
-                {fastHint && (
-                  <p id="bridge-route-fast-hint" className="text-caption text-muted">
-                    {fastHint}
-                  </p>
-                )}
-              </>
-            ) : undefined
-          }
-        />
-      )}
-      {showSlowRoute && (
-        <RouteCard
-          emoji="🕐"
-          label={t('bridgeRouteAgglayer')}
-          selected={route === 'agglayer' && slowAllowed}
-          disabled={!slowSelectable}
-          loading={slowStatus === 'loading'}
-          describedBy={
-            slowAvailability.state === 'unavailable'
-              ? SLOW_NOTICE_ID
-              : slowNotice
-                ? 'bridge-route-slow-status'
-                : slowHint
-                  ? 'bridge-route-slow-hint'
-                  : undefined
-          }
-          onSelect={() => select('agglayer')}
-          fee={slowFee}
-          eta={t('slowArrival')}
-          testId="bridge-route-slow"
-          accent={accent}
-          description={
-            slowAvailability.state === 'unavailable' || slowNotice || slowHint ? (
-              <>
-                <RouteAvailabilityNotice
-                  availability={slowAvailability}
-                  feature={slowFeature}
-                  otherRouteSelectable={fastSelectable}
-                  id={SLOW_NOTICE_ID}
-                  data-testid="feature-unavailable-notice-slow"
-                />
-                {slowHint && (
-                  <p id="bridge-route-slow-hint" className="text-caption text-muted">
-                    {slowHint}
-                  </p>
-                )}
-                {slowNotice && (
-                  <p id="bridge-route-slow-status" role="status" className="text-caption text-muted">
-                    {slowNotice}
-                  </p>
-                )}
-              </>
-            ) : undefined
-          }
-        />
-      )}
-      {nearIntentsCard}
+    <div className={usdcxAvailable ? 'mt-6 flex flex-col gap-4' : 'mt-4 flex flex-col gap-4'}>
+      {ranked.length > 1 && <RouteSort value={ranking} onChange={setRanking} accent={accent} />}
+      {ranked.map(({ id, card }) => (
+        <React.Fragment key={id}>{card}</React.Fragment>
+      ))}
     </div>
   );
 };
@@ -537,9 +650,11 @@ export const Route: React.FC<RouteStepProps> = ({
   route,
   onRouteChange,
   fastFeeUsd,
+  payouts,
   fastQuoteLoading,
   notice,
   confirmDisabled,
+  confirmLabel,
   onConfirm,
   fastFeature,
   slowFeature,
@@ -553,9 +668,10 @@ export const Route: React.FC<RouteStepProps> = ({
       top="header"
       footer={
         <Button
-          title={t(
-            route === 'agglayer' ? 'bridgeContinueAgglayer' : route === 'epoch' ? 'bridgeContinueEpoch' : 'continue'
-          )}
+          title={
+            confirmLabel ??
+            t(route === 'agglayer' ? 'bridgeContinueAgglayer' : route === 'epoch' ? 'bridgeContinueEpoch' : 'continue')
+          }
           variant={ButtonVariant.Primary}
           accent={accent}
           onClick={onConfirm}
@@ -573,6 +689,7 @@ export const Route: React.FC<RouteStepProps> = ({
         route={route}
         onRouteChange={onRouteChange}
         fastFeeUsd={fastFeeUsd}
+        payouts={payouts}
         fastQuoteLoading={fastQuoteLoading}
         notice={notice}
         slowStatus="allowed"

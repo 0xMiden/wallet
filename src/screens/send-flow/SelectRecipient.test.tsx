@@ -93,12 +93,6 @@ describe('SelectRecipient', () => {
     expect(pills?.className).not.toMatch(/overflow-x-|-mx-/);
   });
 
-  it('hides the network selector before an address is entered', () => {
-    renderRecipient();
-
-    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
-  });
-
   it('hides the placeholder while the recipient field is focused, as the other text fields do', () => {
     renderRecipient({ onScan: jest.fn() });
     const field = screen.getByTestId('send-recipient-input');
@@ -179,10 +173,28 @@ describe('SelectRecipient', () => {
     }
   });
 
-  it('hides the network selector for an incomplete EVM address', () => {
-    renderRecipient({ address: '0x1234', isValidAddress: false, chain: 'ethereum' });
+  it.each(['', '0x1234'])('offers EVM and Solana networks before the recipient address is valid (%s)', address => {
+    const networks: NetworkOption[] = [...mockBridgeNetworks, { id: 'solana', name: 'Solana', kind: 'solana' }];
+    const props = renderRecipient({ address, isValidAddress: false, chain: address ? 'ethereum' : 'miden', networks });
 
-    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
+    const picker = screen.getByRole('button', { name: 'selectNetwork' });
+    fireEvent.click(picker);
+    expect(screen.getByTestId('send-network-sepolia')).toHaveTextContent('Sepolia');
+    expect(screen.queryByTestId('send-network-solana')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('send-network-solana'));
+
+    expect(props.onSelectNetwork).toHaveBeenCalledWith('solana');
+    expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+  });
+
+  it('offers only EVM networks for a valid EVM recipient', () => {
+    const networks: NetworkOption[] = [...mockBridgeNetworks, { id: 'solana', name: 'Solana', kind: 'solana' }];
+    renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', networks });
+
+    fireEvent.click(screen.getByTestId('send-network-picker'));
+    expect(screen.getByTestId('send-network-sepolia')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-solana')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
   });
 
   it('enables EVM confirmation once the network is set', () => {
@@ -203,6 +215,7 @@ describe('SelectRecipient', () => {
 
     expect(screen.getByTestId('send-network-solana')).toHaveTextContent('Solana');
     expect(screen.queryByTestId('send-network-picker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-sepolia')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 
@@ -216,7 +229,8 @@ describe('SelectRecipient', () => {
     renderRecipient({ address: SOLANA_ADDRESS, isValidAddress: false, error: 'recipientNetworkUnsupported' });
 
     expect(screen.getByText('recipientNetworkUnsupported')).toBeInTheDocument();
-    expect(screen.queryByTestId('send-network-options')).not.toBeInTheDocument();
+    expect(screen.getByTestId('send-network-options')).toBeInTheDocument();
+    expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
   });
 
   it('shows Miden as the network for a valid Miden recipient', () => {

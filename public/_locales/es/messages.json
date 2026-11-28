@@ -8725,6 +8725,10 @@
     "message": "Comisión de puente",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "Mejor precio",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "Mejor valor",
     "englishSource": "Best value"

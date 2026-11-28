@@ -8725,6 +8725,10 @@
     "message": "Taxa de ponte",
     "englishSource": "Bridge fee"
   },
+  "bridgeRankBestPrice": {
+    "message": "Melhor Preço",
+    "englishSource": "Best Price"
+  },
   "bridgeRankBestValue": {
     "message": "Melhor valor",
     "englishSource": "Best value"

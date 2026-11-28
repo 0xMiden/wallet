@@ -1894,6 +1894,7 @@
   "bridgePayoutTiming": "Время прибытия зависит от сети назначения",
   "bridgeSourceWallet": "Кошелек",
   "bridgeRouteFee": "Комиссия за мост",
+  "bridgeRankBestPrice": "Лучшая цена",
   "bridgeRankBestValue": "Наилучшая стоимость",
   "bridgeRankCheapest": "Самый дешёвый",
   "bridgeRankFastest": "Самый быстрый",

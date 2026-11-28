@@ -1889,6 +1889,7 @@
   "bridgePayoutTiming": "Die Ankunft hängt vom Zielnetzwerk ab",
   "bridgeSourceWallet": "Wallet",
   "bridgeRouteFee": "Brückengebühr",
+  "bridgeRankBestPrice": "Bester Preis",
   "bridgeRankBestValue": "Best Value",
   "bridgeRankCheapest": "Günstigster",
   "bridgeRankFastest": "Am schnellsten",

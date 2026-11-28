@@ -1898,6 +1898,7 @@
   "bridgePayoutTiming": "到账时间取决于目标网络",
   "bridgeSourceWallet": "钱包",
   "bridgeRouteFee": "桥接费",
+  "bridgeRankBestPrice": "最佳价格",
   "bridgeRankBestValue": "最佳价值",
   "bridgeRankCheapest": "最便宜",
   "bridgeRankFastest": "最快",

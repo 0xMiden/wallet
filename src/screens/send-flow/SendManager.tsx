@@ -13,6 +13,7 @@ import { HomeGroupPaneRoot } from 'app/layouts/HomeGroupPane';
 import { useHideHomeActionsWhileOpen } from 'app/layouts/useHideHomeActionsWhileOpen';
 import { useFlowPresentation } from 'components/flow/FlowPresentation';
 import { Navigator, NavigatorProvider, Route, useNavigator } from 'components/Navigator';
+import { isQuoteReviewable } from 'lib/bridge/core/quote';
 import { amountExceedsTokenDecimals, stringToBigInt, typedAmountExceedsBalance } from 'lib/i18n/numbers';
 import { hasNoFeeAsset, maxSendableNative } from 'lib/miden/fees/spendable';
 import { useAccount, useAllAccounts, useAllBalances, useAllTokensBaseMetadata } from 'lib/miden/front';
@@ -39,6 +40,7 @@ import { useQuoteClock } from 'lib/prices/use-quote-clock';
 import { isScanAvailable, scanQRCode } from 'lib/qr';
 import { isNewTransferTokenHeld, isRetiredTransferToken } from 'lib/remote-config/token-availability';
 import { useBridgeConfigSnapshot } from 'lib/remote-config/use-feature-availability';
+import { selectAgglayerRegistryToken } from 'lib/remote-config/values';
 import { useWalletStore } from 'lib/store';
 import {
   snapshotRecipientValidation,
@@ -65,8 +67,6 @@ import { AddContactDrawer } from './AddContactDrawer';
 import {
   BRIDGE_NETWORKS,
   BridgeNetworkId,
-  defaultBridgeNetwork,
-  defaultUsdcxBridgeNetwork,
   isEpochBridgeNetwork,
   isSendNetworkId,
   SendNetworkId,
@@ -245,8 +245,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Extension-only: the webcam QR scanner is a bottom sheet over the recipient
   // step (mobile scans through its native plugin instead — see onScan below).
   const [showScanDrawer, setShowScanDrawer] = useState(false);
-  // Retain a choice made before the address determines whether the send is Miden or EVM.
-  const [recipientNetwork, setRecipientNetwork] = useState<SendNetworkId>();
 
   // Hide the floating BottomNav once the user moves past recipient selection,
   // so the step CTAs can sit at the actual bottom of the screen. SendManager
@@ -493,11 +491,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Undefined for a Miden address.
   const networkKind = sendNetworkKind(chain);
   const isBridge = !!recipientAddress && networkKind !== undefined;
-  const displayedNetwork: SendNetworkId | undefined = recipientAddress?.trim()
-    ? isBridge
-      ? bridgeNetwork
-      : 'miden'
-    : recipientNetwork;
   // The name and address of a recipient input that is a resolved Miden Name.
   // Undefined for every other input.
   const resolvedMidenName = useMemo(() => {
@@ -518,12 +511,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // Epoch, Agglayer and USDCx serve only a network with a bridge and an EVM chain id.
   const bridgeChainId = selectedNetwork?.bridge ? selectedNetwork.chainId : undefined;
   const destinationChainId = bridgeChainId;
-  // A network that only USDCx serves takes only USDCx. NEAR Intents and Epoch take other tokens.
-  const displayedSendNetwork = offeredNetworks.find(n => n.id === displayedNetwork);
-  const usdcxOnly =
-    !!displayedSendNetwork?.bridge &&
-    !displayedSendNetwork.nearIntentsChainId &&
-    !isEpochBridgeNetwork(displayedNetwork);
   const selectedContact = useMemo(() => {
     const normalizedAddress = effectiveRecipientAddress?.trim().toLowerCase();
     if (!normalizedAddress) return undefined;
@@ -543,6 +530,18 @@ export const SendManager: React.FC<SendManagerProps> = ({
     !errors.recipientAddress &&
     !recipientNetworkUnsupported &&
     validations.recipientAddress.isValidSync(recipientAddress, { context: recipientValidationContext });
+  const isMidenRecipient = !isBridge && isValidRecipient;
+  const displayedNetwork: SendNetworkId | undefined = isMidenRecipient
+    ? 'miden'
+    : isValidRecipient
+      ? selectedNetwork?.id
+      : offeredNetworks.find(n => n.id === bridgeNetwork)?.id;
+  // A network that only USDCx serves takes only USDCx. NEAR Intents and Epoch take other tokens.
+  const displayedSendNetwork = offeredNetworks.find(n => n.id === displayedNetwork);
+  const usdcxOnly =
+    !!displayedSendNetwork?.bridge &&
+    !displayedSendNetwork.nearIntentsChainId &&
+    !isEpochBridgeNetwork(displayedNetwork);
   // A valid address that isn't in the wallet or the address book can be saved
   // straight from the recipient step — the pill offers "Add to contacts?".
   // The address book takes only Miden and EVM addresses.
@@ -559,17 +558,12 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [recentSendRecipients, allContactsList]
   );
 
-  // A destination selected before typing can carry into an EVM address. Once a
-  // non-empty Miden address is entered, the EVM destination is no longer meaningful.
+  // Keep the chosen network while typing. Only a validated Miden recipient replaces it.
   useEffect(() => {
-    const hasRecipientAddress = !!recipientAddress?.trim();
-    if (hasRecipientAddress && !isBridge && bridgeNetwork) {
-      setValue('bridgeNetwork', undefined);
-    }
-    if (hasRecipientAddress && !isBridge && recipientNetwork !== 'miden') {
-      setRecipientNetwork('miden');
-    }
-  }, [recipientAddress, isBridge, bridgeNetwork, recipientNetwork, setValue]);
+    if (!isMidenRecipient || bridgeNetwork === undefined) return;
+    setValue('bridgeNetwork', undefined);
+    saveCommandDraft({ bridgeNetwork: undefined });
+  }, [isMidenRecipient, bridgeNetwork, setValue, saveCommandDraft]);
 
   // Forward-quote the USDC output for the Fast (Epoch) route, so the Route
   // screen can show a live fee regardless of which route is selected.
@@ -648,7 +642,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     [usdcxPayout]
   );
 
-  const epochQuoteEnabled = bridgeChainId !== undefined && !usdcxAvailable;
+  const epochQuoteEnabled = isBridge && isValidRecipient && bridgeChainId !== undefined && !usdcxAvailable;
   const epochQuote = useEpochQuote({
     destinationChainId: bridgeChainId,
     amount: amountBaseUnits,
@@ -657,6 +651,17 @@ export const SendManager: React.FC<SendManagerProps> = ({
     senderPublicKey: publicKey ?? undefined,
     enabled: epochQuoteEnabled
   });
+  const epochExpiry = epochQuote.validity?.kind === 'time' ? epochQuote.validity.expiresAt : undefined;
+  useQuoteClock(epochExpiry);
+  const epochReviewQuote = useMemo(
+    () =>
+      !epochQuote.loading && !epochQuote.error && epochQuote.amount !== undefined && epochQuote.validity
+        ? { kind: 'epoch' as const, received: epochQuote.amount, validity: epochQuote.validity }
+        : undefined,
+    [epochQuote.amount, epochQuote.error, epochQuote.loading, epochQuote.validity]
+  );
+  const currentEpochQuote = isQuoteReviewable(epochReviewQuote, Date.now()) ? epochReviewQuote : undefined;
+  const requiresEpochQuote = isBridge && (bridgeRoute ?? 'epoch') === 'epoch';
 
   // The NEAR Intents quote input of the Route step, when NEAR Intents serves the selected network.
   const nearIntentsChainId = selectedNetwork?.nearIntentsChainId;
@@ -680,7 +685,11 @@ export const SendManager: React.FC<SendManagerProps> = ({
     amount: nearIntents?.amount,
     recipient: nearIntents?.recipient,
     enabled:
-      pathname === '/send' && isBridge && nearIntents !== undefined && (command || currentStep === SendFlowStep.Route)
+      pathname === '/send' &&
+      isBridge &&
+      isValidRecipient &&
+      nearIntents !== undefined &&
+      (command || currentStep === SendFlowStep.Route)
   });
   const routeEligibility = useSendRouteEligibility(
     token?.id ?? '',
@@ -690,6 +699,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     pathname === '/send' && isBridge && (command || currentStep === SendFlowStep.Route),
     command ? nearIntentsQuote.status === 'ready' : nearIntents !== undefined
   );
+  const routeBlocked = isBridge && (routeEligibility.blocked || (requiresEpochQuote && !currentEpochQuote));
 
   // E2E-only hook: mirror the forward-quote's state so the harness can assert on
   // WHY a quote is missing instead of on the "$" the fee happens to render.
@@ -703,7 +713,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
     if (process.env.MIDEN_E2E_TEST !== 'true') return;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (globalThis as any).__TEST_EPOCH_QUOTE__ = {
-      enabled: bridgeChainId !== undefined,
+      enabled: epochQuoteEnabled,
       loading: epochQuote.loading,
       amount: epochQuote.amount ?? null,
       symbol: epochQuote.symbol ?? null,
@@ -713,7 +723,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       fiatPrice: token?.fiatPrice ?? null
     };
   }, [
-    bridgeChainId,
+    epochQuoteEnabled,
     epochQuote.loading,
     epochQuote.amount,
     epochQuote.symbol,
@@ -746,16 +756,16 @@ export const SendManager: React.FC<SendManagerProps> = ({
       token.fiatPriceIsNominal ||
       fastQuoteExpired ||
       !amount ||
-      epochQuote.amount == null ||
+      !currentEpochQuote ||
       fastOutputPrice === undefined
     ) {
       return undefined;
     }
     const input = parseFloat(amount) * token.fiatPrice;
-    const output = parseFloat(epochQuote.amount) * fastOutputPrice;
+    const output = parseFloat(currentEpochQuote.received) * fastOutputPrice;
     if (!isFinite(input) || !isFinite(output)) return undefined;
     return Math.max(0, input - output);
-  }, [token, amount, epochQuote.amount, fastQuoteExpired, fastOutputPrice]);
+  }, [token, amount, currentEpochQuote, fastQuoteExpired, fastOutputPrice]);
 
   // Pre-select token when navigating from token detail page
   const allTokensBaseMetadata = useAllTokensBaseMetadata();
@@ -1117,12 +1127,14 @@ export const SendManager: React.FC<SendManagerProps> = ({
           !!payoutFeeShortfall ||
           !validations.amount.isValidSync(amount) ||
           !token.scaleIsKnown ||
-          typedAmountExceedsBalance(amount, spendableBalance, token.decimals) ||
-          (isBridge &&
-            (bridgeRoute === 'near-intents' ? nearIntents === undefined : destinationChainId === undefined)))) ||
+          typedAmountExceedsBalance(amount, spendableBalance, token.decimals))) ||
       isNewTransferTokenHeld(bridgeConfig, token.id, nativeFaucetId) ||
       !canSendTokenToNetwork(bridgeConfig, token.id, selectedNetwork) ||
-      (isBridge && routeEligibility.blocked)
+      (isBridge &&
+        (!selectedNetwork ||
+          (bridgeRoute === 'near-intents' ? nearIntents === undefined : destinationChainId === undefined) ||
+          routeEligibility.blocked)) ||
+      (requiresEpochQuote && !isQuoteReviewable(epochReviewQuote, Date.now()))
     )
       return;
     if (isBridge && destinationChainId !== undefined && bridgeRoute !== 'near-intents') {
@@ -1192,7 +1204,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
     restoredSendIntent,
     saveCommandDraft,
     nearIntents,
-    routeEligibility.blocked
+    routeEligibility.blocked,
+    requiresEpochQuote,
+    epochReviewQuote
   ]);
 
   // From the Amount screen: a cross-chain send picks a route next; a same-chain
@@ -1297,6 +1311,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
       } else {
         clearErrors('recipientAddress');
       }
+      return result;
     },
     [cancelPendingValidation, recipientErrorKey, setError, clearErrors]
   );
@@ -1388,7 +1403,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         id: SendFlowActionId.SetFormValues,
         payload: { recipientAddress: address }
       });
-      saveCommandDraft({ recipientAddress: address, bridgeNetwork: undefined, bridgeRoute: 'epoch' });
+      saveCommandDraft({ recipientAddress: address });
       // Do not show an error in the middle of the entry: remove the one on
       // show, and validate RECIPIENT_VALIDATION_DEBOUNCE_MS after the last keystroke.
       cancelPendingValidation();
@@ -1409,7 +1424,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
         payload: { recipientAddress: address }
       });
       applyRecipientValidation(address);
-      saveCommandDraft({ recipientAddress: address, bridgeNetwork: undefined, bridgeRoute: 'epoch' });
+      saveCommandDraft({ recipientAddress: address, bridgeRoute: 'epoch' });
     },
     [onAction, applyRecipientValidation, saveCommandDraft]
   );
@@ -1469,11 +1484,9 @@ export const SendManager: React.FC<SendManagerProps> = ({
           ? { recipientAddress: contact.id, bridgeNetwork: contact.network }
           : { recipientAddress: contact.id }
       });
-      // A `0x` contact carries its destination network, so the network chips come up chosen.
-      if (contact.network) setRecipientNetwork(contact.network);
       // A saved contact can be the account's own address — same guard as typed entry.
       applyRecipientValidation(contact.id);
-      saveCommandDraft({ recipientAddress: contact.id, bridgeNetwork: contact.network, bridgeRoute: 'epoch' });
+      saveCommandDraft({ recipientAddress: contact.id, bridgeRoute: 'epoch' });
     },
     [onAction, applyRecipientValidation, saveCommandDraft]
   );
@@ -1489,9 +1502,8 @@ export const SendManager: React.FC<SendManagerProps> = ({
         ? { recipientAddress: preselectedRecipient, bridgeNetwork: network }
         : { recipientAddress: preselectedRecipient }
     });
-    if (network) setRecipientNetwork(network);
     applyRecipientValidation(preselectedRecipient);
-    saveCommandDraft({ recipientAddress: preselectedRecipient, bridgeNetwork: network });
+    saveCommandDraft({ recipientAddress: preselectedRecipient });
     // Once per contact opened, not on every change of the callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [preselectedRecipient, preselectedNetwork]);
@@ -1499,32 +1511,18 @@ export const SendManager: React.FC<SendManagerProps> = ({
   // A 0x recipient's destination network, picked from the chips on the recipient step.
   const onSelectNetwork = useCallback(
     (network: BridgeNetworkId) => {
-      setRecipientNetwork(network);
       onAction({ id: SendFlowActionId.SetFormValues, payload: { bridgeNetwork: network } });
       saveCommandDraft({ bridgeNetwork: network });
     },
     [onAction, saveCommandDraft]
   );
 
-  // Keep an offered destination of the address chain that the user chose. For an EVM address, select the effective
-  // network's default when there is none, or when a contact, link or draft carries one this network does not offer
-  // (Ethereum on mainnet, Arc Testnet or Sepolia on the test networks), else the first EVM destination offered. A
-  // Solana, Bitcoin or NEAR address has one network, so select it.
+  // An address for a non-EVM chain has only one destination. EVM destinations stay explicit.
   useEffect(() => {
-    if (!isBridge || !isValidRecipient || selectedNetwork) return;
-    const options = offeredNetworks.filter(n => n.kind === networkKind);
-    let next = options[0];
-    switch (networkKind) {
-      case 'evm': {
-        const preferred = usdcxAvailable ? defaultUsdcxBridgeNetwork() : defaultBridgeNetwork();
-        next = options.find(n => n.id === preferred.id) ?? next;
-        break;
-      }
-      default:
-        break;
-    }
+    if (!isBridge || !isValidRecipient || selectedNetwork || networkKind === 'evm') return;
+    const next = offeredNetworks.find(n => n.kind === networkKind);
     if (next) onSelectNetwork(next.id);
-  }, [isBridge, isValidRecipient, selectedNetwork, networkKind, offeredNetworks, onSelectNetwork, usdcxAvailable]);
+  }, [isBridge, isValidRecipient, selectedNetwork, networkKind, offeredNetworks, onSelectNetwork]);
 
   // A "Recent" row fills the recipient exactly like picking a contact does.
   const onSelectRecent = useCallback(
@@ -1645,16 +1643,38 @@ export const SendManager: React.FC<SendManagerProps> = ({
     onBack: onStepBack,
     onConfirm: onConfirmAmount
   };
+  const fastPayout =
+    destinationChainId !== undefined && epochQuote.address && currentEpochQuote
+      ? {
+          assetId: `${destinationChainId}:${epochQuote.address.toLowerCase()}`,
+          amount: currentEpochQuote.received,
+          symbol: epochQuote.symbol
+        }
+      : undefined;
+  const sameAgglayerAsset =
+    fastPayout && destinationChainId !== undefined && epochQuote.address && token
+      ? selectAgglayerRegistryToken(bridgeConfig, epochQuote.address.toLowerCase(), destinationChainId)?.midenFaucetId
+      : undefined;
+  const slowPayout =
+    fastPayout &&
+    sameAgglayerAsset &&
+    token &&
+    amount &&
+    amountBaseUnits &&
+    sameWalletAccountId(sameAgglayerAsset, token.id)
+      ? { ...fastPayout, amount }
+      : undefined;
   const routeProps: SendRouteProps = {
     nearIntents,
     nearIntentsQuote,
     bridgeRoutesAvailable: bridgeChainId !== undefined,
-    eligibility: routeEligibility,
+    eligibility: { ...routeEligibility, blocked: routeBlocked },
     usdcxAvailable,
     usdcxPayout,
     route: bridgeRoute ?? 'epoch',
     onRouteChange,
     fastFeeUsd,
+    payouts: { epoch: fastPayout, agglayer: slowPayout },
     fastQuoteLoading: epochQuote.loading,
     onBack: onStepBack,
     onConfirm: goToReview
@@ -1681,7 +1701,7 @@ export const SendManager: React.FC<SendManagerProps> = ({
           onRecipientChange={setRecipientAddress}
           amount={amountProps}
           onReview={goToReview}
-          routeBlocked={isBridge && routeEligibility.blocked}
+          routeBlocked={routeBlocked}
           route={isBridge ? <SendRoute {...routeProps} embedded /> : null}
         />
       ) : (
