@@ -27,6 +27,104 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
   return (product + scale - 1n) / scale;
 };
 
+export interface ValuationContext {
+  network: string;
+  nativeId: string | undefined;
+  nativeIdentityCause: unknown;
+  nativeMetadata: Awaited<ReturnType<typeof getNativeAssetMetadata>> | undefined;
+}
+
+/** What every valuation reads once before identifying its assets. `label` names the refusal. */
+export const loadValuationContext = async (label: string): Promise<ValuationContext> => {
+  // Read before any await: a network change mid-valuation must not swap the verified list it matches.
+  const network = getEffectiveNetworkName();
+  try {
+    await ensureSdkWasmReady();
+  } catch (cause) {
+    throw new SpendingLimitPriceUnavailableError(label, { cause });
+  }
+  // From storage, never the network, and never rejects: a handler can run before this realm hydrated it.
+  await initBridgeConfig();
+  await loadTokenPriceAssets(network);
+  let nativeId: string | undefined;
+  let nativeIdentityCause: unknown;
+  let nativeMetadata;
+  try {
+    nativeId = await getNativeAssetId();
+  } catch (cause) {
+    if (cause instanceof WebAssembly.RuntimeError) {
+      throw new SpendingLimitPriceUnavailableError(label, { cause });
+    }
+    nativeIdentityCause = cause;
+  }
+  if (nativeId !== undefined) {
+    try {
+      nativeMetadata = await getNativeAssetMetadata();
+    } catch (cause) {
+      throw new SpendingLimitPriceUnavailableError(label, { cause });
+    }
+  }
+  return { network, nativeId, nativeIdentityCause, nativeMetadata };
+};
+
+/** A faucet identified by id; `priceSymbol` is undefined for an asset nobody prices. */
+export interface ValuedAsset {
+  faucetId: string;
+  symbol: string;
+  decimals: number;
+  priceSymbol: string | undefined;
+  nativeId?: string;
+}
+
+/** Identifies one faucet as `resolveSpendsUsd` documents, or throws `SpendingLimitPriceUnavailableError`. */
+export const identifyValuedAsset = async (spendFaucetId: string, context: ValuationContext): Promise<ValuedAsset> => {
+  const { network, nativeId, nativeIdentityCause, nativeMetadata } = context;
+  let faucetId: string;
+  let symbol: string;
+  let decimals: number;
+  let scaleKnown: boolean;
+  let authenticatedNativeUsdcx = false;
+  try {
+    // Canonicalized to the cache's own bech32 key BEFORE the lookup: a caller that folded
+    // several spellings of this faucet into one canonical hex id (the dApp custom path's
+    // `netOutflowByFaucet`) would otherwise miss a cache entry that exists under its bech32
+    // spelling and fail identification for a faucet the wallet has already met. An id the SDK
+    // cannot parse refuses the spend: its raw text would miss the allowlist and count a priced
+    // spend as nothing. `strictPriceSymbolFor` canonicalizes it again at match time, alongside
+    // the allowlist, so a network switch during the metadata await cannot turn a priced spend
+    // into $0.
+    faucetId = canonicalFaucetId(spendFaucetId);
+    const isNative = nativeId !== undefined && faucetId === canonicalFaucetId(nativeId);
+    const base = isNative
+      ? nativeMetadata && { ...nativeMetadata, name: nativeMetadata.symbol }
+      : await fetchTokenMetadata(faucetId);
+    if (!base) throw new Error('native asset metadata is unresolved');
+    if (isNative && base.symbol === 'USDCX') {
+      const syncedId = getSdkSyncedNativeAssetIdSync();
+      if (!syncedId || canonicalFaucetId(syncedId) !== faucetId) {
+        throw new Error('native protocol identity has not been synchronized');
+      }
+      authenticatedNativeUsdcx = true;
+    }
+    symbol = base.symbol;
+    decimals = base.decimals;
+    scaleKnown = hasKnownScale(base);
+  } catch (cause) {
+    throw new SpendingLimitPriceUnavailableError(spendFaucetId, { cause });
+  }
+  if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
+  let priceSymbol: string | undefined;
+  try {
+    priceSymbol = authenticatedNativeUsdcx ? 'USDCX' : strictPriceSymbolFor(faucetId, symbol, network);
+  } catch (cause) {
+    throw new SpendingLimitPriceUnavailableError(symbol, { cause });
+  }
+  if (nativeId === undefined && (priceSymbol === undefined || priceSymbol === 'USDCX')) {
+    throw new SpendingLimitPriceUnavailableError(symbol, { cause: nativeIdentityCause });
+  }
+  return { faucetId, symbol, decimals, priceSymbol, ...(authenticatedNativeUsdcx ? { nativeId: faucetId } : {}) };
+};
+
 /**
  * What this transaction is worth, in micro-dollars.
  *
@@ -55,95 +153,12 @@ export const usdMicroFromAmount = (amount: bigint, decimals: number, priceMicro:
 export const resolveSpendsUsd = async (spends: readonly IConsumedAssetTotal[], now?: number): Promise<bigint> => {
   const [first] = spends;
   if (first === undefined) return 0n;
-  // Read before any await: a network change mid-valuation must not swap the verified list it matches.
-  const network = getEffectiveNetworkName();
-  try {
-    await ensureSdkWasmReady();
-  } catch (cause) {
-    throw new SpendingLimitPriceUnavailableError(first.faucetId, { cause });
-  }
-  // From storage, never the network, and never rejects: a handler can run before this realm hydrated it.
-  await initBridgeConfig();
-  await loadTokenPriceAssets(network);
-  let nativeId: string | undefined;
-  let nativeIdentityCause: unknown;
-  let nativeMetadata;
-  try {
-    nativeId = await getNativeAssetId();
-  } catch (cause) {
-    if (cause instanceof WebAssembly.RuntimeError) {
-      throw new SpendingLimitPriceUnavailableError(first.faucetId, { cause });
-    }
-    nativeIdentityCause = cause;
-  }
-  if (nativeId !== undefined) {
-    try {
-      nativeMetadata = await getNativeAssetMetadata();
-    } catch (cause) {
-      throw new SpendingLimitPriceUnavailableError(first.faucetId, { cause });
-    }
-  }
-  const priced: {
-    label: string;
-    symbol: string;
-    decimals: number;
-    amount: bigint;
-    priceSymbol: string;
-    nativeId?: string;
-  }[] = [];
+  const context = await loadValuationContext(first.faucetId);
+  const priced: (ValuedAsset & { label: string; amount: bigint; priceSymbol: string })[] = [];
   for (const spend of spends) {
-    let faucetId: string;
-    let symbol: string;
-    let decimals: number;
-    let scaleKnown: boolean;
-    let authenticatedNativeUsdcx = false;
-    try {
-      // Canonicalized to the cache's own bech32 key BEFORE the lookup: a caller that folded
-      // several spellings of this faucet into one canonical hex id (the dApp custom path's
-      // `netOutflowByFaucet`) would otherwise miss a cache entry that exists under its bech32
-      // spelling and fail identification for a faucet the wallet has already met. An id the SDK
-      // cannot parse refuses the spend: its raw text would miss the allowlist and count a priced
-      // spend as nothing. `strictPriceSymbolFor` canonicalizes it again at match time, alongside
-      // the allowlist, so a network switch during the metadata await cannot turn a priced spend
-      // into $0.
-      faucetId = canonicalFaucetId(spend.faucetId);
-      const isNative = nativeId !== undefined && faucetId === canonicalFaucetId(nativeId);
-      const base = isNative
-        ? nativeMetadata && { ...nativeMetadata, name: nativeMetadata.symbol }
-        : await fetchTokenMetadata(faucetId);
-      if (!base) throw new Error('native asset metadata is unresolved');
-      if (isNative && base.symbol === 'USDCX') {
-        const syncedId = getSdkSyncedNativeAssetIdSync();
-        if (!syncedId || canonicalFaucetId(syncedId) !== faucetId) {
-          throw new Error('native protocol identity has not been synchronized');
-        }
-        authenticatedNativeUsdcx = true;
-      }
-      symbol = base.symbol;
-      decimals = base.decimals;
-      scaleKnown = hasKnownScale(base);
-    } catch (cause) {
-      throw new SpendingLimitPriceUnavailableError(spend.faucetId, { cause });
-    }
-    if (!scaleKnown) throw new SpendingLimitPriceUnavailableError(symbol);
-    let priceSymbol: string | undefined;
-    try {
-      priceSymbol = authenticatedNativeUsdcx ? 'USDCX' : strictPriceSymbolFor(faucetId, symbol, network);
-    } catch (cause) {
-      throw new SpendingLimitPriceUnavailableError(symbol, { cause });
-    }
-    if (nativeId === undefined && (priceSymbol === undefined || priceSymbol === 'USDCX')) {
-      throw new SpendingLimitPriceUnavailableError(symbol, { cause: nativeIdentityCause });
-    }
-    if (priceSymbol === undefined) continue;
-    priced.push({
-      label: spend.faucetId,
-      symbol,
-      decimals,
-      amount: spend.amount,
-      priceSymbol,
-      ...(authenticatedNativeUsdcx ? { nativeId: faucetId } : {})
-    });
+    const asset = await identifyValuedAsset(spend.faucetId, context);
+    if (asset.priceSymbol === undefined) continue;
+    priced.push({ ...asset, priceSymbol: asset.priceSymbol, label: spend.faucetId, amount: spend.amount });
   }
   await prefetchUsdPrices([...new Set(priced.map(entry => entry.priceSymbol))], now);
   let total = 0n;

@@ -62,6 +62,7 @@ const defaultMockTransactions = {
 };
 jest.mock('lib/miden/repo', () => ({
   portfolioObservations: { clear: () => mockClearPortfolioObservations() },
+  positionEvents: { clear: async () => undefined },
   get transactions() {
     return mockRepoTransactionsOverride ?? defaultMockTransactions;
   }

@@ -158,6 +158,7 @@ export const MIDEN_METADATA = { symbol: 'USDCX', decimals: 6 };
 export const getEffectiveExplorerUrl = () => '';
 export const getEffectiveGuardianUrl = () => '';
 export const getEffectiveNetworkName = () => 'testnet';
+export const provenBadgeNetwork = getEffectiveNetworkName;
 export const subscribeEffectiveEndpoints = (_listener: () => void) => () => {};
 export const getEffectiveRpcUrl = () => '';
 export default function useMidenFaucetId() {

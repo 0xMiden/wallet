@@ -12,9 +12,11 @@ export const TOKEN_DETAIL_FIXTURE_ID = params.has('missing')
   ? 'mtst1ar3nfx83zanxz5ftttzdakrwcuw5fcz0'
   : TEST_TOKEN_IETH.faucetId;
 const tokenId = TOKEN_DETAIL_FIXTURE_ID;
+const position = params.has('pnl');
 export const token = {
   tokenId,
-  balance: 987654321.123456,
+  balance: position ? 2.5 : 987654321.123456,
+  balanceBaseUnits: position ? '250000000' : undefined,
   metadata: {
     name: 'Synthetic Testnet Asset with a Long Display Name',
     symbol: 'IETH',
@@ -62,13 +64,15 @@ export const useBridgeConfigSnapshot = (): BridgeConfigSnapshot => ({
   derived: null,
   lastFetch: null
 });
-export const useRetryableSWR = () => ({
-  data: [
-    { time: 1_700_000_000_000, value: 1220 },
-    { time: 1_700_000_060_000, value: 1230 },
-    { time: 1_700_000_120_000, value: 1234.5678 }
-  ]
+// Only the chart reads a series; every other key (the cached display quotes) has no stored value here.
+export const useRetryableSWR = (key: unknown) => ({
+  data: Array.isArray(key) && key[0] === 'kline' ? KLINES : undefined
 });
+const KLINES = [
+  { time: 1_700_000_000_000, value: 1220 },
+  { time: 1_700_000_060_000, value: 1230 },
+  { time: 1_700_000_120_000, value: 1234.5678 }
+];
 export const useTokenVerification = () => (params.has('unverified') ? 'unverified' : 'verified');
 export const useTokenLogoUri = () => undefined;
 
@@ -97,6 +101,13 @@ export const NetworkModeBanner = () => null;
 export const hapticLight = () => undefined;
 export const hapticMedium = () => undefined;
 export const hapticSelection = () => undefined;
+export const hapticHeavy = () => undefined;
+export const hapticSuccess = () => undefined;
+export const hapticWarning = () => undefined;
+export const hapticError = () => undefined;
+export const hapticDragSnap = () => undefined;
+export const hapticBubbleAttach = () => undefined;
+export const hapticBubbleRelease = () => undefined;
 export const openExternalUrl = async () => undefined;
 export const goBack = () => undefined;
 export const useLocation = () => ({ pathname: '/', search: '', hash: '' });
@@ -106,7 +117,8 @@ export const navigate = (destination: string | { pathname: string; search?: stri
   window.location.hash = path;
 };
 
-export const getEffectiveNetworkName = () => MIDEN_NETWORK_NAME.TESTNET;
+export const getEffectiveNetworkName = () => (position ? MIDEN_NETWORK_NAME.MAINNET : MIDEN_NETWORK_NAME.TESTNET);
+export const provenBadgeNetwork = getEffectiveNetworkName;
 export const getTestNetworkNameKey = () => 'testnet';
 export const peekTokenPriceAssets = () => new Map([[tokenId, 'ETH']]);
 export const canOverrideMetadata = () => true;

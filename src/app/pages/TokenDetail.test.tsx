@@ -80,7 +80,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
   return {
     ...actual,
     getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey(),
-    getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName()
+    getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName(),
+    provenBadgeNetwork: () => mockWalletNetwork ?? actual.provenBadgeNetwork()
   };
 });
 afterEach(() => {
@@ -108,6 +109,11 @@ jest.mock('lib/platform', () => ({
   // For any module this page loads that branches on the platform. Without it,
   // a call to `isExtension` in such a module throws.
   isExtension: () => false
+}));
+
+const mockUseTrackedPosition = jest.fn();
+jest.mock('lib/miden/front/use-tracked-position', () => ({
+  useTrackedPosition: (...args: unknown[]) => mockUseTrackedPosition(...args)
 }));
 
 const mockUseAccount = jest.fn();
@@ -2464,5 +2470,39 @@ describe('TokenDetail price provenance, freshness and route eligibility (AC1-AC7
     expect(history).toHaveAttribute('data-drawn-pending-ids', 'unlisted-claim');
     expect(history).toHaveAttribute('data-num-items', '5');
     expect(screen.queryByText('official-claim')).not.toBeInTheDocument();
+  });
+});
+
+describe('position profit and loss', () => {
+  const held = (balanceBaseUnits: string | undefined, decimals = 6) => ({
+    balances: [
+      { tokenId: TOKEN_ID, balance: 2, balanceBaseUnits, metadata: { symbol: 'ETH', name: 'Ether', decimals } }
+    ]
+  });
+
+  beforeEach(() => {
+    mockUseTrackedPosition.mockReturnValue({
+      position: { quantity: 2_000_000n, costMicro: 3_000_000_000n },
+      trackingSince: 0
+    });
+  });
+
+  it('shows the position of a held, priced token on mainnet, keyed by account, network and faucet', () => {
+    renderPage({ network: MIDEN_NETWORK_NAME.MAINNET, ...held('2000000') });
+    // 2 ETH at $2000 against $3000 paid.
+    expect(screen.getByTestId('token-detail-pnl-value')).toHaveTextContent('+$1,000.00');
+    expect(mockUseTrackedPosition).toHaveBeenCalledWith('pk-123', 'mainnet', normalizedFaucetId(TOKEN_ID), true);
+  });
+
+  it('shows nothing off mainnet, with nothing held, or without an exact balance', () => {
+    const { unmount } = renderPage({ network: MIDEN_NETWORK_NAME.TESTNET, ...held('2000000') });
+    expect(screen.queryByTestId('token-detail-position')).toBeNull();
+    unmount();
+    for (const units of ['0', undefined, '1.5']) {
+      const view = renderPage({ network: MIDEN_NETWORK_NAME.MAINNET, ...held(units) });
+      expect(screen.queryByTestId('token-detail-position')).toBeNull();
+      view.unmount();
+    }
+    expect(mockUseTrackedPosition).not.toHaveBeenCalled();
   });
 });

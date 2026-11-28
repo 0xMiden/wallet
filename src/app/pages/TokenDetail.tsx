@@ -40,6 +40,7 @@ import type { AssetMetadata } from 'lib/miden/metadata/types';
 import { normalizedFaucetId, priceSymbolFor, quoteMayArrive } from 'lib/miden/swap/tokens';
 import { getExplorerAccountUrl } from 'lib/miden-chain/constants';
 import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { openExternalUrl } from 'lib/mobile/external-browser';
 import { hapticLight, hapticMedium } from 'lib/mobile/haptics';
 import { isMobile } from 'lib/platform';
@@ -63,6 +64,7 @@ import { EXPLORER_TITLE } from 'screens/generating-transaction/constants';
 import { truncateHash } from 'utils/string';
 
 import { EditTokenDetailsDrawer, TokenDetailsValues } from './EditTokenDetailsDrawer';
+import { TokenDetailPosition } from './TokenDetailPosition';
 
 /** How many of the token's latest rows the page lists before "See all". */
 const RECENT_ACTIVITY_COUNT = 5;
@@ -320,6 +322,17 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
       ? balance * quote.price
       : null;
   const fiatValue = rawFiatValue !== null && Number.isFinite(rawFiatValue) ? rawFiatValue : null;
+  // Profit and loss is recorded on mainnet only, for a priced token this account holds.
+  const positionHeld =
+    effectiveNetwork === MIDEN_NETWORK_NAME.MAINNET &&
+    scaleIsKnown &&
+    priceSymbol &&
+    !balancesLoading &&
+    token?.balanceBaseUnits !== undefined &&
+    /^\d+$/.test(token.balanceBaseUnits) &&
+    BigInt(token.balanceBaseUnits) > 0n
+      ? BigInt(token.balanceBaseUnits)
+      : undefined;
   const verification = useTokenVerification(tokenId);
   const [unverifiedSheetOpen, setUnverifiedSheetOpen] = useState(false);
 
@@ -547,6 +560,22 @@ const TokenDetail: FC<TokenDetailProps> = ({ tokenId }) => {
               />
               <SectionDivider />
               <BasketComposition components={quote.composition} />
+              <SectionDivider />
+            </>
+          )}
+
+          {positionHeld !== undefined && metadata && (
+            <>
+              <TokenDetailPosition
+                key={scopeKey}
+                accountId={account.publicKey}
+                network={effectiveNetwork}
+                faucetId={canonicalTokenId}
+                held={positionHeld}
+                decimals={metadata.decimals}
+                symbol={metadata.symbol}
+                quote={quote}
+              />
               <SectionDivider />
             </>
           )}

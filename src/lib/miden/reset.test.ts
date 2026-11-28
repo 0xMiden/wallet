@@ -10,6 +10,7 @@ const mockDbOpen = jest.fn();
 const mockTransactionsClear = jest.fn();
 const mockSpendingLimitsClear = jest.fn();
 const mockPortfolioObservationsClear = jest.fn();
+const mockPositionEventsClear = jest.fn();
 jest.mock('lib/miden/repo', () => ({
   db: {
     delete: () => mockDbDelete(),
@@ -23,6 +24,9 @@ jest.mock('lib/miden/repo', () => ({
   },
   portfolioObservations: {
     clear: () => mockPortfolioObservationsClear()
+  },
+  positionEvents: {
+    clear: () => mockPositionEventsClear()
   }
 }));
 
@@ -135,6 +139,7 @@ beforeEach(() => {
     mockTransactionsClear,
     mockSpendingLimitsClear,
     mockPortfolioObservationsClear,
+    mockPositionEventsClear,
     mockBrowserStorageRemove,
     mockForgetDeveloperNetworkChoice,
     _g.__resetTest.prefStub.remove
@@ -199,13 +204,16 @@ describe('clearStorage', () => {
     mockTransactionsClear.mockRejectedValueOnce(new Error('transaction table blocked'));
     await expect(clearStorage()).rejects.toThrow('transaction table blocked');
     expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+    expect(mockPositionEventsClear).toHaveBeenCalledTimes(1);
   });
 
   it('drops observations on both soft and key-value-only wallet wipes', async () => {
     await clearStorage(false);
     expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+    expect(mockPositionEventsClear).toHaveBeenCalledTimes(1);
     await clearStorage();
     expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(2);
+    expect(mockPositionEventsClear).toHaveBeenCalledTimes(2);
   });
   it('clears the transactions table by default and never deletes the DB', async () => {
     await clearStorage();
@@ -512,6 +520,7 @@ describe('resetStorageDestructive', () => {
     expect(mockTransactionsClear).toHaveBeenCalledTimes(1);
     expect(mockSpendingLimitsClear).toHaveBeenCalledTimes(1);
     expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+    expect(mockPositionEventsClear).toHaveBeenCalledTimes(1);
   });
 
   it('still drops the developer network choice, and rejects with the delete error, when the delete rejects', async () => {
@@ -625,6 +634,7 @@ describe('clearClientStorage', () => {
 
     await clearClientStorage();
     expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+    expect(mockPositionEventsClear).toHaveBeenCalledTimes(1);
 
     expect(Object.keys(localStorage)).toEqual(['miden_wallet_endpoint_overrides']);
     expect(sessionStorage.getItem('open-link:taken')).toBe(
@@ -702,6 +712,8 @@ describe('clearClientStorageAfterRestore', () => {
     }
 
     expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+
+    expect(mockPositionEventsClear).toHaveBeenCalledTimes(1);
     expect(Object.keys(localStorage).sort()).toEqual([
       'miden_wallet_accounts',
       'miden_wallet_endpoint_overrides',
@@ -743,6 +755,7 @@ describe('clearClientStorageAfterRestore', () => {
     expect(Object.keys(localStorage)).toEqual(['miden_wallet_endpoint_overrides']);
     expect(sessionStorage.getItem('draft')).toBeNull();
     expect(mockPortfolioObservationsClear).toHaveBeenCalledTimes(1);
+    expect(mockPositionEventsClear).toHaveBeenCalledTimes(1);
     expect(mockReread).toHaveBeenCalledTimes(1);
     expect(cleared).toHaveBeenCalledTimes(1);
   });

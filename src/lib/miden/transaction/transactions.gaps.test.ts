@@ -39,9 +39,10 @@ import { __resetNoteDeliverySweepForTests, sweepNoteDeliveries } from './note-de
 import { TX_FEE_NOTE_TAG } from '../activity/fee-notes';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransactionStatus } from '../db/types';
-import { isLandedTailError } from '../sdk/apply-after-submit';
+import { LandedTailError, isLandedTailError } from '../sdk/apply-after-submit';
 import { ApplyAfterSubmitError } from '../sdk/sdk-error-code';
 import { NoteTypeEnum } from '../types';
+import { recordPositionEvents } from './position-recorder';
 
 // The lock's HOLD, owned for the duration of the callback: the guardian pipeline
 // re-checks ownership before proving and before submit (#777).
@@ -94,6 +95,8 @@ jest.mock('lib/miden/repo', () => ({
     })
   }
 }));
+
+jest.mock('./position-recorder', () => ({ recordPositionEvents: jest.fn(async () => undefined) }));
 
 jest.mock('dexie', () => ({
   liveQuery: jest.fn((cb: () => any) => ({
@@ -534,6 +537,26 @@ describe('apply-after-submit on a public send', () => {
     expect(txStore[0]!.status).toBe(ITransactionStatus.Completed);
     expect(txStore[0]!.noteDelivery).toBeUndefined();
     expect(txStore[0]!.displayMessage).toBe('Sent');
+    expect(recordPositionEvents).toHaveBeenCalledWith('tx-apply-pub', { anchor: false });
+  });
+
+  it('records a public send completed by a landed tail, anchored to the vault', async () => {
+    txStore.push({
+      id: 'tx-tail-pub',
+      type: 'send',
+      accountId: 'acc-1',
+      secondaryAccountId: 'recipient',
+      faucetId: 'faucet-1',
+      amount: BigInt(5),
+      noteType: NoteTypeEnum.Public,
+      status: ITransactionStatus.Queued,
+      initiatedAt: Math.floor(Date.now() / 1000),
+      displayIcon: 'SEND'
+    });
+
+    await runLoopWithFailingSend(() => new LandedTailError(new Error('tail')));
+
+    expect(recordPositionEvents).toHaveBeenCalledWith('tx-tail-pub', { anchor: true });
   });
 
   // The receiver the send site's own wrap reaches (#1233): a raw store failure carries neither the
@@ -1953,6 +1976,7 @@ describe('a throw after the leaf resolved', () => {
       noteDelivery: 'undelivered',
       secondaryAccountId: 'recipient'
     });
+    expect(recordPositionEvents).toHaveBeenCalledWith(id, { anchor: true });
     expect(isRequeueableTransaction(row)).toBe(false);
   });
 
@@ -3323,6 +3347,7 @@ describe('generateTransactionsLoop killed CONSUME node-verify (#260 fu #3a)', ()
       const row = txStore.find(r => r.id === 'nk-landed')!;
       expect(row.status).toBe(ITransactionStatus.Completed);
       expect(row.displayMessage).toBe('Received');
+      expect(recordPositionEvents).toHaveBeenCalledWith('nk-landed', { anchor: false });
     } finally {
       restore();
     }
