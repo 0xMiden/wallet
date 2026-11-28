@@ -1,6 +1,6 @@
 import React from 'react';
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import Dexie from 'dexie';
 import { toFunctionSelector } from 'viem';
 
@@ -448,8 +448,10 @@ jest.mock('./EvmSwitchWalletDrawer', () => ({
   EvmSwitchWalletDrawer: () => null
 }));
 
-jest.mock('./EvmBridgeUsdcxRoute', () => ({
-  EvmBridgeUsdcxRoute: ({
+let mockRealUsdcxRoute = false;
+jest.mock('./EvmBridgeUsdcxRoute', () => {
+  type RouteProps = React.ComponentProps<typeof import('./EvmBridgeUsdcxRoute').EvmBridgeUsdcxRoute>;
+  const stub = ({
     confirmDisabled,
     onConfirm,
     fee,
@@ -458,16 +460,7 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
     sourceChainId,
     fast,
     onSelectCircle
-  }: {
-    confirmDisabled?: boolean;
-    onConfirm: () => void;
-    fee?: string;
-    payout?: { amount: string };
-    notice?: string;
-    sourceChainId: number;
-    fast?: { onSelect: () => void; selected: boolean };
-    onSelectCircle?: () => void;
-  }) => (
+  }: RouteProps) => (
     <div>
       {fee && <span data-testid="usdcx-route-fee">{fee}</span>}
       {payout && <span data-testid="usdcx-route-payout">{payout.amount}</span>}
@@ -487,10 +480,22 @@ jest.mock('./EvmBridgeUsdcxRoute', () => ({
         usdcx
       </button>
     </div>
-  )
-}));
+  );
+  return {
+    EvmBridgeUsdcxRoute: (props: RouteProps) =>
+      mockRealUsdcxRoute
+        ? React.createElement(
+            jest.requireActual<typeof import('./EvmBridgeUsdcxRoute')>('./EvmBridgeUsdcxRoute').EvmBridgeUsdcxRoute,
+            props
+          )
+        : stub(props)
+  };
+});
 
 jest.mock('screens/send-flow/Route', () => ({
+  get RouteCard() {
+    return jest.requireActual<typeof import('screens/send-flow/Route')>('screens/send-flow/Route').RouteCard;
+  },
   Route: ({
     onConfirm,
     onRouteChange,
@@ -1192,6 +1197,49 @@ describe('EvmBridgeDepositScreen USDCx route', () => {
     fireEvent.click(screen.getByTestId('usdcx-route-confirm'));
     await settle();
     expect(screen.getByTestId('review-fee')).toHaveTextContent('0.031908');
+  });
+
+  const displayQuoteDeadline = 1_800_000_005;
+  it.each<{ name: string; expiry: Pick<CctpBurnQuote, 'expiresAt' | 'expiry'>; unavailable: boolean }>([
+    {
+      name: 'shows the Circle fee as unavailable at timestamp expiry without requesting another quote',
+      expiry: { expiresAt: displayQuoteDeadline, expiry: { mode: 'TIMESTAMP', expiresAt: displayQuoteDeadline } },
+      unavailable: true
+    },
+    {
+      name: 'keeps a Circle fee with only block expiry current as time passes',
+      expiry: { expiry: { mode: 'BLOCK_NUMBER', expiresAtBlock: 400 } },
+      unavailable: false
+    }
+  ])('$name', async ({ expiry, unavailable }) => {
+    jest.useFakeTimers({ now: 1_800_000_000_000, advanceTimers: true });
+    mockRealUsdcxRoute = true;
+    jest.mocked(quoteExecutorBurn).mockResolvedValue({ ...FEE_QUOTE, ...expiry });
+    const view = renderScreen();
+    try {
+      await reachBaseSepoliaRoute();
+      const card = screen.getByTestId('bridge-route-usdcx');
+      expect(card).toHaveTextContent('0.031908');
+      expect(card).toHaveTextContent('1.5 USDCx');
+      expect(quoteExecutorBurn).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(displayQuoteDeadline * 1000 - Date.now() + 1);
+      });
+
+      expect(quoteExecutorBurn).toHaveBeenCalledTimes(1);
+      expect(card).toHaveAttribute('aria-pressed', 'true');
+      expect({
+        busy: card.getAttribute('aria-busy'),
+        unavailable: within(card).queryByText('unavailable') !== null,
+        fee: card.textContent?.includes('0.031908'),
+        payout: card.textContent?.includes('1.5 USDCx')
+      }).toEqual({ busy: 'false', unavailable, fee: !unavailable, payout: !unavailable });
+    } finally {
+      view.unmount();
+      mockRealUsdcxRoute = false;
+      jest.useRealTimers();
+    }
   });
 
   it('retains the current Circle executor fee when switching to an eligible Epoch route', async () => {
