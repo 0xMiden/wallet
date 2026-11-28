@@ -56,6 +56,9 @@ jest.mock('lib/miden/repo', () => ({
   }
 }));
 
+const mockFindRelaySource = jest.fn((_address: string): { accountPublicKey: string; address: string } | null => null);
+jest.mock('lib/evm-relay/source', () => ({ findRelaySource: (address: string) => mockFindRelaySource(address) }));
+
 const storage = new Map<string, unknown>();
 jest.mock('lib/miden/front/storage', () => ({
   fetchFromStorage: async (key: string) => storage.get(key) ?? null,
@@ -69,6 +72,7 @@ const mockSwitchChain = jest.fn(async (_chainId: number) => undefined);
 const mockWriteContract = jest.fn(async (_request: unknown) => '0xregister');
 jest.mock('./client', () => ({
   getEvmConnection: () => mockConnection(),
+  getEvmSourceConnection: () => mockConnection(),
   switchWebWalletChain: (chainId: number) => mockSwitchChain(chainId),
   buildEpochWalletClient: async () => ({ chain: { id: 11155111, name: 'Sepolia' }, writeContract: mockWriteContract }),
   epochChain: (id: number) => ({ id, name: 'Sepolia' })
@@ -559,6 +563,32 @@ describe('sponsorWalletRefusal', () => {
     expect(sponsorWalletRefusal(undefined, SPONSOR)).toBe('walletDisconnected');
     expect(sponsorWalletRefusal(TOKEN, SPONSOR)).toBe('wrongAccount');
     expect(sponsorWalletRefusal(SPONSOR.toUpperCase().replace('0X', '0x'), SPONSOR)).toBeUndefined();
+  });
+
+  it('needs no connected wallet for a sponsor that is a relay address of this wallet', () => {
+    mockFindRelaySource.mockReturnValueOnce({ accountPublicKey: 'miden-account', address: SPONSOR });
+    expect(sponsorWalletRefusal(undefined, SPONSOR)).toBeUndefined();
+    expect(mockFindRelaySource).toHaveBeenCalledWith(SPONSOR);
+  });
+});
+
+describe('a relay sponsor', () => {
+  afterEach(() => mockFindRelaySource.mockReturnValue(null));
+
+  it('retries with no external wallet and no chain switch, and binds the SDK to the relay address', async () => {
+    mockFindRelaySource.mockReturnValue({ accountPublicKey: 'miden-account', address: SPONSOR });
+    mockConnection.mockResolvedValue({ address: SPONSOR, chainId: 11155111, isNative: false, isRelay: true });
+
+    await expect(retryLockedDeposit('row-1')).resolves.toBe('77');
+
+    expect(mockSwitchChain).not.toHaveBeenCalled();
+    expect(mockGetEpochSdk).toHaveBeenCalledWith(expect.objectContaining({ chainId: 11155111, account: SPONSOR }));
+  });
+
+  it('still switches an external web wallet that is on another chain', async () => {
+    mockConnection.mockResolvedValue({ address: SPONSOR, chainId: 1, isNative: false });
+    await expect(retryLockedDeposit('row-1')).rejects.toMatchObject({ reason: 'wrongChain' });
+    expect(mockSwitchChain).toHaveBeenCalledWith(11155111);
   });
 });
 

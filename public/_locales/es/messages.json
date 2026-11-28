@@ -10578,5 +10578,13 @@
   "commandAiSamplePrompt6": {
     "message": "¿Cuánto USDCx he enviado este mes?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "depositFlowRelayReverted": {
+    "message": "La transacción de depósito ha fallado en la cadena, por lo que no se ha transferido nada. Tus fondos siguen estando en tu dirección de depósito.",
+    "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
+  },
+  "depositFlowRelayExpired": {
+    "message": "El depósito no se envió antes de que venciera el plazo. Tus fondos siguen en tu dirección de depósito. Inténtalo de nuevo.",
+    "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
   }
 }

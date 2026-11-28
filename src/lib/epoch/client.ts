@@ -1,26 +1,16 @@
 import { getConnection, getWalletClient, switchChain } from '@wagmi/core';
-import { type Chain, type WalletClient, createWalletClient, custom, http } from 'viem';
+import { type Chain, type Transport, type WalletClient, createWalletClient, custom, http } from 'viem';
 import { sepolia } from 'viem/chains';
 
+import { withWalletRpc } from 'lib/evm/rpc-chain';
+import { buildRelayProvider, findRelaySource, relayServesChain } from 'lib/evm-relay/source';
+import { initBridgeConfig } from 'lib/remote-config/runtime';
 import { walletRaised } from 'lib/telemetry/bridge-receive-failure';
 import { wagmiConfig } from 'lib/walletconnect/appkit';
-import { EVM_CHAIN_DEFINITIONS, getChain } from 'lib/walletconnect/config';
+import { EVM_CHAIN_DEFINITIONS } from 'lib/walletconnect/config';
 import { buildNativeReownProvider, isNativeReownAvailable, NativeReown } from 'lib/walletconnect/native';
 
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
-
-// E2E-only: the Epoch SDK's on-chain reads + receipt-waits use the walletClient
-// chain's default RPC (viem's `sepolia` → public thirdweb RPC), NOT the
-// walletconnect/config.ts override — so without this the bridge-in deposit would
-// broadcast to Anvil but poll public Sepolia forever. Redirect the chain's
-// default RPC at the local Anvil under MIDEN_E2E_TEST. Inert in production
-// (E2E_EVM_RPC_URL is baked only by the e2e build).
-const E2E_EVM_RPC_URL = process.env.MIDEN_E2E_TEST === 'true' ? (process.env.E2E_EVM_RPC_URL ?? '').trim() : '';
-
-function withE2eRpc(chain: Chain): Chain {
-  const rpcUrl = E2E_EVM_RPC_URL || getChain(chain.id)?.rpcUrl;
-  return rpcUrl ? { ...chain, rpcUrls: { ...chain.rpcUrls, default: { http: [rpcUrl] } } } : chain;
-}
 
 export function epochChain(chainId: number = sepolia.id): Chain {
   if (chainId === MIDEN_DESTINATION_CHAIN_ID) return { ...sepolia, id: chainId };
@@ -31,7 +21,7 @@ export function epochChain(chainId: number = sepolia.id): Chain {
 
 /** The chain `chainId` with the RPC that the Epoch reads use: the E2E node under MIDEN_E2E_TEST, else the wallet's. */
 export function epochRpcChain(chainId: number): Chain {
-  return withE2eRpc(epochChain(chainId));
+  return withWalletRpc(epochChain(chainId));
 }
 
 export interface EvmConnection {
@@ -39,6 +29,11 @@ export interface EvmConnection {
   chainId?: number;
   /** True when the session is owned by the native Reown plugin (iOS/Android). */
   isNative: boolean;
+  /**
+   * True when the source is the relay address of an account of this wallet. No external wallet signs: the relay
+   * provider sends on `chainId`, so there is no wallet chain to switch.
+   */
+  isRelay?: boolean;
 }
 
 /**
@@ -55,6 +50,25 @@ export async function getEvmConnection(): Promise<EvmConnection> {
   return { address: connection.address, chainId: connection.chainId, isNative: false };
 }
 
+/**
+ * The EVM source of a bridge from `sourceAddress` on `chainId`. When `sourceAddress` is the relay address of an
+ * account of this wallet and the relay serves `chainId`, this is a relay connection (`isRelay`) on `chainId`, with no
+ * external wallet. Else it is the connected external wallet (`getEvmConnection`), whatever its address: the caller
+ * still compares that address with the reviewed one. Awaits the config hydration, so a path with no user action can
+ * call it.
+ */
+export async function getEvmSourceConnection(
+  sourceAddress: string | undefined,
+  chainId: number
+): Promise<EvmConnection> {
+  await initBridgeConfig();
+  const relay = sourceAddress === undefined ? null : findRelaySource(sourceAddress);
+  if (relay !== null && relayServesChain(chainId)) {
+    return { address: relay.address, chainId, isNative: false, isRelay: true };
+  }
+  return getEvmConnection();
+}
+
 /** Ask the web wallet to switch to `chainId`. A native session carries the chain id in every request instead. */
 export async function switchWebWalletChain(chainId: number): Promise<void> {
   await switchChain(wagmiConfig, { chainId });
@@ -69,24 +83,34 @@ export async function switchWebWalletChain(chainId: number): Promise<void> {
  * per Epoch's docs the walletClient's chain.id must be 999999999 before
  * solveIntent so the SDK routes the Miden input correctly. Building a fresh
  * walletClient with that chain id is cleaner than mutating a shared instance.
+ *
+ * When `address` is the relay address of an account of this wallet, the transport is the relay provider on the
+ * requested chain, and no external wallet takes part. The relay never falls back to an external wallet: a chain that
+ * the relay does not serve throws `RelayUnavailableError` (`not_configured`).
  */
 export async function buildEpochWalletClient(
   address: `0x${string}`,
   opts?: { chainOverride?: number }
 ): Promise<WalletClient> {
   const baseChain = epochChain(opts?.chainOverride);
-  const chain = withE2eRpc(baseChain);
-  // On mobile the EVM session lives in the native Reown plugin (wagmi is never
-  // connected), so back the viem walletClient with a native EIP-1193 shim.
+  const chain = withWalletRpc(baseChain);
   const rpcUrl = chain.rpcUrls.default.http[0] ?? '';
-  const transport = isNativeReownAvailable()
-    ? custom(buildNativeReownProvider({ chainId: chain.id, address, rpcUrl }))
-    : custom(await getWalletClient(wagmiConfig));
   return createWalletClient({
     account: address,
     chain,
-    transport
+    transport: await epochTransport(address, chain.id, rpcUrl)
   });
+}
+
+/** The transport that sends for `address`: the relay provider, the native Reown shim, or the wagmi wallet. */
+async function epochTransport(address: `0x${string}`, chainId: number, rpcUrl: string): Promise<Transport> {
+  await initBridgeConfig();
+  const relay = findRelaySource(address);
+  if (relay !== null) return custom(buildRelayProvider(relay, chainId));
+  // On mobile the EVM session lives in the native Reown plugin (wagmi is never
+  // connected), so back the viem walletClient with a native EIP-1193 shim.
+  if (isNativeReownAvailable()) return custom(buildNativeReownProvider({ chainId, address, rpcUrl }));
+  return custom(await getWalletClient(wagmiConfig));
 }
 
 /**
@@ -102,7 +126,7 @@ export function buildEpochReadOnlyWalletClient(
   opts?: { chainOverride?: number }
 ): WalletClient {
   const baseChain = epochChain(opts?.chainOverride);
-  const chain = withE2eRpc(baseChain);
+  const chain = withWalletRpc(baseChain);
   const rpcUrl = chain.rpcUrls.default.http[0] ?? '';
   return createWalletClient({
     account: address,

@@ -10574,5 +10574,13 @@
   "commandAiSamplePrompt6": {
     "message": "Сколько USDCx я отправил в этом месяце?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "depositFlowRelayReverted": {
+    "message": "Транзакция по пополнению счета в цепочке не прошла, поэтому ничего не было переведено через мост. Ваши средства по-прежнему находятся на вашем адресе пополнения.",
+    "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
+  },
+  "depositFlowRelayExpired": {
+    "message": "Депозит не был отправлен до истечения установленного срока. Ваши средства по-прежнему находятся на вашем адресе депозита. Попробуйте ещё раз.",
+    "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
   }
 }

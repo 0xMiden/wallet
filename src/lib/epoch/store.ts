@@ -1,5 +1,5 @@
 import type { CollateralType, IntentTransactionStatus, SolveIntentParams } from '@epoch-protocol/epoch-intents-sdk';
-import { isHash, parseUnits } from 'viem';
+import { type Address, isAddress, isHash, parseUnits } from 'viem';
 import { create } from 'zustand';
 
 import {
@@ -10,6 +10,9 @@ import {
   recordBridgeSourceAttempt,
   type BridgeOperationSnapshot
 } from 'lib/bridge/operation';
+import { openRelayJobError } from 'lib/evm-relay/errors';
+import { type OpenRelayJobWatch, watchOpenRelayJobs } from 'lib/evm-relay/open-jobs';
+import type { RelayJobRef } from 'lib/evm-relay/types';
 import { registerPendingBridgeIn, resolveBridgeInNoteId } from 'lib/miden/activity/bridge-in';
 import type { IBridgedReceiveExtraInputs, IEpochLockedDeposit, ITransaction } from 'lib/miden/db/types';
 import * as Repo from 'lib/miden/repo';
@@ -26,7 +29,7 @@ import {
   getCrossChainQuote,
   getEVMToMidenQuote
 } from './bridge';
-import { getEvmConnection, switchWebWalletChain } from './client';
+import { type EvmConnection, getEvmConnection, getEvmSourceConnection, switchWebWalletChain } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
 import { readEpochIntentStatus } from './intent-status';
 import { getEpochSdk } from './sdk';
@@ -189,6 +192,27 @@ let latestRequest = 0;
 // and a read that a reset replaced must not hold up the next request's.
 let pollInFlight: number | undefined;
 
+/**
+ * The `getEpochSdk` options of a relay source: the SDK is then bound to the relay address on the source chain and
+ * needs no external wallet. Empty for an external wallet, so the SDK getter keeps its connected-wallet rules.
+ */
+function relaySdkAccount(connection: EvmConnection, sourceAddress: string): { account?: Address; chainId?: number } {
+  if (!connection.isRelay || !isAddress(sourceAddress, { strict: false })) return {};
+  return { account: sourceAddress, chainId: connection.chainId };
+}
+
+/**
+ * The relay job that a relay send of this attempt left open (`RelayUnknownOutcomeError`, `RelayStillPendingError`), or
+ * undefined. The cause chain of `err` is read first. The Epoch SDK gives a send error back as a new error with the
+ * text alone, so the attempt's watch of open jobs is read next; the last job is the last send.
+ */
+function openRelayJobOf(err: unknown, watch: OpenRelayJobWatch | undefined): RelayJobRef | undefined {
+  const typed = openRelayJobError(err);
+  if (typed !== undefined) return typed.job;
+  const jobs = watch?.jobs() ?? [];
+  return jobs[jobs.length - 1];
+}
+
 function assertOwnedEpochQuote(row: ITransaction, operation: BridgeOperationSnapshot, quote: Quote): void {
   assertBridgeOperationCurrent(row, operation);
   const { review } = operation;
@@ -241,7 +265,12 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       compactWatchClosed: false
     });
     try {
-      const sdk = await getEpochSdk({ chainId: params.sourceChainId });
+      // A relay source quotes with no external wallet: its SDK is bound to the relay address.
+      const source = await getEvmSourceConnection(params.evmSourceAddress, params.sourceChainId);
+      const sdk = await getEpochSdk({
+        chainId: params.sourceChainId,
+        ...relaySdkAccount(source, params.evmSourceAddress)
+      });
       if (!sdk) throw new Error('Connect an EVM wallet first');
       const quote = await getEVMToMidenQuote(sdk, params, sponsorAddress);
       const superseded = request !== latestRequest;
@@ -284,6 +313,7 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
     const sourceChainId = quote.params.sourceChainId;
     const request = latestRequest;
     let claimedOperation: BridgeOperationSnapshot | undefined;
+    let relayWatch: OpenRelayJobWatch | undefined;
     try {
       if (tagged && row && operation) {
         assertOwnedEpochQuote(row, operation, quote);
@@ -315,11 +345,14 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       // NOT the wallet's eth_chainId. So on web we verify the active chain
       // before continuing. The native Reown session carries the target chain
       // id in every signing request, so there is no active-chain to guard.
-      let connection = await getEvmConnection();
+      // A relay source (the relay address of an account of this wallet) has no external wallet and no wallet chain:
+      // the relay provider sends on the source chain.
+      const reviewedSource = quote.params.evmSourceAddress;
+      let connection = await getEvmSourceConnection(reviewedSource, sourceChainId);
       // A USDCx deposit switches the web wallet to Arc or Base, so switch it back before the checks below.
-      if (connection.address && !connection.isNative && connection.chainId !== sourceChainId) {
+      if (connection.address && !connection.isRelay && !connection.isNative && connection.chainId !== sourceChainId) {
         await switchWebWalletChain(sourceChainId);
-        connection = await getEvmConnection();
+        connection = await getEvmSourceConnection(reviewedSource, sourceChainId);
       }
       if (!connection.address) {
         throw walletRaised(new Error('Connect an EVM wallet first'));
@@ -333,11 +366,15 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         );
       }
       const allocatorUrl = inputs?.epochAllocatorUrl ?? getEpochAllocatorUrl();
-      const sdk = await getEpochSdk({ chainId: sourceChainId, allocatorUrl });
+      const sdk = await getEpochSdk({
+        chainId: sourceChainId,
+        allocatorUrl,
+        ...relaySdkAccount(connection, reviewedSource)
+      });
       if (!sdk) throw walletRaised(new Error('Connect an EVM wallet first'));
       const assertOwnedCurrent = async () => {
         if (!claimedOperation || !row) throw new Error('Bridge operation terms changed');
-        connection = await getEvmConnection();
+        connection = await getEvmSourceConnection(reviewedSource, sourceChainId);
         const currentRow = await Repo.transactions.get(row.id);
         const currentOperation = currentRow && bridgeOperationOf(currentRow);
         const currentInputs: IBridgedReceiveExtraInputs | undefined = currentRow?.extraInputs;
@@ -361,6 +398,10 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         ...quote.params,
         preFetchedQuote: { ...quote, params: quote.params }
       };
+      // The SDK gives a send error back as its own text, so the open relay job of a send comes from this watch.
+      if (connection.isRelay && isAddress(sourceAddress, { strict: false })) {
+        relayWatch = watchOpenRelayJobs(sourceChainId, sourceAddress);
+      }
       const intent = claimedOperation
         ? await buildEVMToMidenIntent(sdk, buildParams, assertOwnedCurrent)
         : await buildEVMToMidenIntent(sdk, buildParams);
@@ -382,6 +423,13 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         if (!tagged || request === latestRequest) set({ status: 'failed', intent, error: intent.error });
         if (bridgeReceiveTxId && !tagged) {
           const stranded = intent.strandedDeposit;
+          // A relay send whose outcome is not known can still execute, so the row keeps its job and stays open. A
+          // deposit that the lock already shows is stranded, and the stranded rule below decides.
+          const openJob = stranded ? undefined : openRelayJobOf(undefined, relayWatch);
+          if (openJob !== undefined) {
+            await updateBridgedReceivePhase(bridgeReceiveTxId, 'submitting', { relayJob: openJob });
+            return;
+          }
           const params = quote.params;
           // The deposit landed but has no allocation: keep what the sponsor needs to register it again or to
           // withdraw it, so the row offers recovery instead of a plain failure (#2120).
@@ -402,7 +450,8 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
             ...(epochLockedDeposit ? { epochLockedDeposit, epochAllocatorUrl: allocatorUrl } : {}),
             failure: {
               step: 'epoch_solve',
-              requestClient: connection.isNative ? 'native_reown' : 'wagmi',
+              // A relay source has no external wallet request client.
+              ...(connection.isRelay ? {} : { requestClient: connection.isNative ? 'native_reown' : 'wagmi' }),
               cause: intent.error
             }
           });
@@ -453,11 +502,22 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         return;
       }
       if (bridgeReceiveTxId) {
+        // A relay send whose outcome is not known can still execute: the row keeps its job and stays open, as a
+        // tagged attempt does.
+        const openJob = openRelayJobOf(err, relayWatch);
+        if (openJob !== undefined) {
+          await updateBridgedReceivePhase(bridgeReceiveTxId, 'submitting', { relayJob: openJob }).catch(
+            () => undefined
+          );
+          return;
+        }
         await updateBridgedReceivePhase(bridgeReceiveTxId, 'failed', {
           error: message,
           failure: { step: 'epoch_execute', cause: err }
         }).catch(() => undefined);
       }
+    } finally {
+      relayWatch?.stop();
     }
   },
 
@@ -521,12 +581,20 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
   async poll() {
     const request = latestRequest;
     if (pollInFlight === request) return;
-    const { intent, flow, allocatorUrl } = get();
-    const { address } = await getEvmConnection();
+    const { intent, flow, allocatorUrl, quote } = get();
+    // The sponsor of an EVM→Miden intent is its reviewed source. A relay source has no external wallet to read.
+    const source = flow === 'evm-to-miden' && quote && 'sourceChainId' in quote.params ? quote.params : undefined;
+    const connection = source
+      ? await getEvmSourceConnection(source.evmSourceAddress, source.sourceChainId)
+      : await getEvmConnection();
+    const { address } = connection;
     const nonce = intent?.intentNonce ?? intent?.solveResult?.nonce;
     if (!address || !nonce) return;
     try {
-      const sdk = await getEpochSdk({ allocatorUrl: allocatorUrl ?? undefined });
+      const sdk = await getEpochSdk({
+        allocatorUrl: allocatorUrl ?? undefined,
+        ...relaySdkAccount(connection, source?.evmSourceAddress ?? '')
+      });
       if (!sdk) return;
       // Held only across the bounded read, so a connection or SDK setup that never settles cannot hold it. A
       // poll that a reset or a quote replaced while it set up neither reads nor takes the slot.

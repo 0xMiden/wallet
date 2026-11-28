@@ -10570,5 +10570,13 @@
   "commandAiSamplePrompt6": {
     "message": "今月、USDCxをいくら送金しましたか？",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "depositFlowRelayReverted": {
+    "message": "入金の取引がチェーン上で失敗したため、ブリッジは行われませんでした。お客様の資金は依然として入金アドレスに残っています。",
+    "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
+  },
+  "depositFlowRelayExpired": {
+    "message": "入金は期限内に送信されませんでした。お客様の資金は依然として入金アドレスに残っています。もう一度お試しください。",
+    "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
   }
 }

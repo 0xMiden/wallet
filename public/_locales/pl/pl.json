@@ -2300,5 +2300,7 @@
   "commandAiSamplePrompt3": "Podsumuj moją aktywność z ostatniego tygodnia",
   "commandAiSamplePrompt4": "Zarabiaj na 10 USDCx w najbardziej efektywny sposób",
   "commandAiSamplePrompt5": "Wpłać 1 ETH, wymień na USDCx i umieść w skarbcu o najwyższej rentowności",
-  "commandAiSamplePrompt6": "Ile USDCx wysłałem w tym miesiącu?"
+  "commandAiSamplePrompt6": "Ile USDCx wysłałem w tym miesiącu?",
+  "depositFlowRelayReverted": "Transakcja wpłaty nie powiodła się w łańcuchu bloków, więc nic nie zostało przeniesione. Twoje środki nadal znajdują się na Twoim adresie wpłaty.",
+  "depositFlowRelayExpired": "Wpłata nie została wysłana przed upływem wyznaczonego terminu. Twoje środki nadal znajdują się na Twoim adresie wpłaty. Spróbuj ponownie."
 }

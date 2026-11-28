@@ -2302,5 +2302,7 @@
   "commandAiSamplePrompt3": "Geçen haftaki faaliyetlerimi özetleyin",
   "commandAiSamplePrompt4": "10 USDCx'i en verimli şekilde kazanın",
   "commandAiSamplePrompt5": "1 ETH yatırın, USDCx'e takas edin ve en yüksek getiri kasasına koyun",
-  "commandAiSamplePrompt6": "Bu ay ne kadar USDCx gönderdim?"
+  "commandAiSamplePrompt6": "Bu ay ne kadar USDCx gönderdim?",
+  "depositFlowRelayReverted": "Para yatırma işlemi zincir üzerinde başarısız oldu, bu nedenle hiçbir şey köprülenmedi. Paranız hâlâ para yatırma adresinizde bulunmaktadır.",
+  "depositFlowRelayExpired": "Para yatırma işlemi, süre sınırı dolmadan gönderilmedi. Paranız hâlâ para yatırma adresinizde bulunmaktadır. Lütfen tekrar deneyin."
 }

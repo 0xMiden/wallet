@@ -1628,6 +1628,7 @@ export const updateBridgedReceivePhase = async (
     Pick<
       IBridgedReceiveExtraInputs,
       | 'evmTxHash'
+      | 'relayJob'
       | 'intentNonce'
       | 'midenNoteId'
       | 'outputAmount'

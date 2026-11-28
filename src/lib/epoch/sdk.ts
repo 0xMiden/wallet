@@ -4,8 +4,10 @@ import { EpochIntentSDK } from '@epoch-protocol/epoch-intents-sdk';
 import { useAppKitAccount } from '@reown/appkit/react';
 import { sepolia } from 'viem/chains';
 
+import { findRelaySource, relayServesChain } from 'lib/evm-relay/source';
 import { initBridgeConfig } from 'lib/remote-config/runtime';
-import { getEpochAllocatorUrl } from 'lib/remote-config/values';
+import type { RelayChainConfig } from 'lib/remote-config/schema';
+import { getEpochAllocatorUrl, getRelayChain } from 'lib/remote-config/values';
 
 import { buildEpochReadOnlyWalletClient, buildEpochWalletClient, epochChain, getEvmConnection } from './client';
 import { MIDEN_DESTINATION_CHAIN_ID } from './config';
@@ -20,6 +22,9 @@ let defaultCache: SdkCache | null = null;
 let midenCache: SdkCache | null = null;
 let readOnlyCache: SdkCache | null = null;
 let signingCache: SdkCache | null = null;
+// The SDK of a relay source. Its relay provider keeps the relay entry of the config that it was built with, so a new
+// relay entry (a new document) builds a new SDK.
+let relayCache: (SdkCache & { relayChain: RelayChainConfig }) | null = null;
 
 async function buildSdk(address: `0x${string}`, apiBaseUrl: string, chainOverride?: number): Promise<EpochIntentSDK> {
   const walletClient = await buildEpochWalletClient(address, { chainOverride });
@@ -38,6 +43,10 @@ async function buildSdk(address: `0x${string}`, apiBaseUrl: string, chainOverrid
  * `account` is the EVM address that the caller verified and expects to sign. When it is given and the connected
  * address is another one (the comparison ignores letter case), return null and leave every cache as it is. When it
  * matches, build the SDK for that account.
+ *
+ * When `account` is the relay address of an account of this wallet (and the flow is not `forMidenFlow`), no external
+ * wallet takes part: the SDK sends through the relay provider on `chainId` (`buildEpochWalletClient`), and it is cached
+ * under its own key. It is null when the relay does not serve `chainId`.
  */
 export async function getEpochSdk(opts?: {
   forMidenFlow?: boolean;
@@ -45,6 +54,11 @@ export async function getEpochSdk(opts?: {
   allocatorUrl?: string;
   account?: `0x${string}`;
 }): Promise<EpochIntentSDK | null> {
+  if (opts?.account !== undefined && !opts.forMidenFlow) {
+    await initBridgeConfig();
+    const relay = findRelaySource(opts.account);
+    if (relay !== null) return getRelaySdk(relay.address, opts.chainId ?? sepolia.id, opts.allocatorUrl);
+  }
   const { address } = await getEvmConnection();
   if (!address) {
     // WC disconnected — invalidate any SDK still pointing at a now-stale
@@ -68,6 +82,29 @@ export async function getEpochSdk(opts?: {
   } else {
     defaultCache = entry;
   }
+  return sdk;
+}
+
+/** The SDK of the relay address `address` on `chainId`, or null when the relay does not serve that chain. */
+async function getRelaySdk(
+  address: `0x${string}`,
+  chainId: number,
+  allocatorUrl: string | undefined
+): Promise<EpochIntentSDK | null> {
+  const relayChain = getRelayChain(chainId);
+  if (relayChain === null || !relayServesChain(chainId)) return null;
+  const apiBaseUrl = allocatorUrl ?? getEpochAllocatorUrl();
+  const cached = relayCache;
+  if (
+    cached?.address === address &&
+    cached.chainId === chainId &&
+    cached.apiBaseUrl === apiBaseUrl &&
+    cached.relayChain === relayChain
+  ) {
+    return cached.sdk;
+  }
+  const sdk = await buildSdk(address, apiBaseUrl, chainId);
+  relayCache = { address, chainId, apiBaseUrl, relayChain, sdk };
   return sdk;
 }
 
@@ -186,6 +223,7 @@ export function resetEpochSdk(): void {
   midenCache = null;
   readOnlyCache = null;
   signingCache = null;
+  relayCache = null;
 }
 
 /**

@@ -12,6 +12,7 @@ import { fetchRelayQuote, type RelayQuoteQuery } from './client';
 import { RelayRefusedError, RelayUnavailableError } from './errors';
 import { relayFeeTokenPriceMicroUsd } from './fee-price';
 import { assertRelayQuoteMatches, type RelayFeeTokenValue, type RelayReviewedFee } from './guards';
+import type { RelaySource } from './source';
 import type { RelayQuote } from './types';
 
 /**
@@ -52,7 +53,7 @@ export interface QuoteRelayFeeOptions {
  * Submit the signed quote before its `validUntil` time. The relay checks the gas estimate against the quote.
  */
 export async function quoteRelayFee(
-  from: { address: Address } | Address,
+  from: RelaySource | Address,
   chainId: number,
   calls: readonly BatchCall[],
   feeToken: RelayFeeAsset,

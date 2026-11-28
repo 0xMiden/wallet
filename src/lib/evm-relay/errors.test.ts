@@ -1,3 +1,6 @@
+import { createWalletClient, custom, zeroAddress } from 'viem';
+import { base } from 'viem/chains';
+
 import {
   RELAY_ERROR_CODES,
   RelayApiError,
@@ -11,6 +14,7 @@ import {
   RelayStillPendingError,
   RelayUnavailableError,
   RelayUnknownOutcomeError,
+  openRelayJobError,
   relayErrorAction,
   relaySubmitFailure,
   type RelayErrorCode
@@ -170,5 +174,52 @@ describe('the typed errors', () => {
       message: 'execution reverted',
       data: '0x08c379a0'
     });
+  });
+});
+
+describe('openRelayJobError', () => {
+  const unknown = new RelayUnknownOutcomeError(JOB);
+  const pending = new RelayStillPendingError(JOB, TX_HASH);
+
+  it('finds the error itself', () => {
+    expect(openRelayJobError(unknown)).toBe(unknown);
+    expect(openRelayJobError(pending)).toBe(pending);
+  });
+
+  it('finds the error deep in a cause chain, as viem wraps a provider error', async () => {
+    const provider = custom({
+      request: async ({ method }) => {
+        if (method === 'eth_chainId') return '0x2105';
+        throw pending;
+      }
+    });
+    const client = createWalletClient({ account: zeroAddress, chain: base, transport: provider });
+    const wrapped = await client.sendTransaction({ to: '0x528e26b25a34a4a5d0dbda1d57d318153d2ed582', value: 0n }).then(
+      () => undefined,
+      (error: unknown) => error
+    );
+    expect(wrapped).not.toBe(pending);
+    expect(openRelayJobError(wrapped)).toBe(pending);
+    expect(openRelayJobError(new Error('outer', { cause: new Error('middle', { cause: unknown }) }))).toBe(unknown);
+  });
+
+  it.each<[string, unknown]>([
+    ['a final relay error', new RelayRevertedError(JOB_ID, TX_HASH)],
+    ['a not-submitted job', new RelayNotSubmittedError(JOB)],
+    ['a refusal', new RelayApiError('bad_signature', 400, 'no')],
+    ['an error with the text alone', new Error(unknown.message)],
+    ['a value that is not an object', 'relay'],
+    ['undefined', undefined]
+  ])('finds nothing in %s', (_name, error) => {
+    expect(openRelayJobError(error)).toBeUndefined();
+  });
+
+  it('stops at a cause chain that loops and after 16 links', () => {
+    const loop = new Error('loop');
+    Object.defineProperty(loop, 'cause', { value: loop });
+    expect(openRelayJobError(loop)).toBeUndefined();
+    let deep: Error = unknown;
+    for (let index = 0; index < 16; index += 1) deep = new Error(`link ${index}`, { cause: deep });
+    expect(openRelayJobError(deep)).toBeUndefined();
   });
 });

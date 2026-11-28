@@ -6,11 +6,11 @@
  */
 import type { Address, Hex } from 'viem';
 
-import type { RelayChainConfig } from 'lib/remote-config/schema';
+import type { RelayChainConfig, RelayConfig } from 'lib/remote-config/schema';
 
 import { RelayMismatchError, RelayRefusedError } from './errors';
 import { lowerAddress } from './parse';
-import type { RelayAccount, RelayFeeQuoteProof, RelayJob, RelayQuote } from './types';
+import type { RelayAccount, RelayFeeQuoteProof, RelayJob, RelayQuote, RelayService } from './types';
 
 function sameHex(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase();
@@ -60,6 +60,16 @@ export function assertRelayAccountMatches(account: RelayAccount, chain: RelayCha
       return;
     default:
       throw new RelayMismatchError('relay: the gas mode is not known');
+  }
+}
+
+/**
+ * Throws `RelayMismatchError` unless the service names the configured executor: the same rule that
+ * `assertRelayAccountMatches` applies to an account. The executor of the config is the same on every chain.
+ */
+export function assertRelayServiceMatches(service: RelayService, relay: Pick<RelayConfig, 'executor'>): void {
+  if (!sameHex(service.executor, relay.executor)) {
+    throw new RelayMismatchError('relay: the executor is not the configured executor');
   }
 }
 

@@ -2304,5 +2304,7 @@
   "commandAiSamplePrompt3": "彙總我上週的活動",
   "commandAiSamplePrompt4": "讓 10 USDCx 以最有效率的方式獲利",
   "commandAiSamplePrompt5": "存入 1 ETH，兌換為 USDCx，並存入「頂級收益金庫」",
-  "commandAiSamplePrompt6": "本月我轉出了多少 USDCx？"
+  "commandAiSamplePrompt6": "本月我轉出了多少 USDCx？",
+  "depositFlowRelayReverted": "該存款交易在鏈上失敗，因此並未進行跨鏈轉移。您的資金仍存於您的存款地址中。",
+  "depositFlowRelayExpired": "該筆存款未在時限內發送。您的資金仍存於存款地址中。請重新嘗試。"
 }

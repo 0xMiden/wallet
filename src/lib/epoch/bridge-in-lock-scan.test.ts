@@ -1,4 +1,5 @@
 import { getAllocatorId } from '@epoch-protocol/epoch-intents-sdk';
+import { getAddress } from 'viem';
 
 import {
   collectBridgeInSponsors,
@@ -56,6 +57,12 @@ jest.mock('lib/remote-config/values', () => ({
 
 jest.mock('./client', () => ({
   epochRpcChain: (id: number) => ({ id, rpcUrls: { default: { http: ['https://rpc.example'] } } })
+}));
+
+// The current account's relay address: none unless a case sets one.
+let mockRelayEvmAddress: string | undefined;
+jest.mock('lib/store', () => ({
+  useWalletStore: { getState: () => ({ currentAccount: { relayEvmAddress: mockRelayEvmAddress } }) }
 }));
 
 interface Row {
@@ -214,6 +221,19 @@ describe('addresses to scan', () => {
     ];
 
     await expect(collectBridgeInSponsors()).resolves.toEqual([OWNER]);
+  });
+
+  it("scans the current account's relay address first, once, and skips one that is not an address", async () => {
+    const relay = '0x00000000000000000000000000000000000000cc';
+    mockRows = [row(OWNER), row(relay)];
+    mockRelayEvmAddress = relay;
+    try {
+      await expect(collectBridgeInSponsors()).resolves.toEqual([getAddress(relay), OWNER]);
+      mockRelayEvmAddress = 'not-an-address';
+      await expect(collectBridgeInSponsors()).resolves.toEqual([OWNER, getAddress(relay)]);
+    } finally {
+      mockRelayEvmAddress = undefined;
+    }
   });
 
   it('puts the connected wallet first and never twice', () => {

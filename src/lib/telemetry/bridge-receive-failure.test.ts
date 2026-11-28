@@ -124,6 +124,12 @@ it('keeps the wallet request client within its closed values', () => {
   );
 });
 
+it('names a deposit that the relay sent', () => {
+  expect(reportBridge({ route: 'agglayer', step: 'wallet_deposit', requestClient: 'relay' })).toContain(
+    'wallet request client relay'
+  );
+});
+
 it('omits the wallet request client outside an approve or deposit request', () => {
   expect(reportBridge({ route: 'agglayer', step: 'deposit_receipt', requestClient: 'wagmi' })).not.toContain(
     'wallet request client'
@@ -166,7 +172,7 @@ it('names epoch_solve in the Fast solve request client policy line', () => {
     .find(line => line.includes('Only inbound bridge failures') && line.includes('wallet request client'));
 
   expect(policyLine).toContain('`wallet_approve`, `wallet_deposit` or `epoch_solve` carry wallet request client');
-  expect(policyLine).toContain('wallet request client (`native_reown`, `wagmi`)');
+  expect(policyLine).toContain('wallet request client (`native_reown`, `wagmi`, `relay`)');
 });
 
 const OWN_WORDS = 'The Fast route has no quoted deposit.';

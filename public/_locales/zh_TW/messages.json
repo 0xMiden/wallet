@@ -10570,5 +10570,13 @@
   "commandAiSamplePrompt6": {
     "message": "本月我轉出了多少 USDCx？",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "depositFlowRelayReverted": {
+    "message": "該存款交易在鏈上失敗，因此並未進行跨鏈轉移。您的資金仍存於您的存款地址中。",
+    "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
+  },
+  "depositFlowRelayExpired": {
+    "message": "該筆存款未在時限內發送。您的資金仍存於存款地址中。請重新嘗試。",
+    "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
   }
 }

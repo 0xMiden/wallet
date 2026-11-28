@@ -10570,5 +10570,13 @@
   "commandAiSamplePrompt6": {
     "message": "How much USDCx did I send this month?",
     "englishSource": "How much USDCx did I send this month?"
+  },
+  "depositFlowRelayReverted": {
+    "message": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address.",
+    "englishSource": "The deposit transaction failed on chain, so nothing was bridged. Your funds are still at your deposit address."
+  },
+  "depositFlowRelayExpired": {
+    "message": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again.",
+    "englishSource": "The deposit was not sent before its time limit. Your funds are still at your deposit address. Try again."
   }
 }
