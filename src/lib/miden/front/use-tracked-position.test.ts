@@ -40,4 +40,11 @@ it('follows the recorded events live and reads nothing while disabled', async ()
 
   rerender({ enabled: false });
   expect(result.current).toBeUndefined();
+  // A read that kept running while disabled would deliver this later event.
+  await act(async () => {
+    await appendPositionEvents('later', [
+      { ...arrival, key: 'later:faucet', txId: 'later', arrived: 2n, eventAt: at + 1000 }
+    ]);
+  });
+  await expect(waitFor(() => expect(result.current).not.toBeUndefined())).rejects.toThrow();
 });
