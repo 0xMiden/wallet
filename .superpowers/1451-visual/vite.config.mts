@@ -13,6 +13,7 @@ export default {
     ...base.resolve,
     alias: [
       { find: /^lib\/store$/, replacement: resolveMock },
+      { find: /^(lib\/miden\/front|\.\.\/front)$/, replacement: resolveMock },
       { find: /^app\/hooks\/useNativeFeeFaucetId$/, replacement: resolveMock },
       ...baseAliases
     ]
