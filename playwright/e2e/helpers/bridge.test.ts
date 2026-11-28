@@ -223,22 +223,39 @@ describe('usdcxChipsProblem', () => {
       'send-network-arbitrum-sepolia'
     ].map(testId => ({ testId, pressed: testId === pressed ? 'true' : 'false' }));
 
-  it('accepts exactly the four USDCx destinations with only the selected one pressed', () => {
-    expect(usdcxChipsProblem(chips('send-network-arc-testnet'), 'send-network-arc-testnet')).toBeUndefined();
+  it('accepts the four unpressed destinations in any order, with other EVM destinations', () => {
+    const reversed = chips('').reverse();
+    expect(usdcxChipsProblem(reversed)).toBeUndefined();
+    expect(usdcxChipsProblem([...reversed, { testId: 'send-network-optimism', pressed: 'false' }])).toBeUndefined();
   });
 
-  it('names a fifth chip, a missing chip, and a wrongly pressed chip', () => {
-    expect(
-      usdcxChipsProblem(
-        [...chips('send-network-arc-testnet'), { testId: 'send-network-miden', pressed: null }],
-        'send-network-arc-testnet'
-      )
-    ).toContain('send-network-miden');
-    expect(usdcxChipsProblem(chips('send-network-arc-testnet').slice(1), 'send-network-arc-testnet')).toContain(
-      'expected exactly'
+  it('checks that only the explicitly selected destination is pressed', () => {
+    const selected = 'send-network-base-sepolia';
+    const rows = chips(selected);
+    expect(usdcxChipsProblem(rows, selected)).toBeUndefined();
+    const withArc = rows.map(row => (row.testId === 'send-network-arc-testnet' ? { ...row, pressed: 'true' } : row));
+    expect(usdcxChipsProblem(withArc, selected)).toBe(
+      'aria-pressed send-network-arc-testnet=true; only send-network-base-sepolia may be pressed'
     );
-    expect(usdcxChipsProblem(chips('send-network-sepolia'), 'send-network-arc-testnet')).toBe(
-      'aria-pressed send-network-arc-testnet=false, send-network-sepolia=true; only send-network-arc-testnet may be pressed'
+  });
+
+  it('names missing and duplicate destinations', () => {
+    const rows = chips('');
+    expect(usdcxChipsProblem(rows.slice(1))).toBe('missing network row send-network-arc-testnet');
+    expect(usdcxChipsProblem([...rows, { testId: 'send-network-sepolia', pressed: 'false' }])).toBe(
+      'duplicate network row send-network-sepolia'
+    );
+    expect(usdcxChipsProblem(rows, 'send-network-optimism')).toBe('missing network row send-network-optimism');
+  });
+
+  it.each(['miden', 'solana', 'bitcoin', 'near'])('rejects a non-EVM %s row without pressed state', network => {
+    const testId = `send-network-${network}`;
+    expect(usdcxChipsProblem([...chips(''), { testId, pressed: null }])).toBe(`unexpected network row ${testId}`);
+  });
+
+  it('names any row pressed before an explicit choice', () => {
+    expect(usdcxChipsProblem(chips('send-network-arc-testnet'))).toBe(
+      'aria-pressed send-network-arc-testnet=true; no row may be pressed'
     );
   });
 });
@@ -429,7 +446,7 @@ describe('expectArcPreselected', () => {
                   getAttribute: name =>
                     name === 'data-testid'
                       ? testId
-                      : ['send-network-picker', 'send-network-options', extraRow].includes(testId)
+                      : ['send-network-picker', 'send-network-options', 'send-network-miden'].includes(testId)
                         ? null
                         : String(testId === pressed)
                 }))
@@ -445,18 +462,6 @@ describe('expectArcPreselected', () => {
     } as unknown as Page;
     return { page, actions };
   };
-
-  it('opens the network sheet, resolves once Arc Testnet alone is pressed among its four rows, and closes it', async () => {
-    const { page, actions } = pageWithSheet('send-network-arc-testnet');
-
-    await expect(expectArcPreselected(page, 1_000)).resolves.toBeUndefined();
-
-    expect(actions).toEqual([
-      'click send-network-picker',
-      `click button ${enText('close')} in [role="dialog"][data-state="open"]`,
-      'hidden send-network-arc-testnet'
-    ]);
-  });
 
   it('accepts the four USDCx destinations with no network pressed before the explicit choice', async () => {
     const { page, actions } = pageWithSheet('');
@@ -475,10 +480,22 @@ describe('expectArcPreselected', () => {
     ).rejects.toThrow('send-network-miden');
   });
 
-  it('says it checks the destination set and the default, not USDCx mode', async () => {
-    await expect(expectArcPreselected(pageWithSheet('send-network-sepolia').page, 300)).rejects.toThrow(
-      'checks the destination set and its default'
-    );
+  it('allows another configured EVM destination without clicking any destination', async () => {
+    const { page, actions } = pageWithSheet('', 'send-network-optimism');
+
+    await expect(expectArcPreselected(page, 300)).resolves.toBeUndefined();
+    expect(actions).toEqual([
+      'click send-network-picker',
+      `click button ${enText('close')} in [role="dialog"][data-state="open"]`,
+      'hidden send-network-arc-testnet'
+    ]);
+  });
+
+  it('rejects a preselected Arc row before closing the sheet', async () => {
+    const { page, actions } = pageWithSheet('send-network-arc-testnet');
+
+    await expect(expectArcPreselected(page, 300)).rejects.toThrow('send-network-arc-testnet=true');
+    expect(actions).toEqual(['click send-network-picker']);
   });
 });
 
