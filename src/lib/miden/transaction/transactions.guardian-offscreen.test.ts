@@ -78,6 +78,7 @@ import {
 } from './constants';
 import { noteDeliveryWriteCount } from './helper';
 import { generateTransaction, MAX_QUEUED_AGE } from './index';
+import { recordPositionEvents } from './position-recorder';
 import { requeueFailedTransaction } from './retry';
 import { OperationAbortedError } from '../back/offscreen-codec';
 import { ITransaction, ITransactionStatus, RegisterNameTransaction, ReplaceHotKeyTransaction } from '../db/types';
@@ -215,6 +216,8 @@ jest.mock('lib/miden/repo', () => ({
     }))
   }
 }));
+
+jest.mock('./position-recorder', () => ({ recordPositionEvents: jest.fn(async () => undefined) }));
 
 // `generateTransactionsLoop` reaches the table through `filter`, so its call
 // count is the only observable this suite has for "the queue was actually
@@ -4828,6 +4831,7 @@ describe('guardian killed CONSUME node-verify (#260 fu #3a)', () => {
     // The completion handler is NOT re-run — the killed op left no TransactionResult;
     // the row is marked Completed directly from the node verdict.
     expect(mockComplete.consume).not.toHaveBeenCalled();
+    expect(recordPositionEvents).toHaveBeenCalledWith('kill-consume-landed', { anchor: false });
   });
 
   it('node reports the note ConsumedExternal (NOT provably mine) → funds-safe Failed, never a false Received', async () => {
@@ -5053,6 +5057,7 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.noteDelivery).toBe('undelivered');
     expect(finalRow.displayMessage).toBe('Executed - 2 private notes could not be delivered');
     expect(finalRow.transactionId).toBe('0xlanded');
+    expect(recordPositionEvents).toHaveBeenCalledWith('apply-execute-private', { anchor: false });
   });
 
   // A trap serializing the result follows the leaf's apply, so the store holds the notes its gate recorded: the landed
@@ -5109,6 +5114,7 @@ describe('guardian leaf errorCode preservation → guardian classifier marks Com
     expect(finalRow.completedAt).toBeGreaterThanOrEqual(landing);
     expect(noteDeliveryWriteCount()).toBe(writes + 1);
     expect(service.abandonCandidate).not.toHaveBeenCalled();
+    expect(recordPositionEvents).toHaveBeenCalledWith('serialize-trap-private-send', { anchor: true });
   });
 
   // An apply that failed left the notes out of the store, so nothing can push them: the row stays inert, as before.

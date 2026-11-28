@@ -2230,6 +2230,7 @@ const generateTransactionWithProvider = async (
         } else {
           await settleLandedValueRow(transaction.id, error, transaction.attemptId);
         }
+        await recordPositionEvents(transaction.id, { anchor: landedFactsOf(error).applied === true });
         return;
       }
       // The wallet locked (vault === null) somewhere in the guardian flow: DEFER,
@@ -2247,9 +2248,10 @@ const generateTransactionWithProvider = async (
       if (isApplyAfterSubmitError(error)) {
         if (STRUCTURAL_GUARDIAN_TYPES.includes(transaction.type)) {
           await settleLandedStructuralRow(transaction, guardianProvider, error);
-          return;
+        } else {
+          await settleLandedValueRow(transaction.id, error, transaction.attemptId);
         }
-        await settleLandedValueRow(transaction.id, error, transaction.attemptId);
+        await recordPositionEvents(transaction.id, { anchor: landedFactsOf(error).applied === true });
         return;
       }
       // An offscreen wedge-kill (deadline / `closeDocument`) surfaces as a
@@ -2607,7 +2609,10 @@ const generateTransactionWithProvider = async (
       if (!isInsideSubmitLeaf(error) && isConfirmedKill(error)) {
         markKilledBeforeSubmit(error);
       }
-      if (await tryCompleteKilledConsume(transaction, error)) return;
+      if (await tryCompleteKilledConsume(transaction, error)) {
+        await recordPositionEvents(transaction.id, { anchor: false });
+        return;
+      }
       await cancelTransactionAfterPipelineStopped(transaction, error, transaction.attemptId);
     }
     return;
@@ -6189,6 +6194,7 @@ export const generateTransactionsLoop = async (
     // submit it again.
     if (isLandedTailError(e)) {
       await settleLandedValueRow(nextTransaction.id, e, nextTransaction.attemptId);
+      await recordPositionEvents(nextTransaction.id, { anchor: landedFactsOf(e).applied === true });
       return false;
     }
     // A stable code string, when the SDK attaches one (web-sdk sets `code`; the
@@ -6296,6 +6302,7 @@ export const generateTransactionsLoop = async (
     // and produce a misleading "already consumed" error.
     if (isApplyAfterSubmitError(e)) {
       await settleLandedValueRow(nextTransaction.id, e, nextTransaction.attemptId);
+      await recordPositionEvents(nextTransaction.id, { anchor: landedFactsOf(e).applied === true });
       return false;
     }
 
@@ -6320,7 +6327,10 @@ export const generateTransactionsLoop = async (
     // (incl. 'landed-external' - consumed but not provably mine) fall through to
     // the funds-safe Failed path below. Send/swap/execute are untouched
     // (deferred #3b).
-    if (await tryCompleteKilledConsume(nextTransaction, e)) return false;
+    if (await tryCompleteKilledConsume(nextTransaction, e)) {
+      await recordPositionEvents(nextTransaction.id, { anchor: false });
+      return false;
+    }
 
     // Cancel the transaction if it hasn't already been cancelled
     const tx = await Repo.transactions.where({ id: nextTransaction.id }).first();

@@ -52,17 +52,18 @@ async function quoteAt(priceSymbol: string): Promise<PositionQuote | null> {
  * Records what a mainnet transaction that just completed did to the account's positions. It never fetches a price
  * (a quote fetched after the event cannot price it) and never throws: a failure leaves the position to read unknown.
  */
-export async function recordPositionEvents(txId: string): Promise<void> {
+export async function recordPositionEvents(txId: string, options: { anchor?: boolean } = {}): Promise<void> {
   try {
     const network = provenBadgeNetwork();
     if (network !== MIDEN_NETWORK_NAME.MAINNET) return;
+    if ((await Repo.positionEvents.where('txId').equals(txId).count()) > 0) return;
     const row = await Repo.transactions.where({ id: txId }).first();
     if (!row || row.status !== ITransactionStatus.Completed || row.restoredFromBackup || row.recovered) return;
     const { completedAt } = row;
     if (typeof completedAt !== 'number' || !Number.isSafeInteger(completedAt)) return;
     const flows = rowFlows(row);
     if (flows.size === 0) return;
-    const held = await readVaultHoldings(row.accountId, 'position-record');
+    const held = options.anchor === false ? null : await readVaultHoldings(row.accountId, 'position-record');
     const arrivals = [...flows].filter(([, flow]) => flow.arrived > 0n);
     let pricing = new Map<string, { decimals: number; quote: PositionQuote | null }>();
     if (arrivals.length > 0) {

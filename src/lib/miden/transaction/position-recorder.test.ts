@@ -40,6 +40,9 @@ const row = (changes: Partial<ITransaction>): ITransaction => ({
 });
 
 beforeEach(async () => {
+  held.mockClear();
+  context.mockClear();
+  identify.mockClear();
   await db.table(Table.PositionEvents).clear();
   await transactions.clear();
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
@@ -187,9 +190,26 @@ describe('recordPositionEvents', () => {
     mockProvenBadgeNetwork.mockImplementation(() => mockNetwork());
     await recordPositionEvents('live');
     held.mockResolvedValue(new Map([['faucet-a', 99n]]));
+    const heldReads = held.mock.calls.length;
+    const contextLoads = context.mock.calls.length;
+    const assetIdentifications = identify.mock.calls.length;
     await recordPositionEvents('live');
+    expect(held).toHaveBeenCalledTimes(heldReads);
+    expect(context).toHaveBeenCalledTimes(contextLoads);
+    expect(identify).toHaveBeenCalledTimes(assetIdentifications);
     expect(await readPositionEvents('account-a', 'mainnet', 'faucet-a')).toEqual([
       expect.objectContaining({ txId: 'live', heldAfter: 7n })
+    ]);
+  });
+
+  it('leaves an unanchored completion without reading vault holdings', async () => {
+    await transactions.add(row({ faucetId: 'faucet-a', amount: 1n }));
+
+    await recordPositionEvents('tx-1', { anchor: false });
+
+    expect(held).not.toHaveBeenCalled();
+    expect(await readPositionEvents('account-a', 'mainnet', 'faucet-a')).toEqual([
+      expect.objectContaining({ txId: 'tx-1', heldAfter: null })
     ]);
   });
 
