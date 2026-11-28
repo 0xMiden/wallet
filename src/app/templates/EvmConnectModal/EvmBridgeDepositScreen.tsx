@@ -2293,7 +2293,6 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     const units = toBaseUnits(amount, slowSourceDecimals);
     if (!units) return undefined;
     const delivered = agglayerDeliveredAmount(units, delivery.scale);
-    if (delivered <= 0n) return undefined;
     return {
       assetId: delivery.midenFaucetId,
       amount: formatUnits(delivered, decimals),
