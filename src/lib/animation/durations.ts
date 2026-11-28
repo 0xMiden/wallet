@@ -6,6 +6,8 @@
  */
 
 export const durations = {
+  /** The delay between one item and the next when a group comes in together. */
+  stagger: 0.03,
   fast: 0.18,
   normal: 0.28,
   slow: 0.42,
