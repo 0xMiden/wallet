@@ -308,6 +308,12 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       if (tagged && request !== latestRequest) throw new Error('Bridge operation terms changed');
       set({ status: 'signing', error: null, bridgeReceiveTxId: bridgeReceiveTxId ?? null, compactWatchClosed: false });
       const inputs: IBridgedReceiveExtraInputs | undefined = row?.extraInputs;
+      const reviewedAddress = operation?.review.accounts.evmAddress ?? quote.params.evmSourceAddress;
+      const matchesReviewedAddress = (address: string | undefined) =>
+        address?.toLowerCase() === reviewedAddress.toLowerCase();
+      if (inputs?.sourceAddress !== undefined && !matchesReviewedAddress(inputs.sourceAddress)) {
+        throw walletRaised(new Error('Bridge operation terms changed'));
+      }
       // viem's writeContract rejects when walletClient.chain.id (Sepolia)
       // doesn't match the wallet's currently-selected chain. The WC session
       // namespace declares Sepolia but MetaMask's active chain can still be
@@ -317,13 +323,14 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
       // id in every signing request, so there is no active-chain to guard.
       let connection = await getEvmConnection();
       // A USDCx deposit switches the web wallet to Arc or Base, so switch it back before the checks below.
-      if (connection.address && !connection.isNative && connection.chainId !== sourceChainId) {
+      if (matchesReviewedAddress(connection.address) && !connection.isNative && connection.chainId !== sourceChainId) {
         await switchWebWalletChain(sourceChainId);
         connection = await getEvmConnection();
       }
       if (!connection.address) {
         throw walletRaised(new Error('Connect an EVM wallet first'));
       }
+      if (!matchesReviewedAddress(connection.address)) throw walletRaised(new Error('Bridge operation terms changed'));
       const sourceAddress = connection.address;
       if (!connection.isNative && connection.chainId !== sourceChainId) {
         throw walletRaised(
@@ -333,7 +340,11 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         );
       }
       const allocatorUrl = inputs?.epochAllocatorUrl ?? getEpochAllocatorUrl();
-      const sdk = await getEpochSdk({ chainId: sourceChainId, allocatorUrl });
+      const sdk = await getEpochSdk({
+        chainId: sourceChainId,
+        allocatorUrl,
+        account: reviewedAddress as `0x${string}`
+      });
       if (!sdk) throw walletRaised(new Error('Connect an EVM wallet first'));
       const assertOwnedCurrent = async () => {
         if (!claimedOperation || !row) throw new Error('Bridge operation terms changed');
@@ -361,9 +372,20 @@ export const useEpochStore = create<EpochStore>((set, get) => ({
         ...quote.params,
         preFetchedQuote: { ...quote, params: quote.params }
       };
-      const intent = claimedOperation
-        ? await buildEVMToMidenIntent(sdk, buildParams, assertOwnedCurrent)
-        : await buildEVMToMidenIntent(sdk, buildParams);
+      const assertReviewedSigner = async () => {
+        connection = await getEvmConnection();
+        if (
+          !matchesReviewedAddress(connection.address) ||
+          (!connection.isNative && connection.chainId !== sourceChainId)
+        ) {
+          throw walletRaised(new Error('Bridge operation terms changed'));
+        }
+      };
+      const intent = await buildEVMToMidenIntent(
+        sdk,
+        buildParams,
+        claimedOperation ? assertOwnedCurrent : assertReviewedSigner
+      );
       const nonce = intent.intentNonce ?? intent.solveResult?.nonce;
       const evmTxHash = intent.solveResult?.depositResult?.transactionHash ?? intent.solveResult?.hash;
       if (claimedOperation) {
