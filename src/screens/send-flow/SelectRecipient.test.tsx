@@ -173,14 +173,27 @@ describe('SelectRecipient', () => {
     }
   });
 
-  it.each(['', '0x1234'])('offers networks before the recipient address is valid (%s)', address => {
-    const props = renderRecipient({ address, isValidAddress: false, chain: address ? 'ethereum' : 'miden' });
+  it.each(['', '0x1234'])('offers EVM and Solana networks before the recipient address is valid (%s)', address => {
+    const networks: NetworkOption[] = [...mockBridgeNetworks, { id: 'solana', name: 'Solana', kind: 'solana' }];
+    const props = renderRecipient({ address, isValidAddress: false, chain: address ? 'ethereum' : 'miden', networks });
 
     const picker = screen.getByRole('button', { name: 'selectNetwork' });
     fireEvent.click(picker);
-    fireEvent.click(screen.getByTestId('send-network-sepolia'));
+    expect(screen.getByTestId('send-network-sepolia')).toHaveTextContent('Sepolia');
+    expect(screen.queryByTestId('send-network-solana')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('send-network-solana'));
 
-    expect(props.onSelectNetwork).toHaveBeenCalledWith('sepolia');
+    expect(props.onSelectNetwork).toHaveBeenCalledWith('solana');
+    expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
+  });
+
+  it('offers only EVM networks for a valid EVM recipient', () => {
+    const networks: NetworkOption[] = [...mockBridgeNetworks, { id: 'solana', name: 'Solana', kind: 'solana' }];
+    renderRecipient({ address: ETH_ADDRESS, isValidAddress: true, chain: 'ethereum', networks });
+
+    fireEvent.click(screen.getByTestId('send-network-picker'));
+    expect(screen.getByTestId('send-network-sepolia')).toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-solana')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-recipient-confirm')).toBeDisabled();
   });
 
@@ -202,6 +215,7 @@ describe('SelectRecipient', () => {
 
     expect(screen.getByTestId('send-network-solana')).toHaveTextContent('Solana');
     expect(screen.queryByTestId('send-network-picker')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('send-network-sepolia')).not.toBeInTheDocument();
     expect(screen.getByTestId('send-recipient-confirm')).toBeEnabled();
   });
 
