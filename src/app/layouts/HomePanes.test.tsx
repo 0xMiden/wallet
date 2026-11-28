@@ -380,11 +380,11 @@ describe('HomePanes', () => {
       draw('overview', 0.4);
       draw('send', 0);
       route(rerender, '/receive');
-      expect(shown().length).toBeLessThanOrEqual(2);
+      expect(shown().length).toBe(2);
       draw('overview', 0.1);
       draw('receive', 0);
       route(rerender, '/earn');
-      expect(shown().length).toBeLessThanOrEqual(2);
+      expect(shown().length).toBe(2);
       expectNoVisibleOverride();
     });
   });
@@ -490,6 +490,7 @@ describe('HomePanes', () => {
       const { rerender } = mount(tab(true));
       route(rerender, '/earn', tab(true));
       route(rerender, '/history', tab(false));
+      expect(mockAnimations).toHaveLength(2);
       for (const animation of mockAnimations) expect(animation.cancel).not.toHaveBeenCalled();
     });
 
@@ -626,6 +627,7 @@ describe('HomePanes', () => {
       const { rerender, unmount } = mount();
       route(rerender, '/send');
       const running = [...mockAnimations];
+      expect(running).toHaveLength(2);
       unmount();
       expect(isInteracting()).toBe(false);
       for (const animation of running) expect(animation.cancel).toHaveBeenCalled();
