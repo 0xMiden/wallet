@@ -845,6 +845,31 @@ describe('NEAR Intents route card', () => {
       );
 
       it.each([
+        [
+          'unrelated Intents contract',
+          AVAILABLE,
+          '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+          ['fast', 'slow', 'near-intents']
+        ],
+        ['unavailable Slow', DOWN, sameContract, ['near-intents', 'fast', 'slow']]
+      ])('preserves Best Price placement with %s', (_label, slowAvailability, contract, order) => {
+        render(
+          <RouteOptions
+            {...base}
+            {...UP}
+            slowAvailability={slowAvailability}
+            payouts={{ epoch: { assetId: `1:${contractAddress}`, amount: '1', symbol: 'USDC' } }}
+            nearIntentsCard={intents(10, contract)}
+          />
+        );
+
+        expect(
+          screen.getAllByTestId(/^bridge-route-(fast|slow|near-intents)$/).map(card => card.dataset.testid)
+        ).toEqual(order.map(id => `bridge-route-${id}`));
+        expect(screen.getByTestId('bridge-route-slow')).toHaveProperty('disabled', slowAvailability === DOWN);
+      });
+
+      it.each([
         ['unknown', Number.NaN, 'bridge-route-usdcx'],
         ['finite', 10, 'bridge-route-near-intents']
       ])('sorts USDCx alongside Intents with a %s ETA', (_label, eta, fastest) => {
