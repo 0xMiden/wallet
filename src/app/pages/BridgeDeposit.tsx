@@ -65,10 +65,18 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
   // exactly the abandonment worth seeing.
   const fundFlow = useFundFlow();
   const walletReady = connected && address && currentMidenAccount;
+  const readyWallet = walletReady ? { address, account: currentMidenAccount } : null;
+  const lastReadyWallet = useRef(readyWallet);
+  if (readyWallet && !fundFlow.depositRetained) lastReadyWallet.current = readyWallet;
+  const depositWallet =
+    fundFlow.depositRetained && lastReadyWallet.current?.account.publicKey === currentMidenAccount?.publicKey
+      ? lastReadyWallet.current
+      : readyWallet;
   const wasWaitingConnectRef = useRef(!walletReady);
   const wasReadyRef = useRef(Boolean(walletReady));
 
   useEffect(() => {
+    if (fundFlow.depositRetained) return;
     if (!walletReady) {
       if (wasReadyRef.current) {
         wasReadyRef.current = false;
@@ -151,15 +159,16 @@ export const BridgeDeposit: React.FC<BridgeDepositProps> = ({ onClose }) => {
     }
   }, [disconnect, nativeReown, t, useNativeReownWallet]);
 
-  if (walletReady) {
+  if (depositWallet) {
     return (
       <EvmBridgeDepositScreen
-        evmAddress={address}
-        midenAccount={currentMidenAccount}
+        evmAddress={depositWallet.address}
+        midenAccount={depositWallet.account}
         onConnectAnother={handleSwitchWallet}
         onClose={handleClose}
         reportDeposit={fundFlow.reportDeposit}
         fundFlow={fundFlow}
+        retainDepositAttempt={fundFlow.retainDepositAttempt}
       />
     );
   }

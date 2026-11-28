@@ -106,24 +106,30 @@ jest.mock('components/ui/Button', () => ({
 let mockSimulateChildEnterAmount = false;
 let mockDeposit: Promise<string> | undefined;
 let mockDepositResult: Promise<string> | undefined;
+let mockHoldDeposit = false;
+let mockReleaseDeposit: (() => void) | undefined;
 jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
   EvmBridgeDepositScreen: ({
+    evmAddress,
     onClose,
     onConnectAnother,
-    fundFlow
+    fundFlow,
+    retainDepositAttempt
   }: {
+    evmAddress: string;
     onClose: () => void;
     onConnectAnother: () => void;
     fundFlow?: {
       enterStep?: (step: string) => void;
       reportDeposit: (create: () => Promise<string>) => Promise<string>;
     };
+    retainDepositAttempt?: () => () => void;
   }) => {
     React.useEffect(() => {
       if (mockSimulateChildEnterAmount) fundFlow?.enterStep?.('select_amount');
     }, [fundFlow]);
     return (
-      <div data-testid="bridge-deposit-screen">
+      <div data-testid="bridge-deposit-screen" data-wallet={evmAddress}>
         <button type="button" onClick={onConnectAnother}>
           switch
         </button>
@@ -139,6 +145,16 @@ jest.mock('app/templates/EvmConnectModal/EvmBridgeDepositScreen', () => ({
             }}
           >
             confirm deposit
+          </button>
+        )}
+        {mockHoldDeposit && (
+          <button
+            type="button"
+            onClick={() => {
+              mockReleaseDeposit = retainDepositAttempt?.();
+            }}
+          >
+            hold confirmation
           </button>
         )}
       </div>
@@ -379,6 +395,8 @@ describe('BridgeDeposit fund step progression', () => {
     mockBeginFlow.mockClear();
     mockDeposit = undefined;
     mockDepositResult = undefined;
+    mockHoldDeposit = false;
+    mockReleaseDeposit = undefined;
   });
 
   it('records select_amount on initial entry when an EVM wallet is already connected before child effect runs', () => {
@@ -429,7 +447,7 @@ describe('BridgeDeposit fund step progression', () => {
 
       mockConnection = { address: undefined, connected: false };
       view.rerender(<BridgeDeposit />);
-      const showedConnect = screen.queryByTestId('bridge-connect-wallet') !== null;
+      const showedConnect = screen.queryByRole('button', { name: 'bridgeConnectWalletAction' }) !== null;
       mockConnection = { address: '0xabc', connected: true };
       view.rerender(<BridgeDeposit />);
 
@@ -464,5 +482,20 @@ describe('BridgeDeposit fund step progression', () => {
     });
     expect(close).toHaveBeenCalledTimes(1);
     expect(mockBeginFlow.mock.results[0]!.value.complete).not.toHaveBeenCalled();
+  });
+
+  it('retains the reviewed wallet through readiness loss before row creation', () => {
+    mockHoldDeposit = true;
+    mockConnection = { address: '0xabc', connected: true };
+    const view = render(<BridgeDeposit />);
+    fireEvent.click(screen.getByRole('button', { name: 'hold confirmation' }));
+
+    mockConnection = { address: undefined, connected: false };
+    view.rerender(<BridgeDeposit />);
+    expect(screen.getByTestId('bridge-deposit-screen')).toHaveAttribute('data-wallet', '0xabc');
+    expect(screen.queryByRole('button', { name: 'bridgeConnectWalletAction' })).not.toBeInTheDocument();
+
+    act(() => mockReleaseDeposit?.());
+    expect(screen.getByRole('button', { name: 'bridgeConnectWalletAction' })).toBeInTheDocument();
   });
 });

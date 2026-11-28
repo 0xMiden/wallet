@@ -178,6 +178,7 @@ interface EvmBridgeDepositScreenProps {
   reportDeposit?: ReportDeposit;
   /** Optional step-progression reporter shared with the hosting funding flow. */
   fundFlow?: FundFlowTelemetry;
+  retainDepositAttempt?: () => () => void;
 }
 
 const RECEIVE_STEP_TELEMETRY: Readonly<Partial<Record<ReceiveStep, TelemetryStep>>> = {
@@ -681,7 +682,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   onConnectAnother,
   onClose,
   reportDeposit,
-  fundFlow
+  fundFlow,
+  retainDepositAttempt
 }) => {
   const { t } = useTranslation();
   const { navigateTo, goBack, cardStack, activeRoute } = useNavigator();
@@ -704,12 +706,18 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
   // status page until it closes, so the lock holds for the rest of the screen.
   const confirming = useRef(false);
   const mountedRef = useRef(true);
+  const releaseDepositRef = useRef<(() => void) | undefined>(undefined);
+  const releaseDepositAttempt = useCallback(() => {
+    releaseDepositRef.current?.();
+    releaseDepositRef.current = undefined;
+  }, []);
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      releaseDepositAttempt();
     };
-  }, []);
+  }, [releaseDepositAttempt]);
   // Bumped by a confirm that ends without a row, so the quote effect runs over whatever it skipped during the confirm.
   const [confirmSettled, setConfirmSettled] = useState(0);
 
@@ -1088,6 +1096,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     }
     if (activeRoute?.name === ReceiveStep.ShowBridgePageStatus) {
       fundFlow?.transitionStep('close');
+      releaseDepositAttempt();
       onClose();
       return true;
     }
@@ -1103,7 +1112,16 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     fundFlow?.transitionStep('close');
     onClose();
     return true;
-  }, [activeRoute?.name, cardStack, creatingBridgeRow, fundFlow, goBack, onClose, usdcxSubmissionPending]);
+  }, [
+    activeRoute?.name,
+    cardStack,
+    creatingBridgeRow,
+    fundFlow,
+    goBack,
+    onClose,
+    releaseDepositAttempt,
+    usdcxSubmissionPending
+  ]);
 
   useEffect(() => {
     resetEpoch();
@@ -2343,8 +2361,9 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
 
   const handleStatusDone = useCallback(() => {
     fundFlow?.transitionStep('close');
+    releaseDepositAttempt();
     onClose();
-  }, [fundFlow, onClose]);
+  }, [fundFlow, onClose, releaseDepositAttempt]);
 
   const handleConfirm = useCallback(async () => {
     // A tap that lands once a row exists (Review is still on screen while the Navigator leaves it) changes nothing.
@@ -2366,6 +2385,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
       return;
     }
     confirming.current = true;
+    releaseDepositRef.current = retainDepositAttempt?.();
     setUsdcxSubmissionPending(route === 'usdcx');
     setTokenDrawerOpen(false);
     setSwitchDrawerOpen(false);
@@ -2449,6 +2469,7 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     } catch (err) {
       console.error('[EvmBridgeDepositScreen] bridge row creation failed', err);
       confirming.current = false;
+      releaseDepositAttempt();
       if (!mountedRef.current) return;
       setSlowError({ text: errorMessage(err), id: 'raw_bridge_deposit_submit_failed' });
       setUsdcxSubmissionPending(false);
@@ -2477,6 +2498,8 @@ const EvmBridgeDepositManager: React.FC<EvmBridgeDepositScreenProps> = ({
     outputAmount,
     fundFlow,
     reportDeposit,
+    releaseDepositAttempt,
+    retainDepositAttempt,
     requote,
     route,
     sourceChainId,

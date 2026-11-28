@@ -927,7 +927,8 @@ const depositScreen = (
   reportDeposit?: ReportDeposit,
   evmAddress = EVM_ADDRESS,
   fundFlow?: FundFlowTelemetry,
-  onClose: () => void = jest.fn()
+  onClose: () => void = jest.fn(),
+  retainDepositAttempt?: () => () => void
 ) => (
   <EvmBridgeDepositScreen
     evmAddress={evmAddress}
@@ -936,11 +937,16 @@ const depositScreen = (
     onClose={onClose}
     reportDeposit={reportDeposit}
     fundFlow={fundFlow}
+    retainDepositAttempt={retainDepositAttempt}
   />
 );
 
-const renderScreen = (reportDeposit?: ReportDeposit, fundFlow?: FundFlowTelemetry, onClose?: () => void) =>
-  render(depositScreen(reportDeposit, EVM_ADDRESS, fundFlow, onClose));
+const renderScreen = (
+  reportDeposit?: ReportDeposit,
+  fundFlow?: FundFlowTelemetry,
+  onClose?: () => void,
+  retainDepositAttempt?: () => () => void
+) => render(depositScreen(reportDeposit, EVM_ADDRESS, fundFlow, onClose, retainDepositAttempt));
 
 type ConfigMove = (config: NonNullable<MockSnapshot['config']>) => MockSnapshot['config'];
 const CONFIG_MOVES: [string, ConfigMove, Record<string, unknown>][] = [
@@ -1715,7 +1721,8 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
   it('resets the store once a confirm whose row fails settles after the config named no Miden USDC', async () => {
     const [, move] = NO_MIDEN_USDC;
     quoteFast();
-    renderScreen();
+    const releaseDeposit = jest.fn();
+    renderScreen(undefined, undefined, undefined, () => releaseDeposit);
     await reachFastReview();
     const quotes = jest.mocked(epochState.quoteEVMToMiden).mock.calls.length;
     jest.mocked(epochState.reset).mockClear();
@@ -1731,6 +1738,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
 
     expect(epochState.reset).toHaveBeenCalledTimes(1);
     expect(epochState.quoteEVMToMiden).toHaveBeenCalledTimes(quotes);
+    expect(releaseDeposit).toHaveBeenCalledTimes(1);
   });
 
   it('quotes nothing more once a confirm whose row is written settles', async () => {
@@ -1870,8 +1878,10 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       recordRetry: jest.fn()
     };
     const onClose = jest.fn();
+    const releaseDeposit = jest.fn();
+    const retainDeposit = jest.fn(() => releaseDeposit);
     quoteFast();
-    const view = renderScreen(undefined, fundFlow, onClose);
+    const view = renderScreen(undefined, fundFlow, onClose, retainDeposit);
     await settle();
 
     expect(fundFlow.enterStep).toHaveBeenCalledWith('select_amount');
@@ -1909,19 +1919,22 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     expect(fundFlow.enterStep).toHaveBeenCalledWith('review');
 
     Object.assign(epochState, { status: 'failed' });
-    view.rerender(depositScreen(undefined, EVM_ADDRESS, fundFlow, onClose));
+    view.rerender(depositScreen(undefined, EVM_ADDRESS, fundFlow, onClose, retainDeposit));
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     expect(fundFlow.recordRetry).toHaveBeenCalledTimes(1);
 
     quoteFast();
-    view.rerender(depositScreen(undefined, EVM_ADDRESS, fundFlow, onClose));
+    view.rerender(depositScreen(undefined, EVM_ADDRESS, fundFlow, onClose, retainDeposit));
     fireEvent.click(screen.getByTestId('confirm-deposit'));
     expect(await screen.findByTestId('deposit-status')).toBeInTheDocument();
     expect(fundFlow.enterStep).toHaveBeenCalledWith('status');
+    expect(retainDeposit).toHaveBeenCalledTimes(1);
+    expect(releaseDeposit).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId('status-done'));
     expect(fundFlow.transitionStep).toHaveBeenLastCalledWith('close');
     expect(onClose).toHaveBeenCalledTimes(1);
+    expect(releaseDeposit).toHaveBeenCalledTimes(1);
     view.unmount();
 
     // Root Mobile Back on Amount emits close and invokes onClose.
@@ -1950,8 +1963,9 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
         recordRetry: jest.fn()
       };
       const onClose = jest.fn();
+      const releaseDeposit = jest.fn();
       if (targetRoute === 'epoch') quoteFast();
-      renderScreen(undefined, fundFlow, onClose);
+      renderScreen(undefined, fundFlow, onClose, () => releaseDeposit);
       if (targetRoute === 'epoch') await reachFastReview();
       else await reachReview();
 
@@ -1972,6 +1986,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       expect(fundFlow.recordActionWithoutProgress).toHaveBeenCalledTimes(1);
       expect(fundFlow.transitionStep).not.toHaveBeenCalled();
       expect(screen.getByTestId('confirm-deposit')).toBeInTheDocument();
+      expect(releaseDeposit).not.toHaveBeenCalled();
 
       row.release();
       await settle();
@@ -1986,6 +2001,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
       });
       expect(fundFlow.transitionStep).toHaveBeenCalledWith('close');
       expect(onClose).toHaveBeenCalledTimes(1);
+      expect(releaseDeposit).toHaveBeenCalledTimes(1);
     }
   );
 
@@ -2073,7 +2089,8 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
           recordRetry: jest.fn()
         };
         quoteFast();
-        const view = renderScreen(undefined, fundFlow);
+        const releaseDeposit = jest.fn();
+        const view = renderScreen(undefined, fundFlow, undefined, () => releaseDeposit);
         await reachFastReview();
 
         const row = holdRowCreation();
@@ -2097,6 +2114,7 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
         expect(rowCreationErrors).toHaveLength(outcome === 'fail' ? 1 : 0);
         expect(errorSpy).toHaveBeenCalledTimes(outcome === 'fail' ? 1 : 0);
         expect(fundFlow.enterStep).not.toHaveBeenCalledWith('status');
+        expect(releaseDeposit).toHaveBeenCalledTimes(1);
         expect(screen.queryByTestId('deposit-status')).not.toBeInTheDocument();
       } finally {
         mockStateSetterProbe.recording = false;

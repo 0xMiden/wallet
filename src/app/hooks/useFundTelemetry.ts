@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { beginFlow, classifyError, FlowHandle } from 'lib/telemetry';
 import { reportTelemetryEvent } from 'lib/telemetry/report-flow';
@@ -62,7 +62,7 @@ function attachTrackerForFlow(flow: FlowHandle | null | undefined): {
  * next tap begins a fresh one, so a retry's outcome is never swallowed by the
  * (idempotent) handle of the attempt that failed.
  */
-export function useFundFlow(): FundFlowTelemetry {
+export function useFundFlow() {
   const flowRef = useRef<FlowHandle | null>(null);
   const trackerRef = useRef<StepProgressionTracker | null>(null);
   const detachRef = useRef<(() => void) | null>(null);
@@ -70,6 +70,21 @@ export function useFundFlow(): FundFlowTelemetry {
   const pendingStepRef = useRef<TelemetryStep | null>(null);
   const activeDepositTokenRef = useRef(0);
   const postFailureDwellRef = useRef<VisibleDwellTimer | null>(null);
+  const depositRetainsRef = useRef({ count: 0 });
+  const [depositRetained, setDepositRetained] = useState(false);
+
+  const retainDepositAttempt = useCallback(() => {
+    const owner = depositRetainsRef.current;
+    owner.count += 1;
+    if (owner.count === 1) setDepositRetained(true);
+    let retained = true;
+    return () => {
+      if (!retained) return;
+      retained = false;
+      owner.count -= 1;
+      if (owner.count === 0 && depositRetainsRef.current === owner) setDepositRetained(false);
+    };
+  }, []);
 
   useEffect(() => {
     const initialFlow = beginFlow('fund');
@@ -84,6 +99,7 @@ export function useFundFlow(): FundFlowTelemetry {
       tracker?.enter(step);
     }
     return () => {
+      depositRetainsRef.current = { count: 0 };
       activeDepositTokenRef.current += 1;
       pendingStepRef.current = null;
       hasFailedAttemptRef.current = false;
@@ -144,7 +160,7 @@ export function useFundFlow(): FundFlowTelemetry {
     trackerRef.current?.recordRetry();
   }, []);
 
-  const reportDeposit = useCallback(async <T>(attempt: () => Promise<T>): Promise<T> => {
+  const settleDepositAttempt = useCallback(async <T>(attempt: () => Promise<T>): Promise<T> => {
     const wasRetry = hasFailedAttemptRef.current;
     let flow = flowRef.current;
     let activeTracker = trackerRef.current;
@@ -209,15 +225,37 @@ export function useFundFlow(): FundFlowTelemetry {
     }
   }, []);
 
+  const reportDeposit = useCallback<ReportDeposit>(
+    async attempt => {
+      const release = retainDepositAttempt();
+      try {
+        return await settleDepositAttempt(attempt);
+      } finally {
+        release();
+      }
+    },
+    [retainDepositAttempt, settleDepositAttempt]
+  );
+
   return useMemo(
     () => ({
       reportDeposit,
       enterStep,
       transitionStep,
       recordActionWithoutProgress,
-      recordRetry
+      recordRetry,
+      retainDepositAttempt,
+      depositRetained
     }),
-    [enterStep, recordActionWithoutProgress, recordRetry, reportDeposit, transitionStep]
+    [
+      depositRetained,
+      enterStep,
+      recordActionWithoutProgress,
+      recordRetry,
+      reportDeposit,
+      retainDepositAttempt,
+      transitionStep
+    ]
   );
 }
 
