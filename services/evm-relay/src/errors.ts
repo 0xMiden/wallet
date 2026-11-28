@@ -1,7 +1,7 @@
 import type { ErrorBody, ErrorCode } from './types';
 
 /** The fields that an error adds to the body, after `error` and `message`. */
-export type ErrorExtra = Pick<ErrorBody, 'retryAfter' | 'id' | 'required' | 'token'>;
+export type ErrorExtra = Pick<ErrorBody, 'retryAfter' | 'id'>;
 
 /** An error that maps to one API error response. */
 export class ApiError extends Error {

@@ -5,25 +5,14 @@ import { describe, expect, it } from '@jest/globals';
 
 import { price } from './harness';
 import {
-  FEE_TOLERANCE_PERCENT,
-  QUOTE_MARGIN_PERCENT,
   exactFee,
   formatDecimal,
-  minimumFee,
+  maxGasForQuote,
   parseDecimal,
   quotedFee,
   type Decimal,
   type FeeInput
 } from '../src/fee';
-
-/** A small deterministic generator (Park–Miller), so a failure repeats. Each product stays below 2^53. */
-function generator(seed: number): () => number {
-  let state = seed;
-  return () => {
-    state = (state * 48_271) % 2_147_483_647;
-    return state;
-  };
-}
 
 describe('parseDecimal', () => {
   it.each<[string, Decimal]>([
@@ -74,10 +63,10 @@ describe('parseDecimal', () => {
 });
 
 describe('the fee rule', () => {
-  // The worked example of the README: gas 250000 at 0.041 gwei, ETH at 3456.78 USD, USDC (6 decimals) at 1 USD.
+  // The worked example of the README: gas 250000 at 0.021 gwei, ETH at 3456.78 USD, USDC (6 decimals) at 1 USD.
   const example: FeeInput = {
     gas: 250_000n,
-    maxFeePerGas: 41_000_000n,
+    gasPrice: 21_000_000n,
     nativePrice: price('3456.78'),
     tokenPrice: price('1'),
     tokenDecimals: 6,
@@ -86,53 +75,30 @@ describe('the fee rule', () => {
 
   it('gives the exact fee as one fraction and rounds only at the end', () => {
     const fee = exactFee(example);
-    // 1.025e13 wei × 3456.78 USD/ETH = 0.035431995 USD = 35431.995 base units.
-    expect(fee.numerator * 1000n).toBe(fee.denominator * 35_431_995n);
-    expect(quotedFee(fee)).toBe(40_747n);
-    expect(minimumFee(fee)).toBe(33_661n);
+    // 5.25e12 wei at 3456.78 USD/ETH costs 0.018148095 USD.
+    expect(fee.numerator * 1000n).toBe(fee.denominator * 18_148_095n);
+    expect(quotedFee(fee)).toBe(20_871n);
   });
 
   it('gives the cost in wei for a fee in the native coin, and reads no price', () => {
     const fee = exactFee({ ...example, native: true, nativePrice: price('0.1'), tokenPrice: price('9') });
-    expect(fee).toEqual({ numerator: 250_000n * 41_000_000n, denominator: 1n });
-    expect(quotedFee(fee)).toBe(11_787_500_000_000n);
+    expect(fee).toEqual({ numerator: 250_000n * 21_000_000n, denominator: 1n });
+    expect(quotedFee(fee)).toBe(6_037_500_000_000n);
   });
 
   it('prices a token against the native coin', () => {
-    // 1.025e13 wei at 2000 USD per ETH is 0.0205 USD; at 100000 USD per BTC (8 decimals) that is 20.5 base units.
+    // 5.25e12 wei at 2000 USD/ETH costs 0.0105 USD, or 10.5 base units at 100000 USD/BTC.
     const fee = exactFee({ ...example, nativePrice: price('2000'), tokenPrice: price('100000'), tokenDecimals: 8 });
-    expect(fee.numerator * 10n).toBe(fee.denominator * 205n);
-    expect(quotedFee(fee)).toBe(24n);
-    expect(minimumFee(fee)).toBe(20n);
+    expect(fee.numerator * 10n).toBe(fee.denominator * 105n);
+    expect(quotedFee(fee)).toBe(13n);
   });
 
-  it('quotes and accepts at least 1 base unit, because a fee call of 0 is not a fee call', () => {
+  it('quotes at least 1 base unit, because a fee call of 0 is not a fee call', () => {
     const fee = exactFee({ ...example, gas: 0n });
     expect(quotedFee(fee)).toBe(1n);
-    expect(minimumFee(fee)).toBe(1n);
   });
 
-  it('uses the named margins', () => {
-    expect(QUOTE_MARGIN_PERCENT).toBe(15n);
-    expect(FEE_TOLERANCE_PERCENT).toBe(5n);
-  });
-
-  it('never gives a quote below the relay minimum for an estimate up to 115/95 of the quoted gas', () => {
-    const next = generator(7);
-    for (let round = 0; round < 2_000; round += 1) {
-      const quoteGas = BigInt(21_000 + (next() % 5_000_000));
-      // Any relay estimate R with R × (100 - tolerance) ≤ quoteGas × (100 + margin).
-      const relayGas = (quoteGas * (100n + QUOTE_MARGIN_PERCENT)) / (100n - FEE_TOLERANCE_PERCENT);
-      const input: FeeInput = {
-        gas: quoteGas,
-        maxFeePerGas: BigInt(1 + (next() % 200_000_000_000)),
-        nativePrice: { units: BigInt(1 + (next() % 100_000_000)), scale: next() % 9 },
-        tokenPrice: { units: BigInt(1 + (next() % 100_000_000)), scale: next() % 9 },
-        tokenDecimals: next() % 19,
-        native: next() % 4 === 0
-      };
-      const quoted = quotedFee(exactFee(input));
-      expect(quoted).toBeGreaterThanOrEqual(minimumFee(exactFee({ ...input, gas: relayGas })));
-    }
+  it('rounds the signed gas allowance down', () => {
+    expect(maxGasForQuote(200_000n)).toBe(242_105n);
   });
 });

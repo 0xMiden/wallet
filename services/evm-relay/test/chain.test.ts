@@ -430,40 +430,6 @@ describe('readRelay', () => {
   });
 });
 
-describe('createRpcReader fee token decimals of the relay read', () => {
-  const call: RelayCall = { evmAddress: ADDRESS, relayer: RELAYER, data: '0xabcd', authorization: null };
-
-  it('asks the fee token for its decimals in the same batch, and then keeps them', async () => {
-    const { node, reader, decimals } = setup();
-    expect((await reader.readRelay(chainOf(), call, USDC)).feeTokenDecimals).toBe(6);
-    expect(node.batches).toHaveLength(1);
-    expect(node.batches[0]).toHaveLength(9);
-    expect(node.batches[0]?.[8]).toEqual({ method: 'eth_call', params: [{ to: USDC, data: DECIMALS_DATA }, 'latest'] });
-    expect(decimals.get(`8453:${USDC}`)).toBe(6);
-    expect((await reader.readRelay(chainOf(), call, USDC)).feeTokenDecimals).toBe(6);
-    expect(node.batches[1]).toHaveLength(8);
-  });
-
-  it('gives 18 for the native coin without a call, and nothing without a fee token', async () => {
-    const { node, reader } = setup();
-    expect((await reader.readRelay(chainOf(), call, NATIVE)).feeTokenDecimals).toBe(18);
-    expect(node.batches[0]).toHaveLength(8);
-    const plain = await reader.readRelay(chainOf(), call);
-    expect(plain).not.toHaveProperty('feeTokenDecimals');
-  });
-
-  it.each<[string, number | RpcError]>([
-    ['an error', { code: -32000, message: 'execution reverted' }],
-    ['more than 36 decimals', 37]
-  ])('maps a decimals() answer of %s to ChainIntegrityError and keeps nothing', async (_name, answer) => {
-    const node = new FakeNode();
-    node.decimals = answer;
-    const { reader, decimals } = setup(node);
-    await expect(reader.readRelay(chainOf(), call, USDC)).rejects.toBeInstanceOf(ChainIntegrityError);
-    expect(decimals.size).toBe(0);
-  });
-});
-
 describe('createRpcReader quote read', () => {
   const DATA: Hex = '0x99e1d016abcd';
   const CALIBRATION_ADDRESS: Hex = `0x${'c0'.repeat(20)}`;
@@ -483,13 +449,14 @@ describe('createRpcReader quote read', () => {
     calibration: { address: CALIBRATION_ADDRESS, selfData: '0x99e1d0', signedData: '0xc3c16e', authorization }
   } satisfies Parameters<ReturnType<typeof createRpcReader>['readQuote']>[1];
 
-  it('reads the code, the fees, the four estimates and the decimals in one batch', async () => {
+  it('reads the code, fees, four estimates, sequence and decimals in one batch', async () => {
     const { node, reader } = setup();
     await expect(reader.readQuote(chainOf(), quoteCall)).resolves.toEqual({
       delegated: true,
       baseFee: 2_000_000_000n,
       priorityFee: 100_000_000n,
       batchEstimate: 200_000n,
+      sequence: 9n,
       calibration: { self: 200_000n, signed: 200_000n, signedWithAuthorization: 200_000n },
       feeTokenDecimals: 6
     });
@@ -531,6 +498,17 @@ describe('createRpcReader quote read', () => {
           }
         ]
       },
+      {
+        method: 'eth_call',
+        params: [
+          {
+            to: ADDRESS,
+            data: encodeFunctionData({ abi: CALIBUR_ABI, functionName: 'getSeq', args: [RELAY_NONCE_KEY] })
+          },
+          'latest',
+          override(ADDRESS)
+        ]
+      },
       { method: 'eth_call', params: [{ to: USDC, data: DECIMALS_DATA }, 'latest'] }
     ]);
   });
@@ -541,8 +519,26 @@ describe('createRpcReader quote read', () => {
     const state = await setup(node).reader.readQuote(chainOf(), { ...quoteCall, feeToken: NATIVE });
     expect(state.delegated).toBe(false);
     expect(state.feeTokenDecimals).toBe(18);
-    expect(node.batches[0]).toHaveLength(7);
+    expect(node.batches[0]).toHaveLength(8);
   });
+
+  it('caches the fee token decimals after the first quote', async () => {
+    const { node, reader, decimals } = setup();
+    await reader.readQuote(chainOf(), quoteCall);
+    expect(decimals.get(`8453:${USDC}`)).toBe(6);
+    expect((await reader.readQuote(chainOf(), quoteCall)).feeTokenDecimals).toBe(6);
+    expect(node.batches[1]).toHaveLength(8);
+  });
+
+  it.each([37, { code: -32000, message: 'execution reverted' }])(
+    'rejects an invalid decimals() answer (%p)',
+    async decimals => {
+      const node = new FakeNode();
+      node.decimals = decimals;
+      const { reader } = setup(node);
+      await expect(reader.readQuote(chainOf(), quoteCall)).rejects.toBeInstanceOf(ChainIntegrityError);
+    }
+  );
 
   it('reads a revert of the batch as a null estimate', async () => {
     const node = new FakeNode();
