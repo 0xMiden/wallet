@@ -8,6 +8,8 @@ import { SectionHeader } from 'components/ui/SectionHeader';
 import { UsdAmount } from 'components/ui/TokenAmount';
 import { formatUsdDisplay } from 'lib/i18n/amount-display';
 import { useTrackedPosition } from 'lib/miden/front/use-tracked-position';
+import { provenBadgeNetwork } from 'lib/miden-chain/effective-endpoints';
+import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import type { TokenPriceInfo } from 'lib/prices';
 import { valuePosition } from 'lib/prices/position-pnl';
 
@@ -37,14 +39,14 @@ export const TokenDetailPosition: FC<TokenDetailPositionProps> = ({
   quote
 }) => {
   const { t } = useTranslation();
-  const tracked = useTrackedPosition(accountId, network, faucetId, quote?.kind !== 'basket');
+  const isBasket = quote?.kind === 'basket';
+  const canTrackPosition = !isBasket && provenBadgeNetwork() === MIDEN_NETWORK_NAME.MAINNET;
+  const tracked = useTrackedPosition(accountId, network, faucetId, canTrackPosition);
   // A basket is valued from its vault, which has no price at the time each token arrived.
-  if (quote?.kind !== 'basket' && tracked === undefined) return null;
+  if (!isBasket && (!canTrackPosition || tracked === undefined)) return null;
 
   const pnl =
-    tracked && quote?.kind !== 'basket'
-      ? valuePosition(tracked.position, { held, now: Date.now(), quote, decimals })
-      : undefined;
+    tracked && !isBasket ? valuePosition(tracked.position, { held, now: Date.now(), quote, decimals }) : undefined;
   const unknownBody =
     pnl === undefined
       ? t('tokenDetailPnlBasketBody')

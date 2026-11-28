@@ -1,5 +1,5 @@
 import { canonicalFaucetId } from 'lib/miden/swap/tokens';
-import { getEffectiveNetworkName } from 'lib/miden-chain/effective-endpoints';
+import { provenBadgeNetwork } from 'lib/miden-chain/effective-endpoints';
 import { MIDEN_NETWORK_NAME } from 'lib/miden-chain/networks-config';
 import { fixedQuote } from 'lib/prices/fixed';
 import { readCachedUsdPrice, toPriceMicro } from 'lib/prices/usd';
@@ -52,7 +52,7 @@ async function quoteAt(priceSymbol: string): Promise<PositionQuote | null> {
  */
 export async function recordPositionEvents(txId: string): Promise<void> {
   try {
-    const network = getEffectiveNetworkName();
+    const network = provenBadgeNetwork();
     if (network !== MIDEN_NETWORK_NAME.MAINNET) return;
     const row = await Repo.transactions.where({ id: txId }).first();
     if (!row || row.status !== ITransactionStatus.Completed || row.restoredFromBackup || row.recovered) return;

@@ -8,7 +8,11 @@ import { db, Table, transactions } from '../repo';
 import { identifyValuedAsset, loadValuationContext } from '../spending-limits/valuation';
 
 const mockNetwork = jest.fn<string, []>(() => 'mainnet');
-jest.mock('lib/miden-chain/effective-endpoints', () => ({ getEffectiveNetworkName: () => mockNetwork() }));
+const mockProvenBadgeNetwork = jest.fn<string | undefined, []>(() => mockNetwork());
+jest.mock('lib/miden-chain/effective-endpoints', () => ({
+  getEffectiveNetworkName: () => mockNetwork(),
+  provenBadgeNetwork: () => mockProvenBadgeNetwork()
+}));
 jest.mock('lib/miden/swap/tokens', () => ({ canonicalFaucetId: (id: string) => id.toLowerCase() }));
 jest.mock('./vault-read', () => ({ readVaultHoldings: jest.fn() }));
 jest.mock('../spending-limits/valuation', () => ({ identifyValuedAsset: jest.fn(), loadValuationContext: jest.fn() }));
@@ -39,6 +43,7 @@ beforeEach(async () => {
   await db.table(Table.PositionEvents).clear();
   await transactions.clear();
   mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+  mockProvenBadgeNetwork.mockImplementation(() => mockNetwork());
   held.mockResolvedValue(new Map([['faucet-a', 7n]]));
   context.mockResolvedValue({
     network: 'mainnet',
@@ -175,6 +180,11 @@ describe('recordPositionEvents', () => {
     expect(await db.table(Table.PositionEvents).count()).toBe(0);
 
     mockNetwork.mockReturnValue(MIDEN_NETWORK_NAME.MAINNET);
+    mockProvenBadgeNetwork.mockReturnValue(undefined);
+    await recordPositionEvents('live');
+    expect(await db.table(Table.PositionEvents).count()).toBe(0);
+
+    mockProvenBadgeNetwork.mockImplementation(() => mockNetwork());
     await recordPositionEvents('live');
     held.mockResolvedValue(new Map([['faucet-a', 99n]]));
     await recordPositionEvents('live');

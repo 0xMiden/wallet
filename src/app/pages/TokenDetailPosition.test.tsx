@@ -17,6 +17,8 @@ jest.mock('react-i18next', () => ({
 }));
 let mockTracked: TrackedPositionState | undefined;
 const mockUseTrackedPosition = jest.fn((..._args: unknown[]) => mockTracked);
+const mockProvenBadgeNetwork = jest.fn<string | undefined, []>(() => 'mainnet');
+jest.mock('lib/miden-chain/effective-endpoints', () => ({ provenBadgeNetwork: () => mockProvenBadgeNetwork() }));
 jest.mock('lib/miden/front/use-tracked-position', () => ({
   useTrackedPosition: (...args: unknown[]) => mockUseTrackedPosition(...args)
 }));
@@ -43,6 +45,7 @@ const show = (quote: TokenPriceInfo | undefined, held = 2n * DOLLAR) =>
   );
 
 beforeEach(() => {
+  mockProvenBadgeNetwork.mockReturnValue('mainnet');
   mockTracked = { position: { quantity: 2n * DOLLAR, costMicro: 4n * DOLLAR }, trackingSince: 0 };
 });
 
@@ -91,6 +94,13 @@ it('renders nothing while the records are read', () => {
   mockTracked = undefined;
   const { container } = show(market(2.5));
   expect(container).toBeEmptyDOMElement();
+});
+
+it('hides a market position when the effective mainnet is not proven', () => {
+  mockProvenBadgeNetwork.mockReturnValue(undefined);
+  const { container } = show(market(2.5));
+  expect(container).toBeEmptyDOMElement();
+  expect(mockUseTrackedPosition).toHaveBeenLastCalledWith('acct', 'mainnet', 'faucet', false);
 });
 
 it('hides the percent when nothing was paid', () => {

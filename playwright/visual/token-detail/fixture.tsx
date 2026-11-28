@@ -109,6 +109,7 @@ export const navigate = (destination: string | { pathname: string; search?: stri
 };
 
 export const getEffectiveNetworkName = () => (position ? MIDEN_NETWORK_NAME.MAINNET : MIDEN_NETWORK_NAME.TESTNET);
+export const provenBadgeNetwork = getEffectiveNetworkName;
 export const getTestNetworkNameKey = () => 'testnet';
 export const peekTokenPriceAssets = () => new Map([[tokenId, 'ETH']]);
 export const canOverrideMetadata = () => true;

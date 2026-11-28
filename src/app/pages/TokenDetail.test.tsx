@@ -80,7 +80,8 @@ jest.mock('lib/miden-chain/effective-endpoints', () => {
   return {
     ...actual,
     getTestNetworkNameKey: () => mockTestNetworkKey ?? actual.getTestNetworkNameKey(),
-    getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName()
+    getEffectiveNetworkName: () => mockWalletNetwork ?? actual.getEffectiveNetworkName(),
+    provenBadgeNetwork: () => mockWalletNetwork ?? actual.provenBadgeNetwork()
   };
 });
 afterEach(() => {
