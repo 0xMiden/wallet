@@ -104,21 +104,17 @@ export function quoteState(overrides: Partial<QuoteState> = {}): QuoteState {
     baseFee: 1_000_000_000n,
     priorityFee: 100_000_000n,
     batchEstimate: 150_000n,
+    sequence: 7n,
     calibration: { self: 25_000n, signed: 65_000n, signedWithAuthorization: 90_000n },
     feeTokenDecimals: 6,
     ...overrides
   };
 }
 
-/**
- * A chain reader that answers from memory and records each call. The relay state carries `feeTokenDecimals` (6, or
- * 18 for the native coin) only when the route asks for a fee token, as the real reader does.
- */
+/** A chain reader that answers from memory and records each call. */
 export class FakeReader implements ChainReader {
   readonly calls: { chainId: number; address: Hex; tokens: readonly Hex[] }[] = [];
   readonly relayCalls: { chainId: number; call: RelayCall }[] = [];
-  /** The fee token of each relay read, or null for a read without one. */
-  readonly relayFeeTokens: (Hex | null)[] = [];
   readonly quoteCalls: { chainId: number; call: QuoteCall }[] = [];
   state: AccountState = readState();
   relay: RelayState = relayState();
@@ -131,12 +127,10 @@ export class FakeReader implements ChainReader {
     return this.state;
   }
 
-  async readRelay(chain: ChainConfig, call: RelayCall, feeToken?: Hex): Promise<RelayState> {
+  async readRelay(chain: ChainConfig, call: RelayCall): Promise<RelayState> {
     this.relayCalls.push({ chainId: chain.chainId, call });
-    this.relayFeeTokens.push(feeToken ?? null);
     if (this.error !== null) throw this.error;
-    if (feeToken === undefined) return this.relay;
-    return { feeTokenDecimals: feeToken === NATIVE ? 18 : 6, ...this.relay };
+    return this.relay;
   }
 
   async readQuote(chain: ChainConfig, call: QuoteCall): Promise<QuoteState> {

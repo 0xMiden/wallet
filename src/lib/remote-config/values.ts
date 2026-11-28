@@ -11,6 +11,7 @@ import {
   EARN_VAULT_LOGO,
   type EarnVaultConfig,
   epochCollateralFaucetId,
+  RELAY_L1_CHAIN_IDS,
   type RelayChainConfig,
   type RelayConfig,
   type SupportedEvmChainConfig
@@ -239,7 +240,8 @@ export function selectRelayConfig(s: BridgeConfigSnapshot): RelayConfig | null {
 }
 
 /**
- * The relay values for `chainId`, with its optional `feeRecipient` (the only recipient of a `deduct` fee). The relay
+ * The relay values for `chainId`, with its fee limit (`maxFee.l1` for a chain of `RELAY_L1_CHAIN_IDS`, else
+ * `maxFee.l2`) and its optional `feeRecipient` (the recipient of a `deduct` fee, else the executor). The relay
  * applies to every chain of the document's `supportedEvmChains`, so this is null only while `selectRelayConfig` is
  * null or while the document (as this build reads it) does not list the chain. The relay service tells at run time
  * whether it serves the chain (`unsupported_chain`). A new object on each call: no caller keeps its identity.
@@ -254,7 +256,7 @@ export function selectRelayChain(s: BridgeConfigSnapshot, chainId: number): Rela
     chainId,
     executor: relay.executor,
     calibur: relay.calibur,
-    maxFee: relay.maxFee,
+    maxFeeMicroUsd: RELAY_L1_CHAIN_IDS.has(chainId) ? relay.maxFee.l1 : relay.maxFee.l2,
     ...(relay.feeRecipient === undefined ? {} : { feeRecipient: relay.feeRecipient })
   };
 }

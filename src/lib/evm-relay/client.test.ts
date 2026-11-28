@@ -25,7 +25,7 @@ import {
   FEE_RECIPIENT,
   JOB_ID,
   NATIVE,
-  QUOTE_VALID_UNTIL,
+  QUOTE_PROOF,
   RELAY_ADDRESS,
   SALT,
   TX_HASH,
@@ -287,6 +287,15 @@ describe('relaySubmissionBody', () => {
     expect(relaySubmissionBody(request)).toEqual(body);
   });
 
+  it('writes the signed quote with decimal gas', () => {
+    const { gas, validUntil, signature } = QUOTE_PROOF;
+    expect(relaySubmissionBody(submission({ quote: QUOTE_PROOF })).quote).toEqual({
+      gas: gas.toString(),
+      validUntil,
+      signature
+    });
+  });
+
   it.each([
     ['above the safe integers', 2n ** 53n],
     ['negative', -1n]
@@ -343,8 +352,7 @@ describe('fetchRelayQuote', () => {
       token: USDC,
       recipient: FEE_RECIPIENT,
       fee: 1000n,
-      gas: 210_000n,
-      validUntil: QUOTE_VALID_UNTIL
+      ...QUOTE_PROOF
     });
     expect(call(0).url).toBe(`${BASE}/v1/quote`);
     expect(call(0).init).toMatchObject({ method: 'POST', cache: 'no-store', credentials: 'omit' });
@@ -399,7 +407,11 @@ describe('fetchRelayQuote', () => {
     ['gas of 2^64', { gas: (1n << 64n).toString() }],
     ['validUntil as a string', { validUntil: '1800000120' }],
     ['a fractional validUntil', { validUntil: 1.5 }],
-    ['a negative validUntil', { validUntil: -1 }]
+    ['a negative validUntil', { validUntil: -1 }],
+    ['a zero gas estimate', { gas: '0' }],
+    ['a missing signature', { signature: undefined }],
+    ['a short signature', { signature: '0xab' }],
+    ['a sequence above uint64', { sequence: (1n << 64n).toString() }]
   ])('refuses %s', async (_name, change) => {
     const body = Array.isArray(change) ? change : { ...quoteBody(), ...change };
     const error = await failure(fetchRelayQuote(QUOTE_QUERY, { fetch: fetchReturning(stubResponse(200, body)) }));

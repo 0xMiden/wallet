@@ -1891,7 +1891,7 @@ describe('actions', () => {
       chainId: CHAIN_ID,
       executor: TEST_EXECUTOR,
       calibur: SEPOLIA_CALIBUR_PIN,
-      maxFee: { [TEST_ERC20]: '1000' }
+      maxFeeMicroUsd: 500_000
     };
     const salt: Hex = `0x${'0'.repeat(24)}${SEPOLIA_CALIBUR_PIN.address.slice(2).toLowerCase()}`;
     const calls: BatchCall[] = [

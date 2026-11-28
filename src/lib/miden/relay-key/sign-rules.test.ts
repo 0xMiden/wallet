@@ -40,7 +40,7 @@ const CHAIN: RelayChainConfig = {
   chainId: CHAIN_ID,
   executor: TEST_EXECUTOR,
   calibur: { ...SEPOLIA_CALIBUR_PIN, address: CALIBUR },
-  maxFee: { [TEST_ERC20]: '1000' }
+  maxFeeMicroUsd: 500_000
 };
 
 const CONTEXT: RelaySignContext = { relayAddress: RELAY_ADDRESS, chain: CHAIN, nowSeconds: NOW };
