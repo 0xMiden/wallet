@@ -9,7 +9,7 @@ const chartDrawn = async (page: Page) => {
 
 test.beforeEach(({ page }, testInfo) => {
   page.on('pageerror', error => {
-    console.error(`[TokenDetail ${testInfo.project.name}] ${error.name}: ${error.message}`);
+    console.error(`[TokenDetail ${testInfo.project.name}] ${error.stack ?? `${error.name}: ${error.message}`}`);
   });
 });
 
