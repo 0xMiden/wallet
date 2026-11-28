@@ -64,13 +64,15 @@ export const useBridgeConfigSnapshot = (): BridgeConfigSnapshot => ({
   derived: null,
   lastFetch: null
 });
-export const useRetryableSWR = () => ({
-  data: [
-    { time: 1_700_000_000_000, value: 1220 },
-    { time: 1_700_000_060_000, value: 1230 },
-    { time: 1_700_000_120_000, value: 1234.5678 }
-  ]
+// Only the chart reads a series; every other key (the cached display quotes) has no stored value here.
+export const useRetryableSWR = (key: unknown) => ({
+  data: Array.isArray(key) && key[0] === 'kline' ? KLINES : undefined
 });
+const KLINES = [
+  { time: 1_700_000_000_000, value: 1220 },
+  { time: 1_700_000_060_000, value: 1230 },
+  { time: 1_700_000_120_000, value: 1234.5678 }
+];
 export const useTokenVerification = () => (params.has('unverified') ? 'unverified' : 'verified');
 export const useTokenLogoUri = () => undefined;
 
