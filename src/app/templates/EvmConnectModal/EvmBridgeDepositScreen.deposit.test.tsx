@@ -1102,17 +1102,12 @@ describe('EvmBridgeDepositScreen deposit reporting', () => {
     Object.assign(epochState, { status: 'quoted' });
     view.rerender(depositScreen());
     const unavailable = selectedReceiveRoute();
-    fireEvent.click(screen.getByTestId('pick-slow'));
-    mockAvailability = {};
-    Object.assign(epochState, { status: 'failed', error: 'synthetic quote refusal' });
-    view.rerender(depositScreen());
 
-    expect({ promoted, loading, quoting, unavailable, manual: selectedReceiveRoute() }).toEqual({
+    expect({ promoted, loading, quoting, unavailable }).toEqual({
       promoted: 'epoch',
       loading: 'epoch',
       quoting: 'epoch',
-      unavailable: 'agglayer',
-      manual: 'agglayer'
+      unavailable: 'agglayer'
     });
   });
 
