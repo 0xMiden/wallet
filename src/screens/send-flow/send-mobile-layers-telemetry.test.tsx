@@ -9,7 +9,13 @@ import { LocationProvider, LocationState } from 'lib/woozie/location';
 
 import { ReviewTransaction } from './ReviewTransaction';
 import { clearSendDraft } from './send-draft';
-import { beginSendSubmitting, hasActiveSendSession, hasOpenSendFlow, settleSendFlow } from './send-telemetry';
+import {
+  beginSendSubmitting,
+  enterSendFlow,
+  hasActiveSendSession,
+  hasOpenSendFlow,
+  settleSendFlow
+} from './send-telemetry';
 import { SendFlow } from './SendManager';
 
 type TelemetryHandle = {
@@ -535,83 +541,74 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
     return { promise, resolve, reject };
   }
 
-  it('ignores a late submit resolution from a covered retained Review layer without settling telemetry or navigating', async () => {
+  function coverReview() {
+    act(() => {
+      mockLocation = buildLocation('/overlay-slide', '', HistoryAction.Push, 3);
+      setAppRoute?.(mockLocation);
+    });
+    expect(screen.getByTestId('overlay-slide-screen')).toBeInTheDocument();
+  }
+
+  async function revealReview() {
+    act(() => {
+      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Pop, 2);
+      setAppRoute?.(mockLocation);
+    });
+    await flushMicrotasks();
+  }
+
+  it('settles a row created under a retained cover and navigates when Review is revealed', async () => {
     await advanceToReview(true);
     const pendingTx = deferred<string>();
     jest.mocked(initiateSendTransaction).mockReturnValueOnce(pendingTx.promise);
 
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() => expect(initiateSendTransaction).toHaveBeenCalledTimes(1));
+    coverReview();
 
-    fireEvent.click(screen.getByTestId('review-back'));
-    await flushMicrotasks();
-    expect(screen.getByTestId('review-screen')).toBeInTheDocument();
-    expect(hasOpenSendFlow()).toBe(true);
+    await act(async () => pendingTx.resolve('tx-admitted-under-cover'));
 
-    await act(async () => {
-      pendingTx.resolve('tx-late');
-      await pendingTx.promise;
-    });
-
-    expect(telemetryHandles[0]?.complete).not.toHaveBeenCalled();
-    expect(reportTelemetryEventMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ step: 'submitting', stepAction: 'continue' })
+    expect(telemetryHandles[0]?.complete).toHaveBeenCalledTimes(1);
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ flowId: 'flow-layer-1', step: 'submitting', stepAction: 'continue' })
     );
     expect(navigateMock).toHaveBeenCalledTimes(1);
     expect(clearSendDraftMock).not.toHaveBeenCalled();
-    expect(hasOpenSendFlow()).toBe(true);
+    expect(hasOpenSendFlow()).toBe(false);
 
-    act(() => void layerMotionProps['/send/review']?.onAnimationComplete?.());
-    jest.mocked(initiateSendTransaction).mockResolvedValueOnce('tx-fresh');
-    fireEvent.click(screen.getByTestId('sa-confirm'));
-    await flushMicrotasks();
-    expect(screen.getByTestId('review-screen')).toBeInTheDocument();
+    await revealReview();
 
-    fireEvent.click(screen.getByTestId('send-review-submit'));
-    await waitFor(() => expect(telemetryHandles[0]?.complete).toHaveBeenCalledTimes(1));
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-admitted-under-cover');
     expect(clearSendDraftMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-fresh');
     expect(beginFlowMock).toHaveBeenCalledTimes(1);
+    expect(initiateSendTransaction).toHaveBeenCalledTimes(1);
   });
 
-  it('ignores a late submit rejection from a covered retained Review layer without failing telemetry or tainting retry state', async () => {
+  it('settles a covered producer rejection and allows a fresh submit when Review is revealed', async () => {
     await advanceToReview(true);
     const pendingTx = deferred<string>();
     jest.mocked(initiateSendTransaction).mockReturnValueOnce(pendingTx.promise);
 
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() => expect(initiateSendTransaction).toHaveBeenCalledTimes(1));
+    coverReview();
 
-    fireEvent.click(screen.getByTestId('review-back'));
-    await flushMicrotasks();
-    const eventsAfterBack = reportTelemetryEventMock.mock.calls.length;
+    await act(async () => pendingTx.reject(new Error('late rpc failure')));
 
-    await act(async () => {
-      pendingTx.reject(new Error('late rpc failure'));
-      await pendingTx.promise.catch(() => undefined);
-    });
-
-    expect(telemetryHandles[0]?.fail).not.toHaveBeenCalled();
+    expect(telemetryHandles[0]?.fail).toHaveBeenCalledWith('rpc');
     expect(telemetryHandles[0]?.cancel).not.toHaveBeenCalled();
-    expect(hasOpenSendFlow()).toBe(true);
-    expect(reportTelemetryEventMock.mock.calls.length).toBe(eventsAfterBack);
+    expect(hasOpenSendFlow()).toBe(false);
+    expect(navigateMock).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('late rpc failure')).not.toBeInTheDocument();
 
-    act(() => void layerMotionProps['/send/review']?.onAnimationComplete?.());
-    jest.mocked(initiateSendTransaction).mockResolvedValueOnce('tx-after-departed-error');
-    fireEvent.click(screen.getByTestId('sa-confirm'));
-    await flushMicrotasks();
+    await revealReview();
 
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    jest.mocked(initiateSendTransaction).mockResolvedValueOnce('tx-after-error');
     fireEvent.click(screen.getByTestId('send-review-submit'));
-    await waitFor(() => expect(telemetryHandles[0]?.complete).toHaveBeenCalledTimes(1));
-    expect(beginFlowMock).toHaveBeenCalledTimes(1);
-    const submitActions = reportTelemetryEventMock.mock.calls
-      .map(([event]) => event)
-      .filter(event => event?.step === 'review' && (event?.stepAction === 'submit' || event?.stepAction === 'retry'));
-    expect(submitActions).toEqual([
-      expect.objectContaining({ flowId: 'flow-layer-1', step: 'review', stepAction: 'submit' }),
-      expect.objectContaining({ flowId: 'flow-layer-1', step: 'review', stepAction: 'submit' })
-    ]);
+    await waitFor(() => expect(telemetryHandles[1]?.complete).toHaveBeenCalledTimes(1));
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-after-error');
+    expect(initiateSendTransaction).toHaveBeenCalledTimes(2);
   });
 
   it('settles open flow and clears postFailureDwell when Back from direct review returns to / under MobilePageLayers', async () => {
@@ -619,13 +616,10 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
     try {
       mockPopPathname = '/';
       mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Push, 2);
-      const pendingTx = deferred<string>();
-      jest.mocked(initiateSendTransaction).mockReturnValueOnce(pendingTx.promise);
+      enterSendFlow();
 
       const firstView = render(<TestMobileApp />);
       await flushMicrotasks();
-      fireEvent.click(screen.getByTestId('send-review-submit'));
-      await waitFor(() => expect(initiateSendTransaction).toHaveBeenCalledTimes(1));
 
       fireEvent.click(screen.getByTestId('review-back'));
       await flushMicrotasks();
@@ -687,53 +681,29 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
     }
   });
 
-  it('recovers Confirm and suppresses stale pre-cover submission after retained Review layer is covered and revealed', async () => {
+  it('keeps Confirm disabled while a retained review is covered and revealed during admission', async () => {
     await advanceToReview(true);
-    const staleTx = deferred<string>();
-    jest.mocked(initiateSendTransaction).mockReturnValueOnce(staleTx.promise);
+    const pendingTx = deferred<string>();
+    jest.mocked(initiateSendTransaction).mockReturnValueOnce(pendingTx.promise);
 
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() => expect(initiateSendTransaction).toHaveBeenCalledTimes(1));
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
 
-    // Push a slide page over Review, cancelling flow-layer-1 while Review remains retained underneath.
-    act(() => {
-      mockLocation = buildLocation('/overlay-slide', '', HistoryAction.Push, 3);
-      setAppRoute?.(mockLocation);
-    });
-    expect(screen.getByTestId('overlay-slide-screen')).toBeInTheDocument();
-    expect(telemetryHandles[0]?.cancel).toHaveBeenCalledTimes(1);
-    expect(hasOpenSendFlow()).toBe(false);
-
-    // Pop back to retained Review: departure state resets and a fresh flow reopens at review.
-    act(() => {
-      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Pop, 2);
-      setAppRoute?.(mockLocation);
-    });
-    await flushMicrotasks();
-
-    expect(beginFlowMock).toHaveBeenCalledTimes(2);
+    coverReview();
+    expect(telemetryHandles[0]?.cancel).not.toHaveBeenCalled();
     expect(hasOpenSendFlow()).toBe(true);
-    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
 
-    // Pre-cover submission settling after reveal remains invalidated and cannot complete or redirect.
-    await act(async () => {
-      staleTx.resolve('tx-stale-before-cover');
-      await staleTx.promise;
-    });
-    await flushMicrotasks();
-
-    expect(telemetryHandles[0]?.complete).not.toHaveBeenCalled();
-    expect(telemetryHandles[1]?.complete).not.toHaveBeenCalled();
-    expect(clearSendDraftMock).not.toHaveBeenCalled();
-    expect(navigateMock).not.toHaveBeenCalledWith('/generating-transaction/tx-stale-before-cover');
-    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
-
-    // Fresh Confirm on revealed Review submits and completes flow-layer-2 cleanly.
-    jest.mocked(initiateSendTransaction).mockResolvedValueOnce('tx-after-reveal');
+    await revealReview();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
     fireEvent.click(screen.getByTestId('send-review-submit'));
-    await waitFor(() => expect(telemetryHandles[1]?.complete).toHaveBeenCalledTimes(1));
-    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-after-reveal');
+    expect(initiateSendTransaction).toHaveBeenCalledTimes(1);
+    expect(beginFlowMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => pendingTx.resolve('tx-admitted-after-reveal'));
+
+    expect(telemetryHandles[0]?.complete).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-admitted-after-reveal');
     expect(clearSendDraftMock).toHaveBeenCalledTimes(1);
   });
 

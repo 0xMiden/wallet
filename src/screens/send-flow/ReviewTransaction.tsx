@@ -153,6 +153,20 @@ function isReturningToSendRoute(): boolean {
   return typeof loc.pathname === 'string' && loc.pathname === '/send';
 }
 
+function isViewingSendRoute(): boolean {
+  const { pathname } = createLocationState();
+  return pathname === '/send/review' || pathname === '/send';
+}
+
+interface RowAdmission {
+  sessionToken: number;
+  abortable: boolean;
+  isScopeCurrent: () => boolean;
+  departure?: 'back' | 'close' | 'leave';
+  txId?: string;
+  navigated?: boolean;
+}
+
 /** The route of the review URL, or undefined for a value that is not a route. */
 function parseBridgeRoute(value: string | null): BridgeRoute | undefined {
   switch (value) {
@@ -275,6 +289,27 @@ export const ReviewTransaction: React.FC = () => {
   const hadOwnedSessionBeforeCoverRef = useRef(false);
   const departedRef = useRef(false);
   const submissionAttemptRef = useRef(0);
+  // The producer owns a pending insert even if its review becomes hidden.
+  const rowAdmissionRef = useRef<RowAdmission>();
+  const currentRowAdmission = useCallback(() => {
+    const admission = rowAdmissionRef.current;
+    return admission?.isScopeCurrent() ? admission : undefined;
+  }, []);
+  const beginRowAdmission = useCallback(
+    (sessionToken: number, abortable: boolean): RowAdmission => {
+      const admission = {
+        sessionToken,
+        abortable,
+        isScopeCurrent: () =>
+          activeAccount.current === publicKey &&
+          getEffectiveNetworkName() === networkName &&
+          getEffectiveRpcUrl() === rpcUrl
+      };
+      rowAdmissionRef.current = admission;
+      return admission;
+    },
+    [networkName, publicKey, rpcUrl]
+  );
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -299,6 +334,9 @@ export const ReviewTransaction: React.FC = () => {
   const hasFailedAttemptRef = useRef(false);
   useEffect(() => {
     submissionAttemptRef.current += 1;
+    if (rowAdmissionRef.current && !rowAdmissionRef.current.isScopeCurrent()) {
+      rowAdmissionRef.current = undefined;
+    }
     restoreSendReviewIfSubmittingForSession(ownedSessionRef.current);
     hasFailedAttemptRef.current = false;
     submittingRef.current = false;
@@ -699,6 +737,8 @@ export const ReviewTransaction: React.FC = () => {
   // re-reported by the navigation away from this page.
   const handleReviewDeparture = useCallback(() => {
     if (departedRef.current) return;
+    const admission = currentRowAdmission();
+    if (!command && admission?.abortable === false) return;
     departedRef.current = true;
     submissionAttemptRef.current += 1;
     submissionAbort.current?.abort();
@@ -708,13 +748,17 @@ export const ReviewTransaction: React.FC = () => {
     const ownedToken = ownedSessionRef.current;
     ownedSessionRef.current = 0;
     hadOwnedSessionBeforeCoverRef.current = ownedToken !== 0;
+    if (admission) {
+      admission.departure ??= isReturningToSendRoute() ? 'back' : 'leave';
+      if (!command && (mounted.current || admission.departure === 'back')) return;
+    }
     if (ownedToken === 0) return;
     if (isReturningToSendRoute()) {
       transitionSendStepForSession(ownedToken, 'back');
       return;
     }
     settleSendFlowForSession(ownedToken, flow => flow.cancel());
-  }, []);
+  }, [command, currentRowAdmission]);
   useEffect(() => {
     // Reaching review is the most informative single fact about an abandoned
     // send: the user had chosen a recipient, a token and an amount, and stopped
@@ -732,38 +776,16 @@ export const ReviewTransaction: React.FC = () => {
   const [spendingLimitChallenge, setSpendingLimitChallenge] = useState<
     Pick<SpendingLimitChallengeProps, 'assessment' | 'spends' | 'unpriced'> & { reviewedCalendarTarget?: string }
   >();
-  useLayoutEffect(() => {
-    const prevActive = wasPageActiveRef.current;
-    wasPageActiveRef.current = pageActive;
-    if (!pageActive) {
-      handleReviewDeparture();
-      return;
-    }
-    if (!prevActive) {
-      departedRef.current = false;
-      submittingRef.current = false;
-      hasFailedAttemptRef.current = false;
-      setIsSubmitting(false);
-      setRequestingDepositAddress(false);
-      setSpendingLimitChallenge(undefined);
-      setSubmitError(undefined);
-      setSubmitErrorId(undefined);
-      const reopenSession = hadOwnedSessionBeforeCoverRef.current;
-      hadOwnedSessionBeforeCoverRef.current = false;
-      if (reopenSession && !hasOpenSendFlow()) {
-        enterSendFlow();
-      }
-      reportSendStep('review');
-      ownedSessionRef.current = getSendSessionToken();
-    }
-  }, [pageActive, handleReviewDeparture]);
   const handleBack = useCallback(() => {
     if (departedRef.current) return;
+    const admission = currentRowAdmission();
+    if (!command && admission?.abortable === false) return;
+    if (admission) admission.departure = 'back';
     submissionAttemptRef.current += 1;
     submissionAbort.current?.abort();
     submissionAbort.current = undefined;
     backToComposer();
-  }, [backToComposer]);
+  }, [backToComposer, command, currentRowAdmission]);
   useMobileBackHandler(() => {
     if (showTransferType || showCalendar || spendingLimitChallenge !== undefined) return false;
     handleBack();
@@ -791,25 +813,11 @@ export const ReviewTransaction: React.FC = () => {
   // The initial USDCx balance can be a placeholder with unverified metadata.
   const scaleIsUnknown = !burnBalancesLoading && token !== undefined && !token.scaleIsKnown;
 
-  // Hand off to the full-screen in-progress page. GeneratingTransactionPage is
-  // self-driving: it runs the tx loop on SW-less platforms, polls per-stage
-  // progress for `txId`, stashes the Midenscan hash and flips to the success
-  // receipt on completion — failure UX also lives there. Replace, not push, so
-  // back from the progress page skips the now-stale review params.
   const goToGeneratingTransaction = useCallback(
-    (txId: string, expectedAttemptId?: number, expectedSessionToken?: number) => {
-      // The single success funnel for all three submit paths (Miden, Agglayer,
-      // Epoch): a transaction row now exists, which is what "the user sent"
-      // means here. Its later on-chain fate belongs to the progress screen.
-      if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
-      if (!isCurrentSubmission(expectedAttemptId)) return;
-      if (expectedSessionToken !== undefined) {
-        transitionSendStepForSession(expectedSessionToken, 'continue');
-        settleSendFlowForSession(expectedSessionToken, flow => flow.complete());
-      } else {
-        transitionSendStep('continue');
-        settleSendFlow(flow => flow.complete());
-      }
+    (admission: RowAdmission) => {
+      if (!mounted.current || !pageActiveRef.current || currentRowAdmission() !== admission) return;
+      if (admission.txId === undefined || admission.navigated || !isViewingSendRoute()) return;
+      admission.navigated = true;
       if (!command) clearSendDraft();
       else if (
         commandDrafts?.readDraft('send') &&
@@ -818,16 +826,83 @@ export const ReviewTransaction: React.FC = () => {
       )
         commandDrafts.clearDraft('send');
       navigate(
-        `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(txId)}`,
+        `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(admission.txId)}`,
         HistoryAction.Replace
       );
     },
-    [fullPage, command, commandDrafts, isCurrentSubmission, reviewRevision, sendIntent]
+    [fullPage, command, commandDrafts, currentRowAdmission, reviewRevision, sendIntent]
   );
+
+  const recordRowAdmission = useCallback(
+    (admission: RowAdmission, txId: string) => {
+      if (admission.txId !== undefined) return;
+      admission.txId = txId;
+      if (currentRowAdmission() !== admission) {
+        if (command) commandDrafts?.abortSendAdmission(sendIntent);
+        return;
+      }
+      if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
+      if (command && admission.departure) return;
+      transitionSendStepForSession(admission.sessionToken, 'continue');
+      settleSendFlowForSession(admission.sessionToken, flow => flow.complete());
+      goToGeneratingTransaction(admission);
+    },
+    [command, commandDrafts, currentRowAdmission, goToGeneratingTransaction, sendIntent]
+  );
+
+  const releaseRowAdmission = useCallback(
+    (admission: RowAdmission) => {
+      if (currentRowAdmission() !== admission || admission.txId !== undefined) return;
+      rowAdmissionRef.current = undefined;
+      if (command) return;
+      if (admission.departure === 'back') {
+        transitionSendStepForSession(admission.sessionToken, 'back');
+      } else if (admission.departure) {
+        if (admission.departure === 'close') transitionSendStepForSession(admission.sessionToken, 'close');
+        settleSendFlowForSession(admission.sessionToken, flow => flow.cancel());
+      }
+      if (admission.departure && mounted.current && pageActiveRef.current && isViewingSendRoute()) {
+        departedRef.current = false;
+        submittingRef.current = false;
+        setIsSubmitting(false);
+        setRequestingDepositAddress(false);
+      }
+    },
+    [command, currentRowAdmission]
+  );
+
+  useLayoutEffect(() => {
+    const prevActive = wasPageActiveRef.current;
+    wasPageActiveRef.current = pageActive;
+    if (!pageActive) {
+      handleReviewDeparture();
+      return;
+    }
+    if (prevActive) return;
+    const admission = currentRowAdmission();
+    if (admission) {
+      goToGeneratingTransaction(admission);
+      return;
+    }
+    departedRef.current = false;
+    submittingRef.current = false;
+    hasFailedAttemptRef.current = false;
+    setIsSubmitting(false);
+    setRequestingDepositAddress(false);
+    setSpendingLimitChallenge(undefined);
+    setSubmitError(undefined);
+    setSubmitErrorId(undefined);
+    const reopenSession = hadOwnedSessionBeforeCoverRef.current;
+    hadOwnedSessionBeforeCoverRef.current = false;
+    if (reopenSession && !hasOpenSendFlow()) enterSendFlow();
+    reportSendStep('review');
+    ownedSessionRef.current = getSendSessionToken();
+  }, [currentRowAdmission, goToGeneratingTransaction, handleReviewDeparture, pageActive]);
 
   const runSameChainSend = useCallback(
     async (authorization?: SpendingLimitAuthorization, reviewedCalendarTarget?: string, existingAttemptId?: number) => {
       if (!token || !publicKey || amountBaseUnits === undefined || !isCurrentSubmission(existingAttemptId)) return;
+      if (currentRowAdmission()) return;
       const approvedCalendarTarget = authorization === undefined ? calendarTarget : reviewedCalendarTarget;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
@@ -898,6 +973,7 @@ export const ReviewTransaction: React.FC = () => {
       beginSendSubmitting(isRetry);
       const submitSessionToken = getSendSessionToken();
       ownedSessionRef.current = submitSessionToken;
+      const admission = beginRowAdmission(submitSessionToken, false);
       let txId: string | undefined;
       try {
         useWalletStore.getState().setLastCompletedTxHash(null);
@@ -935,12 +1011,16 @@ export const ReviewTransaction: React.FC = () => {
             console.error(error);
           }
         }
-        if (command) commandDrafts?.finishSendAdmission(sendIntent, txId);
-        goToGeneratingTransaction(txId, attemptId, submitSessionToken);
+        recordRowAdmission(admission, txId);
       } catch (error) {
         if (txId !== undefined) return;
         if (command) commandDrafts?.abortSendAdmission(sendIntent);
-        if (!isCurrentSubmission(attemptId)) return;
+        if (!isCurrentSubmission(attemptId)) {
+          if (currentRowAdmission() === admission && !admission.departure) {
+            settleSendFlowForSession(submitSessionToken, flow => flow.fail(classifyError(error)));
+          }
+          return;
+        }
         console.error(error);
         const spends = [{ faucetId: token.id, amount: amountBaseUnits }];
         const assessment = spendingLimitAssessmentFromError(error);
@@ -976,17 +1056,22 @@ export const ReviewTransaction: React.FC = () => {
         );
         setSubmitErrorId('raw_send_submit_failed');
         setIsSubmitting(false);
+      } finally {
+        releaseRowAdmission(admission);
       }
     },
     [
       amountBaseUnits,
+      beginRowAdmission,
       calendarTarget,
       command,
       commandDrafts,
-      goToGeneratingTransaction,
+      currentRowAdmission,
       openUnpricedChallenge,
       publicKey,
       recallBlocks,
+      recordRowAdmission,
+      releaseRowAdmission,
       reviewRevision,
       sharePrivately,
       verifiedName,
@@ -1008,6 +1093,7 @@ export const ReviewTransaction: React.FC = () => {
         !isCurrentSubmission(existingAttemptId)
       )
         return;
+      if (currentRowAdmission()) return;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
@@ -1027,11 +1113,12 @@ export const ReviewTransaction: React.FC = () => {
       const submitSessionToken = getSendSessionToken();
       ownedSessionRef.current = submitSessionToken;
       // Once the owner returns a row, a worker wake-up or receipt view failure cannot rearm Send.
+      let admission: RowAdmission | undefined;
       let admittedId: string | undefined;
       const recordAdmission = (txId: string) => {
         if (admittedId !== undefined) return;
         admittedId = txId;
-        goToGeneratingTransaction(txId, attemptId, submitSessionToken);
+        if (admission) recordRowAdmission(admission, txId);
       };
       const wakeWorker = () => {
         if (isExtension()) {
@@ -1056,6 +1143,8 @@ export const ReviewTransaction: React.FC = () => {
             // The deposit quote is asked for here, before the row exists, so this page names that wait. The
             // refund address and the account address are the Miden address of this account.
             setRequestingDepositAddress(true);
+            const nearAdmission = beginRowAdmission(submitSessionToken, true);
+            admission = nearAdmission;
             let txId: string;
             try {
               txId = await startNearIntentsSend({
@@ -1071,7 +1160,12 @@ export const ReviewTransaction: React.FC = () => {
                 reviewedMinAmountOut: BigInt(reviewed.quote.minAmountOut),
                 authorization,
                 signal: submission.signal,
-                isCurrent: () => isCurrentSubmission(attemptId)
+                isCurrent: () => {
+                  if (!isCurrentSubmission(attemptId)) return false;
+                  // NEAR checks this just before inserting the row, beyond the abortable quote request.
+                  nearAdmission.abortable = false;
+                  return true;
+                }
               });
             } finally {
               if (isCurrentSubmission(attemptId)) setRequestingDepositAddress(false);
@@ -1087,6 +1181,7 @@ export const ReviewTransaction: React.FC = () => {
             if (!burnNetworkFeeBudget || !isCurrentUsdcxFeeBudget(burnNetworkFeeBudget)) {
               throw new UsdcxBurnError('usdcxBurnFeeUnavailable');
             }
+            admission = beginRowAdmission(submitSessionToken, false);
             const txId = await initiateUsdcxBurn({
               senderPublicKey: publicKey,
               faucetId: token.id,
@@ -1110,6 +1205,7 @@ export const ReviewTransaction: React.FC = () => {
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
               return;
             }
+            admission = beginRowAdmission(submitSessionToken, false);
             const txId = await initiateB2AggBridge({
               destinationChainId: bridgeNetworkObj?.chainId,
               amount: amountBaseUnits,
@@ -1131,6 +1227,7 @@ export const ReviewTransaction: React.FC = () => {
               setIsSubmitting(false);
               return;
             }
+            admission = beginRowAdmission(submitSessionToken, false);
             const { txId } = await bridgeEpochSend({
               minimumOutputBaseUnits: epochMinimumOutput,
               reviewedQuote: {
@@ -1166,6 +1263,9 @@ export const ReviewTransaction: React.FC = () => {
           error instanceof NearIntentsSendSupersededError ||
           (route === 'near-intents' && submission.signal.aborted)
         ) {
+          if (admission && currentRowAdmission() === admission && !admission.departure && !submission.signal.aborted) {
+            settleSendFlowForSession(submitSessionToken, flow => flow.fail(classifyError(error)));
+          }
           return;
         }
         console.error(error);
@@ -1221,10 +1321,13 @@ export const ReviewTransaction: React.FC = () => {
                 : String(error)
         );
         setIsSubmitting(false);
+      } finally {
+        if (admission) releaseRowAdmission(admission);
       }
     },
     [
       amountBaseUnits,
+      beginRowAdmission,
       bridgeNetworkObj,
       burnNetworkFeeBudget,
       command,
@@ -1234,13 +1337,15 @@ export const ReviewTransaction: React.FC = () => {
       epochQuote.decimals,
       epochQuote.validity,
       epochQuoteUnavailable,
-      goToGeneratingTransaction,
+      currentRowAdmission,
       nearIntentsConfig,
       nearIntentsQuote.pair,
       nearIntentsQuote.quote,
       nearIntentsRecipient,
       openUnpricedChallenge,
       publicKey,
+      recordRowAdmission,
+      releaseRowAdmission,
       route,
       sendIntent,
       signTransaction,
@@ -1272,6 +1377,7 @@ export const ReviewTransaction: React.FC = () => {
   const onSubmit = useCallback(async () => {
     if (
       submittingRef.current ||
+      currentRowAdmission() ||
       bridgeBlocked ||
       tokenHeld ||
       epochQuoteUnavailable ||
@@ -1346,6 +1452,7 @@ export const ReviewTransaction: React.FC = () => {
     recallInvalid,
     calendarTarget,
     command,
+    currentRowAdmission,
     sendAdmission,
     amountBaseUnits,
     assessSpendingLimit,
@@ -1593,11 +1700,15 @@ export const ReviewTransaction: React.FC = () => {
           // Abandons the send: without the draft the next Send opens empty. Back keeps it to restore the form.
           onClose={() => {
             if (departedRef.current) return;
+            const admission = currentRowAdmission();
+            if (!command && admission?.abortable === false) return;
             departedRef.current = true;
             submissionAttemptRef.current += 1;
             submissionAbort.current?.abort();
             submissionAbort.current = undefined;
-            if (ownedSessionRef.current !== 0) {
+            if (admission) {
+              admission.departure = 'close';
+            } else if (ownedSessionRef.current !== 0) {
               transitionSendStepForSession(ownedSessionRef.current, 'close');
               settleSendFlowForSession(ownedSessionRef.current, flow => flow.cancel());
             } else {

@@ -554,7 +554,7 @@ jest.mock('lib/woozie', () => ({
   createLocationState: () => ({
     href: `/#/send/review?${mockSearch}`,
     historyPosition: mockHistoryPosition,
-    ...(mockLocationPathname !== undefined ? { pathname: mockLocationPathname } : {})
+    pathname: mockLocationPathname ?? '/send/review'
   }),
   listen: () => () => undefined,
   goBack: jest.fn(),
@@ -3978,7 +3978,7 @@ describe('ReviewTransaction — send telemetry', () => {
     );
   });
 
-  it('does not let stale Epoch {} settlement after Back revert a second attempt submitting step on the shared session', async () => {
+  it('holds Epoch review until an empty producer result allows another submit', async () => {
     mockDetectedChain = 'ethereum';
     mockEpochQuote = {
       ...reviewedEpochBinding,
@@ -3994,33 +3994,24 @@ describe('ReviewTransaction — send telemetry', () => {
     const attempt2 = deferred<{ txId?: string }>();
     bridgeEpochSendMock.mockReturnValueOnce(attempt1.promise as any).mockReturnValueOnce(attempt2.promise as any);
     enterSendFlow();
-    const firstView = render(<ReviewTransaction />);
+    render(<ReviewTransaction />);
     await flush();
 
     fireEvent.click(screen.getByTestId('send-review-submit'));
     await waitFor(() => expect(bridgeEpochSendMock).toHaveBeenCalledTimes(1));
-    goBackMock.mockImplementationOnce(() => {
-      mockLocationPathname = '/send';
-    });
     fireEvent.click(screen.getByTestId('back-btn'));
-    firstView.unmount();
-    expect(hasActiveSendSession()).toBe(true);
-
-    enterSendFlow();
-    const secondView = render(<ReviewTransaction />);
-    await flush();
-    fireEvent.click(screen.getByTestId('send-review-submit'));
-    await waitFor(() => expect(bridgeEpochSendMock).toHaveBeenCalledTimes(2));
+    expect(goBackMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
 
-    reportTelemetryEventMock.mockClear();
-    await act(async () => {
-      attempt1.resolve({});
-      await attempt1.promise;
-    });
+    await act(async () => attempt1.resolve({}));
     await flush();
 
-    expect(reportTelemetryEventMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+    expect(reportTelemetryEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({ step: 'submitting', stepAction: 'back' })
+    );
+    fireEvent.click(screen.getByTestId('send-review-submit'));
+    await waitFor(() => expect(bridgeEpochSendMock).toHaveBeenCalledTimes(2));
     expect(screen.getByTestId('send-review-submit')).toBeDisabled();
 
     await act(async () => {
@@ -4040,7 +4031,6 @@ describe('ReviewTransaction — send telemetry', () => {
         complete: true
       })
     );
-    secondView.unmount();
   });
 
   it('cancels open flows and clears post-failure dwell when Back from direct review returns to a non-/send route', async () => {
@@ -4048,13 +4038,10 @@ describe('ReviewTransaction — send telemetry', () => {
     try {
       setValidRoute();
       mockHistoryPosition = 2;
-      const pendingTx = deferred<string>();
-      initiateMock.mockReturnValueOnce(pendingTx.promise);
+      enterSendFlow();
 
       const firstView = render(<ReviewTransaction />);
       await flush();
-      fireEvent.click(screen.getByTestId('send-review-submit'));
-      await waitFor(() => expect(initiateMock).toHaveBeenCalledTimes(1));
 
       goBackMock.mockImplementationOnce(() => {
         mockLocationPathname = '/';
@@ -4070,7 +4057,7 @@ describe('ReviewTransaction — send telemetry', () => {
           phase: 'step',
           flow: 'send',
           flowId: 'flow-review-1',
-          step: 'submitting',
+          step: 'review',
           stepAction: 'leave'
         })
       );
@@ -5022,7 +5009,6 @@ describe('ReviewTransaction — NEAR Intents', () => {
     const arg = jest.mocked(startNearIntentsSend).mock.calls[0]?.[0];
     expect(arg?.signal).toBeInstanceOf(AbortSignal);
     expect(arg?.signal?.aborted).toBe(false);
-    expect(arg?.isCurrent?.()).toBe(true);
     unmount();
     expect(arg?.signal?.aborted).toBe(true);
     expect(arg?.isCurrent?.()).toBe(false);
@@ -5111,6 +5097,28 @@ describe('ReviewTransaction — NEAR Intents', () => {
 
     expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-admitted', 'replacestate');
     expect(start).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps NEAR review active after the deposit passes its pre-queue guard', async () => {
+    mockIsMobile = true;
+    await initMobileBackHandler();
+    setNearIntentsRoute();
+    const row = deferred<string>();
+    const start = jest.mocked(startNearIntentsSend);
+    start.mockReturnValueOnce(row.promise);
+    render(<ReviewTransaction />);
+    await flush();
+
+    await clickSubmit();
+    const input = start.mock.calls[0]?.[0];
+    expect(input?.isCurrent?.()).toBe(true);
+    act(() => mockNativeBackListener?.());
+
+    expect(input?.signal?.aborted).toBe(false);
+    expect(goBackMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('send-review-submit')).toBeDisabled();
+    await act(async () => row.resolve('tx-admitted'));
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/tx-admitted', 'replacestate');
   });
 
   it('gives the button its label back when the deposit address request fails', async () => {
