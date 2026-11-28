@@ -1,5 +1,4 @@
-// The fee step that the quote route and the relay route share: the prices of the chain's native coin and the fee
-// token, then the exact fee of fee.ts. Only `deduct` mode reaches it.
+// Read the prices of the native coin and fee token to calculate the quote.
 import { USD_SYMBOL, type ChainConfig, type PriceSymbol } from './config';
 import { ApiError } from './errors';
 import { ONE, exactFee, type Decimal, type Fraction } from './fee';
@@ -9,7 +8,7 @@ import { isNativeToken } from '../../../src/lib/evm-relay/batch';
 
 export interface FeeCost {
   gas: bigint;
-  maxFeePerGas: bigint;
+  gasPrice: bigint;
   /** The decimals of the fee token, from the chain read. */
   tokenDecimals: number;
 }

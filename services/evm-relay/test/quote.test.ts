@@ -91,7 +91,7 @@ function expected(harness: Harness, calls: readonly BatchCall[], token: Hex, aut
   const fee = quotedFee(
     exactFee({
       gas,
-      maxFeePerGas: 2n * state.baseFee + state.priorityFee,
+      gasPrice: state.baseFee + state.priorityFee,
       nativePrice: ethPrice,
       tokenPrice: price('1'),
       tokenDecimals: state.feeTokenDecimals,
@@ -116,12 +116,13 @@ describe('POST /v1/quote', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('Cache-Control')).toBe('private, no-store');
     const { data, gas, fee } = expected(harness, CALLS, USDC, false);
-    await expect(bodyOf(response)).resolves.toEqual({
+    await expect(bodyOf(response)).resolves.toMatchObject({
       chainId: 8453,
       token: USDC,
       recipient: FEE_RECIPIENT,
       fee: fee.toString(),
       gas: gas.toString(),
+      sequence: '7',
       validUntil: NOW_S + QUOTE_VALID_SECONDS
     });
     // gas = 150000 + 40000 (measured) + 3 calls × 3000 + 2 per byte + 105 × 64.
@@ -350,8 +351,7 @@ describe('a quote and the relay of the same batch', () => {
   ];
 
   /**
-   * Quote the batch, then relay the same batch with the quoted fee at the same gas price, when the relay's own estimate
-   * of the signed batch is `relayGas(quoteGas)`. Return the relay response.
+   * Quote the batch, then raise the base fee before submitting it.
    */
   async function quoteThenRelay(scenario: Scenario, relayGas: (quoteGas: bigint) => bigint): Promise<Response> {
     const harness = harnessFor();
@@ -366,18 +366,21 @@ describe('a quote and the relay of the same batch', () => {
     const request = quoteBody({ calls: wire(scenario.calls), feeToken: scenario.token });
     const quote = await bodyOf(await postQuote(harness, request));
     if (typeof quote.fee !== 'string' || typeof quote.gas !== 'string') throw new Error('The quote failed');
+    harness.prices.prices.clear();
     harness.reader.relay = relayState({
       ...fees,
+      baseFee: fees.baseFee * 5n,
       delegated: scenario.delegated,
       gasEstimate: relayGas(BigInt(quote.gas)),
       relayerBalance: 10n ** 30n
     });
-    const body = await relayBody(scenario.calls, scenario.token, BigInt(quote.fee), !scenario.delegated);
+    const batch = await relayBody(scenario.calls, scenario.token, BigInt(quote.fee), !scenario.delegated);
+    const body = { ...batch, quote: { gas: quote.gas, signature: quote.signature, validUntil: quote.validUntil } };
     return send(harness, '/v1/relay', { method: 'POST', body: JSON.stringify(body), headers: CALLER });
   }
 
   it.each(scenarios)(
-    'accepts the quoted fee for $name when the relay estimate is the quoted gas plus the 1.5 % estimator slack',
+    'keeps the fee for $name after a gas price increase when the signed gas estimate fits',
     async scenario => {
       // The quote gas bounds the signed batch's gas (quote-gas.ts); a node's eth_estimateGas answers up to 1.5 % above
       // the exact gas (Geth stops its search within that ratio). The relay estimate here is that worst case.
@@ -390,14 +393,13 @@ describe('a quote and the relay of the same batch', () => {
   it.each(scenarios)(
     'accepts the quoted fee for $name up to the last estimate that the margins cover, and refuses one more',
     async scenario => {
-      // The quoted fee is fee(G) × 1.15 and the relay takes fee(R) × 0.95, so any R ≤ G × 115 / 95 passes.
+      // The signed estimate can be up to the quote gas times 115 / 95.
       const limit = (quoteGas: bigint): bigint => (quoteGas * 115n) / 95n;
       expect((await quoteThenRelay(scenario, limit)).status).toBe(200);
       const beyond = await quoteThenRelay(scenario, quoteGas => (limit(quoteGas) * 102n) / 100n);
       expect(beyond.status).toBe(400);
       const body = await bodyOf(beyond);
-      expect(body.error).toBe('fee_too_low');
-      expect(body.token).toBe(scenario.token);
+      expect(body.error).toBe('invalid_fee_quote');
     }
   );
 });

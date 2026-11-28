@@ -1,19 +1,16 @@
 // The fee rule of `deduct` mode, in integers only. The fee of a batch is its gas cost in the native coin, priced in the
 // fee token:
 //
-//   cost = gas × maxFeePerGas                                   (wei)
+//   cost = gas × expected gas price                            (wei)
 //   fee  = cost × price(native in USD) ÷ price(token in USD)    (token base units, rounded up)
 //
 // A price arrives as decimal text. The Worker reads it as an integer and a power of ten (`Decimal`), and keeps the fee
 // as one exact fraction until the last step, which rounds up. No step multiplies a token amount by a float.
 
-/** The quote is the fee plus this percentage, rounded up: the gas price can go up between the quote and the relay. */
+/** Add this percentage to the expected cost to allow for changes in gas price and gas use. */
 export const QUOTE_MARGIN_PERCENT = 15n;
-/**
- * The relay route accepts a signed fee down to the fee of its own estimate minus this percentage. The estimates of the
- * quote and of the relay are not the same number (see quote-gas.ts), and this tolerance absorbs the difference.
- */
-export const FEE_TOLERANCE_PERCENT = 5n;
+/** The tolerance for the difference between the quote estimate and the signed estimate. */
+const GAS_ESTIMATE_TOLERANCE_PERCENT = 5n;
 /** A quote is valid for this many seconds after the Worker makes it. */
 export const QUOTE_VALID_SECONDS = 120;
 /** The decimals of the native coin of every served chain. */
@@ -63,7 +60,7 @@ export interface Fraction {
 
 export interface FeeInput {
   gas: bigint;
-  maxFeePerGas: bigint;
+  gasPrice: bigint;
   /** The price of the native coin in USD. Not read when the fee token is the native coin. */
   nativePrice: Decimal;
   /** The price of the fee token in USD. Not read when the fee token is the native coin. */
@@ -76,11 +73,11 @@ export interface FeeInput {
 
 /**
  * The exact fee, before rounding:
- *   gas × maxFeePerGas × nativeUnits × 10^tokenScale × 10^tokenDecimals
+ *   gas × gasPrice × nativeUnits × 10^tokenScale × 10^tokenDecimals
  *   ÷ (10^18 × 10^nativeScale × tokenUnits)
  */
 export function exactFee(input: FeeInput): Fraction {
-  const cost = input.gas * input.maxFeePerGas;
+  const cost = input.gas * input.gasPrice;
   if (input.native) return { numerator: cost, denominator: 1n };
   const { nativePrice, tokenPrice } = input;
   return {
@@ -105,8 +102,7 @@ export function quotedFee(fee: Fraction): bigint {
   return quoted > 0n ? quoted : 1n;
 }
 
-/** The lowest fee that the relay route accepts: the exact fee minus FEE_TOLERANCE_PERCENT, rounded up, at least 1. */
-export function minimumFee(fee: Fraction): bigint {
-  const minimum = scaledUp(fee, 100n - FEE_TOLERANCE_PERCENT);
-  return minimum > 0n ? minimum : 1n;
+/** The largest signed gas estimate the quote covers with the margin and estimate tolerance. */
+export function maxGasForQuote(gas: bigint): bigint {
+  return (gas * (100n + QUOTE_MARGIN_PERCENT)) / (100n - GAS_ESTIMATE_TOLERANCE_PERCENT);
 }

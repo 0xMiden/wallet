@@ -261,7 +261,7 @@ describe('Vault.signRelayDigest', () => {
     chainId: 11155111,
     executor: TEST_EXECUTOR,
     calibur: SEPOLIA_CALIBUR_PIN,
-    maxFee: { [TEST_ERC20]: '1000' }
+    maxFeeMicroUsd: 500_000
   };
   const NOW = 1_800_000_000;
   const relayContext = (): RelaySignContext => ({
