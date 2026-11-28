@@ -458,6 +458,17 @@ describe('expectArcPreselected', () => {
     ]);
   });
 
+  it('accepts the four USDCx destinations with no network pressed before the explicit choice', async () => {
+    const { page, actions } = pageWithSheet('');
+
+    await expect(expectArcPreselected(page, 300)).resolves.toBeUndefined();
+    expect(actions).toEqual([
+      'click send-network-picker',
+      `click button ${enText('close')} in [role="dialog"][data-state="open"]`,
+      'hidden send-network-arc-testnet'
+    ]);
+  });
+
   it('rejects an unexpected destination even if it has no pressed state', async () => {
     await expect(
       expectArcPreselected(pageWithSheet('send-network-arc-testnet', 'send-network-miden').page, 300)
