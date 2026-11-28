@@ -557,6 +557,7 @@ jest.mock('lib/woozie', () => ({
   createLocationState: () => ({
     href: `/#/send/review?${mockSearch}`,
     historyPosition: mockHistoryPosition,
+    search: mockSearch,
     pathname: mockLocationPathname ?? '/send/review'
   }),
   listen: () => () => undefined,
@@ -3937,6 +3938,29 @@ describe('ReviewTransaction — send telemetry', () => {
 
     expect(navigateMock).not.toHaveBeenCalled();
     expect(screen.getByTestId('send-review-submit')).toBeEnabled();
+  });
+
+  it('keeps a new review telemetry generation separate from a previously parked admission', async () => {
+    const firstRow = deferred<string>();
+    const secondRow = deferred<string>();
+    initiateMock.mockReturnValueOnce(firstRow.promise).mockReturnValueOnce(secondRow.promise);
+    setCompactReview('telemetry-original-review');
+    const review = render(<ReviewTransaction />);
+    await clickSubmit();
+    review.unmount();
+
+    setCompactReview('telemetry-new-review');
+    render(<ReviewTransaction />);
+    await clickSubmit();
+    expect(initiateMock).toHaveBeenCalledTimes(2);
+    expect(handleAt(0).cancel).toHaveBeenCalledTimes(1);
+
+    await act(async () => firstRow.resolve('previous-admitted-row'));
+    expect(handleAt(1).complete).not.toHaveBeenCalled();
+    expect(navigateMock).not.toHaveBeenCalled();
+    await act(async () => secondRow.resolve('new-admitted-row'));
+    expect(handleAt(1).complete).toHaveBeenCalledTimes(1);
+    expect(navigateMock).toHaveBeenCalledWith('/generating-transaction/new-admitted-row', 'replacestate');
   });
 
   it('a failed admission releases the review entry so the same review can submit again', async () => {

@@ -22,7 +22,13 @@ import { CommandShell } from 'screens/command/CommandShell';
 import { MidenAddressError } from 'utils/miden';
 
 import type { SendNetwork } from './bridge-networks';
-import { clearSendDraft, consumeSendDraft, setSendDraft } from './send-draft';
+import {
+  clearSendDraft,
+  compactSendAdmissionKey,
+  consumeSendDraft,
+  setSendDraft,
+  writeCompactSendAdmission
+} from './send-draft';
 import {
   beginSendSubmitting,
   enterSendFlow,
@@ -2769,6 +2775,24 @@ describe('send telemetry', () => {
     reachReview('5', 'mtst1recipient');
 
     expect(latestReviewEntry()).not.toBe(first);
+  });
+
+  it('reopens the pending review entry from its restored draft after the lock', () => {
+    const reviewEntry = 'parked-draft-review-entry';
+    const key = compactSendAdmissionKey(reviewEntry, {
+      accountId: 'me-pk',
+      network: getEffectiveNetworkName(),
+      rpcUrl: mockRpcUrl
+    });
+    writeCompactSendAdmission(key, { sessionToken: 0 });
+    setSendDraft({ amount: '5', recipientAddress: 'mtst1recipient', tokenId: 'T1', reviewEntry });
+    try {
+      reachReview('5', 'mtst1recipient');
+
+      expect(latestReviewEntry()).toBe(reviewEntry);
+    } finally {
+      writeCompactSendAdmission(key);
+    }
   });
 
   it('keeps the flow open across the handoff to the review page', () => {

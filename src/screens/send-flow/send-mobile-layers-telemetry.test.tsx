@@ -245,6 +245,7 @@ jest.mock('lib/remote-config/use-feature-availability', () => {
   };
 });
 const mockWalletStoreState = {
+  currentAccount: mockAccount,
   tokenPrices: {},
   isTransactionModalOpen: false,
   lastCompletedTxHash: null,
@@ -541,7 +542,10 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
     return { promise, resolve, reject };
   }
 
+  let coveredReviewSearch = '';
+
   function coverReview() {
+    coveredReviewSearch = mockLocation.search;
     act(() => {
       mockLocation = buildLocation('/overlay-slide', '', HistoryAction.Push, 3);
       setAppRoute?.(mockLocation);
@@ -551,7 +555,7 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
 
   async function revealReview() {
     act(() => {
-      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Pop, 2);
+      mockLocation = buildLocation('/send/review', coveredReviewSearch, HistoryAction.Pop, 2);
       setAppRoute?.(mockLocation);
     });
     await flushMicrotasks();
@@ -710,15 +714,8 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
   it('keeps Back responsive on a retained Review layer after cover-and-reveal', async () => {
     await advanceToReview(true);
 
-    act(() => {
-      mockLocation = buildLocation('/overlay-slide', '', HistoryAction.Push, 3);
-      setAppRoute?.(mockLocation);
-    });
-    act(() => {
-      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Pop, 2);
-      setAppRoute?.(mockLocation);
-    });
-    await flushMicrotasks();
+    coverReview();
+    await revealReview();
 
     fireEvent.click(screen.getByTestId('review-back'));
     await flushMicrotasks();
@@ -734,15 +731,8 @@ describe('SendFlow + ReviewTransaction under MobilePageLayers telemetry', () => 
   it('keeps Close responsive on a retained Review layer after cover-and-reveal', async () => {
     await advanceToReview(true);
 
-    act(() => {
-      mockLocation = buildLocation('/overlay-slide', '', HistoryAction.Push, 3);
-      setAppRoute?.(mockLocation);
-    });
-    act(() => {
-      mockLocation = buildLocation('/send/review', 'amount=5&to=mtst1recipient&tokenId=tok1', HistoryAction.Pop, 2);
-      setAppRoute?.(mockLocation);
-    });
-    await flushMicrotasks();
+    coverReview();
+    await revealReview();
 
     fireEvent.click(screen.getByTestId('review-close'));
     await flushMicrotasks();

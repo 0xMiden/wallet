@@ -79,10 +79,18 @@ import { CommandSendComposer } from './CommandSendComposer';
 import { ScanQrDrawer } from './ScanQrDrawer';
 import { SelectRecipient, type SelectRecipientProps } from './SelectRecipient';
 import { SelectTokenDrawer } from './SelectToken';
-import { consumeSendDraft, setSendDraft } from './send-draft';
+import {
+  compactSendAdmissionKey,
+  consumeSendDraft,
+  hasOtherCompactSendAdmission,
+  readCompactSendAdmission,
+  sameSendDraft,
+  setSendDraft
+} from './send-draft';
 import { sendNetworkKind } from './send-network-kind';
 import {
   enterSendFlow,
+  getSendSessionToken,
   hasActiveSendSession,
   hasOpenSendFlow,
   recordSendActionWithoutProgress,
@@ -1212,9 +1220,6 @@ export const SendManager: React.FC<SendManagerProps> = ({
       }
       return;
     }
-    ensureSendFlowAtStep(currentStep);
-    transitionSendStep('continue');
-    reviewHandoffRef.current = true;
     // A route the user confirmed is theirs: a later Epoch recovery no longer moves it, as for a restored draft.
     routeMovedOffEpochRef.current = false;
     const resolvedTo = resolvedMidenName?.address ?? recipientAddress;
@@ -1226,17 +1231,41 @@ export const SendManager: React.FC<SendManagerProps> = ({
       bridgeRoute: isBridge ? bridgeRoute : undefined,
       ...(resolvedMidenName ? { midenName: resolvedMidenName } : {})
     };
+    const scope = publicKey
+      ? { accountId: publicKey, network: getEffectiveNetworkName(), rpcUrl: getEffectiveRpcUrl() }
+      : undefined;
+    const restoredEntry = !command && scope && draft?.reviewEntry ? draft.reviewEntry : undefined;
+    const retainedEntry =
+      restoredEntry &&
+      scope &&
+      draft &&
+      sameSendDraft(draft, reviewDraft) &&
+      readCompactSendAdmission(compactSendAdmissionKey(restoredEntry, scope))
+        ? restoredEntry
+        : undefined;
+    const compactReviewEntry = command ? undefined : (retainedEntry ?? uuid());
+    const compactKey = scope && compactReviewEntry ? compactSendAdmissionKey(compactReviewEntry, scope) : undefined;
+    if (!command && hasOtherCompactSendAdmission(compactKey, getSendSessionToken())) {
+      settleSendFlow(flow => flow.cancel());
+    }
+    if (!retainedEntry) {
+      ensureSendFlowAtStep(currentStep);
+      transitionSendStep('continue');
+    }
+    reviewHandoffRef.current = true;
     const commandReviewId = command ? uuid() : undefined;
     if (command) saveCommandDraft({ ...reviewDraft, recipientAddress: resolvedTo, reviewId: commandReviewId });
-    else setSendDraft(reviewDraft);
+    else setSendDraft(retainedEntry ? { ...reviewDraft, reviewEntry: retainedEntry } : reviewDraft);
     const params = new URLSearchParams({ amount, to: resolvedTo, tokenId: token.id });
     if (resolvedMidenName) params.set('name', formatMidenName(resolvedMidenName.label));
     if (commandReviewId) params.set('commandReviewId', commandReviewId);
+    if (compactReviewEntry) params.set('reviewEntry', compactReviewEntry);
     if (isBridge && bridgeNetwork) params.set('network', bridgeNetwork);
     if (isBridge && bridgeRoute) params.set('route', bridgeRoute);
     navigate(`/send/review?${params.toString()}`);
   }, [
     amount,
+    draft,
     recipientAddress,
     resolvedMidenName,
     publicKey,

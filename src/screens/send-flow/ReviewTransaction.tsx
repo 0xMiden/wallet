@@ -116,7 +116,17 @@ import {
   SECONDS_PER_BLOCK
 } from './RecallCalendarDrawer';
 import { NearIntentsQuoteMessage } from './Route';
-import { clearSendDraft } from './send-draft';
+import {
+  clearSendDraft,
+  type CompactSendAdmission,
+  compactSendAdmissionKey,
+  hasOtherCompactSendAdmission,
+  readCompactSendAdmission,
+  releaseSendDraftReview,
+  retainSendDraftForReview,
+  subscribeCompactSendAdmissions,
+  writeCompactSendAdmission
+} from './send-draft';
 import {
   beginSendSubmitting,
   enterSendFlow,
@@ -165,6 +175,7 @@ interface RowAdmission {
   departure?: 'back' | 'close' | 'leave';
   txId?: string;
   navigated?: boolean;
+  compact?: { key: string; entry: string; owner: CompactSendAdmission };
 }
 
 /** The route of the review URL, or undefined for a value that is not a route. */
@@ -274,12 +285,20 @@ export const ReviewTransaction: React.FC = () => {
   const networkFeeDetails = useNetworkFeeEstimateDetails();
   const networkFee = formatNetworkFeeEstimate(networkFeeDetails);
   const { search } = useLocation();
+  const searchParams = useMemo(() => new URLSearchParams(search), [search]);
   const { fullPage } = useAppEnv();
   const { publicKey } = useAccount();
   const activeAccount = useRef(publicKey);
   activeAccount.current = publicKey;
   const networkName = getEffectiveNetworkName();
   const rpcUrl = getEffectiveRpcUrl();
+  const reviewEntry = command ? undefined : (searchParams.get('reviewEntry') ?? undefined);
+  const compactKey =
+    reviewEntry && publicKey
+      ? compactSendAdmissionKey(reviewEntry, { accountId: publicKey, network: networkName, rpcUrl })
+      : undefined;
+  const getCompactAdmission = useCallback(() => readCompactSendAdmission(compactKey), [compactKey]);
+  const compactAdmission = useSyncExternalStore(subscribeCompactSendAdmissions, getCompactAdmission);
   const pageActive = usePageActive();
   const pageActiveRef = useRef(pageActive);
   pageActiveRef.current = pageActive;
@@ -295,21 +314,6 @@ export const ReviewTransaction: React.FC = () => {
     const admission = rowAdmissionRef.current;
     return admission?.isScopeCurrent() ? admission : undefined;
   }, []);
-  const beginRowAdmission = useCallback(
-    (sessionToken: number, abortable: boolean): RowAdmission => {
-      const admission = {
-        sessionToken,
-        abortable,
-        isScopeCurrent: () =>
-          activeAccount.current === publicKey &&
-          getEffectiveNetworkName() === networkName &&
-          getEffectiveRpcUrl() === rpcUrl
-      };
-      rowAdmissionRef.current = admission;
-      return admission;
-    },
-    [networkName, publicKey, rpcUrl]
-  );
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -338,6 +342,7 @@ export const ReviewTransaction: React.FC = () => {
       rowAdmissionRef.current = undefined;
     }
     restoreSendReviewIfSubmittingForSession(ownedSessionRef.current);
+    departedRef.current = false;
     hasFailedAttemptRef.current = false;
     submittingRef.current = false;
     setIsSubmitting(false);
@@ -347,7 +352,7 @@ export const ReviewTransaction: React.FC = () => {
       submissionAbort.current?.abort();
       submissionAbort.current = undefined;
     };
-  }, [publicKey, networkName, rpcUrl]);
+  }, [publicKey, networkName, rpcUrl, compactKey]);
 
   const { signTransaction } = useMidenContext();
 
@@ -361,19 +366,60 @@ export const ReviewTransaction: React.FC = () => {
     nameParam: string;
     commandReviewId?: string;
   }>(() => {
-    const params = new URLSearchParams(search);
     return {
-      amount: params.get('amount') ?? '',
-      to: params.get('to') ?? '',
-      tokenId: params.get('tokenId') ?? '',
-      commandReviewId: params.get('commandReviewId') ?? undefined,
-      network: params.get('network') ?? undefined,
-      route: parseBridgeRoute(params.get('route')),
-      nameParam: params.get('name') ?? ''
+      amount: searchParams.get('amount') ?? '',
+      to: searchParams.get('to') ?? '',
+      tokenId: searchParams.get('tokenId') ?? '',
+      commandReviewId: searchParams.get('commandReviewId') ?? undefined,
+      network: searchParams.get('network') ?? undefined,
+      route: parseBridgeRoute(searchParams.get('route')),
+      nameParam: searchParams.get('name') ?? ''
     };
-  }, [search]);
+  }, [searchParams]);
   const sendIntent = JSON.stringify([commandReviewId ?? null, amount, to, tokenId, network, route]);
   const sendAdmission = command ? commandDrafts?.readSendAdmission() : undefined;
+  const armCompactAdmission = useCallback(
+    (admission: RowAdmission) => {
+      if (!compactKey || !reviewEntry || admission.compact) return;
+      const owner = { sessionToken: admission.sessionToken };
+      admission.compact = { key: compactKey, entry: reviewEntry, owner };
+      retainSendDraftForReview(reviewEntry, {
+        amount,
+        recipientAddress: to,
+        tokenId,
+        bridgeNetwork: network,
+        bridgeRoute: route
+      });
+      writeCompactSendAdmission(compactKey, owner);
+    },
+    [amount, compactKey, network, reviewEntry, route, to, tokenId]
+  );
+  const beginRowAdmission = useCallback(
+    (sessionToken: number, abortable: boolean): RowAdmission => {
+      const admission = {
+        sessionToken,
+        abortable,
+        isScopeCurrent: () =>
+          activeAccount.current === publicKey &&
+          getEffectiveNetworkName() === networkName &&
+          getEffectiveRpcUrl() === rpcUrl
+      };
+      rowAdmissionRef.current = admission;
+      if (!abortable) armCompactAdmission(admission);
+      return admission;
+    },
+    [armCompactAdmission, networkName, publicKey, rpcUrl]
+  );
+  const beginSubmissionSession = useCallback(
+    (isRetry: boolean): number => {
+      if (hasOtherCompactSendAdmission(compactKey, getSendSessionToken())) {
+        settleSendFlow(flow => flow.cancel());
+      }
+      beginSendSubmitting(isRetry);
+      return getSendSessionToken();
+    },
+    [compactKey]
+  );
 
   // The Miden Name of the recipient, for display only. The URL is not trusted:
   // the name shows only when the network has a Miden Name deployment and a new
@@ -738,7 +784,7 @@ export const ReviewTransaction: React.FC = () => {
   const handleReviewDeparture = useCallback(() => {
     if (departedRef.current) return;
     const admission = currentRowAdmission();
-    if (!command && admission?.abortable === false) return;
+    if (!command && (admission?.abortable === false || getCompactAdmission())) return;
     departedRef.current = true;
     submissionAttemptRef.current += 1;
     submissionAbort.current?.abort();
@@ -758,18 +804,23 @@ export const ReviewTransaction: React.FC = () => {
       return;
     }
     settleSendFlowForSession(ownedToken, flow => flow.cancel());
-  }, [command, currentRowAdmission]);
+  }, [command, currentRowAdmission, getCompactAdmission]);
   useEffect(() => {
     // Reaching review is the most informative single fact about an abandoned
     // send: the user had chosen a recipient, a token and an amount, and stopped
     // at the last screen before committing. That is a very different problem
     // from giving up on the amount field, and only `step` distinguishes them.
-    reportSendStep('review');
-    ownedSessionRef.current = getSendSessionToken();
+    const cached = getCompactAdmission();
+    if (cached) {
+      ownedSessionRef.current = cached.sessionToken;
+    } else if (!hasOtherCompactSendAdmission(compactKey, getSendSessionToken())) {
+      reportSendStep('review');
+      ownedSessionRef.current = getSendSessionToken();
+    }
     return () => {
       handleReviewDeparture();
     };
-  }, [handleReviewDeparture]);
+  }, [compactKey, getCompactAdmission, handleReviewDeparture]);
 
   const [submitError, setSubmitError] = useState<string | undefined>(undefined);
   const [submitErrorId, setSubmitErrorId] = useState<UserErrorId>();
@@ -779,13 +830,13 @@ export const ReviewTransaction: React.FC = () => {
   const handleBack = useCallback(() => {
     if (departedRef.current) return;
     const admission = currentRowAdmission();
-    if (!command && admission?.abortable === false) return;
+    if (!command && (admission?.abortable === false || getCompactAdmission())) return;
     if (admission) admission.departure = 'back';
     submissionAttemptRef.current += 1;
     submissionAbort.current?.abort();
     submissionAbort.current = undefined;
     backToComposer();
-  }, [backToComposer, command, currentRowAdmission]);
+  }, [backToComposer, command, currentRowAdmission, getCompactAdmission]);
   useMobileBackHandler(() => {
     if (showTransferType || showCalendar || spendingLimitChallenge !== undefined) return false;
     handleBack();
@@ -833,10 +884,49 @@ export const ReviewTransaction: React.FC = () => {
     [fullPage, command, commandDrafts, currentRowAdmission, reviewRevision, sendIntent]
   );
 
+  useEffect(() => {
+    if (!compactAdmission?.txId || !compactKey || !reviewEntry || !pageActive || !mounted.current) return;
+    const liveLocation = createLocationState();
+    if (
+      liveLocation.pathname !== '/send/review' ||
+      new URLSearchParams(liveLocation.search).get('reviewEntry') !== reviewEntry ||
+      activeAccount.current !== publicKey ||
+      useWalletStore.getState().currentAccount?.publicKey !== publicKey ||
+      getEffectiveNetworkName() !== networkName ||
+      getEffectiveRpcUrl() !== rpcUrl ||
+      getCompactAdmission() !== compactAdmission
+    )
+      return;
+    clearSendDraft(reviewEntry);
+    writeCompactSendAdmission(compactKey);
+    navigate(
+      `${fullPage ? '/generating-transaction-full' : '/generating-transaction'}/${encodeURIComponent(compactAdmission.txId)}`,
+      HistoryAction.Replace
+    );
+  }, [
+    compactAdmission,
+    compactKey,
+    fullPage,
+    getCompactAdmission,
+    networkName,
+    pageActive,
+    publicKey,
+    reviewEntry,
+    rpcUrl
+  ]);
+
   const recordRowAdmission = useCallback(
     (admission: RowAdmission, txId: string) => {
       if (admission.txId !== undefined) return;
       admission.txId = txId;
+      const compact = admission.compact;
+      if (compact) {
+        if (readCompactSendAdmission(compact.key) !== compact.owner) return;
+        transitionSendStepForSession(admission.sessionToken, 'continue');
+        settleSendFlowForSession(admission.sessionToken, flow => flow.complete());
+        writeCompactSendAdmission(compact.key, { ...compact.owner, txId });
+        return;
+      }
       if (currentRowAdmission() !== admission) {
         if (command) commandDrafts?.abortSendAdmission(sendIntent);
         return;
@@ -852,6 +942,11 @@ export const ReviewTransaction: React.FC = () => {
 
   const releaseRowAdmission = useCallback(
     (admission: RowAdmission) => {
+      const compact = admission.compact;
+      if (compact && admission.txId === undefined && readCompactSendAdmission(compact.key) === compact.owner) {
+        releaseSendDraftReview(compact.entry);
+        writeCompactSendAdmission(compact.key);
+      }
       if (currentRowAdmission() !== admission || admission.txId !== undefined) return;
       rowAdmissionRef.current = undefined;
       if (command) return;
@@ -879,6 +974,7 @@ export const ReviewTransaction: React.FC = () => {
       return;
     }
     if (prevActive) return;
+    if (getCompactAdmission()) return;
     const admission = currentRowAdmission();
     if (admission) {
       goToGeneratingTransaction(admission);
@@ -897,12 +993,12 @@ export const ReviewTransaction: React.FC = () => {
     if (reopenSession && !hasOpenSendFlow()) enterSendFlow();
     reportSendStep('review');
     ownedSessionRef.current = getSendSessionToken();
-  }, [currentRowAdmission, goToGeneratingTransaction, handleReviewDeparture, pageActive]);
+  }, [currentRowAdmission, getCompactAdmission, goToGeneratingTransaction, handleReviewDeparture, pageActive]);
 
   const runSameChainSend = useCallback(
     async (authorization?: SpendingLimitAuthorization, reviewedCalendarTarget?: string, existingAttemptId?: number) => {
       if (!token || !publicKey || amountBaseUnits === undefined || !isCurrentSubmission(existingAttemptId)) return;
-      if (currentRowAdmission()) return;
+      if (currentRowAdmission() || getCompactAdmission()) return;
       const approvedCalendarTarget = authorization === undefined ? calendarTarget : reviewedCalendarTarget;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
@@ -970,8 +1066,7 @@ export const ReviewTransaction: React.FC = () => {
       // that actually submits. Re-open a flow a previous error already settled.
       const isRetry = hasFailedAttemptRef.current;
       hasFailedAttemptRef.current = false;
-      beginSendSubmitting(isRetry);
-      const submitSessionToken = getSendSessionToken();
+      const submitSessionToken = beginSubmissionSession(isRetry);
       ownedSessionRef.current = submitSessionToken;
       const admission = beginRowAdmission(submitSessionToken, false);
       let txId: string | undefined;
@@ -1016,7 +1111,7 @@ export const ReviewTransaction: React.FC = () => {
         if (txId !== undefined) return;
         if (command) commandDrafts?.abortSendAdmission(sendIntent);
         if (!isCurrentSubmission(attemptId)) {
-          if (currentRowAdmission() === admission && !admission.departure) {
+          if ((admission.compact || currentRowAdmission() === admission) && !admission.departure) {
             settleSendFlowForSession(submitSessionToken, flow => flow.fail(classifyError(error)));
           }
           return;
@@ -1063,10 +1158,12 @@ export const ReviewTransaction: React.FC = () => {
     [
       amountBaseUnits,
       beginRowAdmission,
+      beginSubmissionSession,
       calendarTarget,
       command,
       commandDrafts,
       currentRowAdmission,
+      getCompactAdmission,
       openUnpricedChallenge,
       publicKey,
       recallBlocks,
@@ -1093,7 +1190,7 @@ export const ReviewTransaction: React.FC = () => {
         !isCurrentSubmission(existingAttemptId)
       )
         return;
-      if (currentRowAdmission()) return;
+      if (currentRowAdmission() || getCompactAdmission()) return;
       if (authorization !== undefined && authorization.accountId !== publicKey) {
         setSpendingLimitChallenge(undefined);
         return;
@@ -1109,8 +1206,7 @@ export const ReviewTransaction: React.FC = () => {
       submissionAbort.current = submission;
       const isRetry = hasFailedAttemptRef.current;
       hasFailedAttemptRef.current = false;
-      beginSendSubmitting(isRetry);
-      const submitSessionToken = getSendSessionToken();
+      const submitSessionToken = beginSubmissionSession(isRetry);
       ownedSessionRef.current = submitSessionToken;
       // Once the owner returns a row, a worker wake-up or receipt view failure cannot rearm Send.
       let admission: RowAdmission | undefined;
@@ -1164,6 +1260,7 @@ export const ReviewTransaction: React.FC = () => {
                   if (!isCurrentSubmission(attemptId)) return false;
                   // NEAR checks this just before inserting the row, beyond the abortable quote request.
                   nearAdmission.abortable = false;
+                  armCompactAdmission(nearAdmission);
                   return true;
                 }
               });
@@ -1247,8 +1344,9 @@ export const ReviewTransaction: React.FC = () => {
             if (txId !== undefined) recordAdmission(txId);
             else if (admittedId === undefined) {
               if (command) commandDrafts?.abortSendAdmission(sendIntent);
-              if (!isCurrentSubmission(attemptId)) return;
-              restoreSendReviewIfSubmittingForSession(submitSessionToken);
+              const current = isCurrentSubmission(attemptId);
+              if (admission.compact || current) restoreSendReviewIfSubmittingForSession(submitSessionToken);
+              if (!current) return;
               setIsSubmitting(false);
             }
           }
@@ -1263,7 +1361,11 @@ export const ReviewTransaction: React.FC = () => {
           error instanceof NearIntentsSendSupersededError ||
           (route === 'near-intents' && submission.signal.aborted)
         ) {
-          if (admission && currentRowAdmission() === admission && !admission.departure && !submission.signal.aborted) {
+          if (
+            admission &&
+            !admission.departure &&
+            (admission.compact || (currentRowAdmission() === admission && !submission.signal.aborted))
+          ) {
             settleSendFlowForSession(submitSessionToken, flow => flow.fail(classifyError(error)));
           }
           return;
@@ -1327,7 +1429,9 @@ export const ReviewTransaction: React.FC = () => {
     },
     [
       amountBaseUnits,
+      armCompactAdmission,
       beginRowAdmission,
+      beginSubmissionSession,
       bridgeNetworkObj,
       burnNetworkFeeBudget,
       command,
@@ -1338,6 +1442,7 @@ export const ReviewTransaction: React.FC = () => {
       epochQuote.validity,
       epochQuoteUnavailable,
       currentRowAdmission,
+      getCompactAdmission,
       nearIntentsConfig,
       nearIntentsQuote.pair,
       nearIntentsQuote.quote,
@@ -1378,6 +1483,7 @@ export const ReviewTransaction: React.FC = () => {
     if (
       submittingRef.current ||
       currentRowAdmission() ||
+      getCompactAdmission() ||
       bridgeBlocked ||
       tokenHeld ||
       epochQuoteUnavailable ||
@@ -1453,6 +1559,7 @@ export const ReviewTransaction: React.FC = () => {
     calendarTarget,
     command,
     currentRowAdmission,
+    getCompactAdmission,
     sendAdmission,
     amountBaseUnits,
     assessSpendingLimit,
@@ -1676,6 +1783,7 @@ export const ReviewTransaction: React.FC = () => {
       tokenHeld ||
       epochQuoteUnavailable ||
       isSubmitting ||
+      compactAdmission !== undefined ||
       (command && sendAdmission?.status === 'pending') ||
       scaleIsUnknown ||
       amountExceedsPrecision ||
@@ -1701,7 +1809,7 @@ export const ReviewTransaction: React.FC = () => {
           onClose={() => {
             if (departedRef.current) return;
             const admission = currentRowAdmission();
-            if (!command && admission?.abortable === false) return;
+            if (!command && (admission?.abortable === false || getCompactAdmission())) return;
             departedRef.current = true;
             submissionAttemptRef.current += 1;
             submissionAbort.current?.abort();
